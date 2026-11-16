@@ -58,15 +58,10 @@
 
     <div class="screen-inner">
 
-      <button class="bandeau bandeau-hero bandeau-hero-tourisme" data-scroll="visites-list">
-        <img class="media-photo" src="icons/banniere-ecosysteme.jpg" alt="">
-        <div class="scrim"></div>
-        <div class="content">
-          <div class="eyebrow" data-i18n="hero.eyebrow">Visites guidées</div>
-          <div class="title" data-i18n="hero.title">Visite Montmartre comme un Artiste</div>
-          <div class="theme-line" data-i18n="hero.sub">Des parcours à pied sur les traces des peintres, musiciens et poètes de la Butte</div>
-        </div>
-      </button>
+      <div class="hero-texte">
+        <div class="hero-loc" id="hero-loc"></div>
+        <h1 class="hero-h1" id="hero-h1"></h1>
+      </div>
 
       <button class="bandeau bandeau-hero" id="hero-festival" data-open="festival">
         <img class="media-photo" src="icons/poster-festival.jpg" alt="">
@@ -80,6 +75,7 @@
       </button>
 
       <div id="localite-picker"></div>
+      <div class="filter-chips offre-chips" id="offre-chips" role="tablist"></div>
       <div id="visites-list">
         <div class="loading" data-i18n="loading.visites">Chargement des visites…</div>
       </div>
@@ -100,7 +96,7 @@
       <div class="mini-label" style="color:var(--fee);" data-i18n="label.association">Association</div>
       <button class="bandeau bandeau-member" data-open="membre">
         <div class="content">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#8FB33E" stroke-width="2"><rect x="2.5" y="6" width="19" height="12" rx="1.5"/><circle cx="8" cy="12" r="2.2"/><path d="M13 10 H18 M13 14 H16"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="#D9B96A" stroke-width="2"><rect x="2.5" y="6" width="19" height="12" rx="1.5"/><circle cx="8" cy="12" r="2.2"/><path d="M13 10 H18 M13 14 H16"/></svg>
           <div>
             <div class="m-title" data-i18n="member.cardTitle">Ma carte de membre</div>
             <div class="m-sub" data-i18n="member.cardSub">Mouvement Montmartre — adhésion</div>

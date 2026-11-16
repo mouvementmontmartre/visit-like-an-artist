@@ -428,6 +428,8 @@ function renderSponsors(targetId) {
   ).join("");
 }
 
+let offreActive = "visite";
+
 async function renderAccueil() {
   if (!CONFIG.festivalActif) {
     const hero = document.querySelector("#hero-festival");
@@ -442,6 +444,15 @@ async function renderAccueil() {
   renderSponsors("sponsors-list");
   renderLocalitePicker();
 
+  /* Bloc d'accroche de la localité (texte venant de CONFIG.localites) */
+  const loc = currentLocalite() || {};
+  const lang = getLang();
+  if ($("#hero-loc")) $("#hero-loc").textContent = [loc.nom, loc.precision].filter(Boolean).join(", ");
+  if ($("#hero-h1")) {
+    const acc = (loc.accroche && (loc.accroche[lang] || loc.accroche.fr)) || [t("hero.title")];
+    $("#hero-h1").innerHTML = esc(acc[0] || "") + (acc[1] ? " <em>" + esc(acc[1]) + "</em>" : "");
+  }
+
   const list = $("#visites-list");
   const visites = await loadVisites();
   if (visites.length === 0) {
@@ -450,36 +461,57 @@ async function renderAccueil() {
   }
   const card = (v) => {
     const bannerSrc = visiteBannerSrc(v);
-    const photo = bannerSrc
-      ? '<img class="media-photo" src="' + esc(bannerSrc) + '" alt="" loading="lazy">'
-      : '<div class="media-bg"></div>';
     const guide = trField(v, "Guide");
     const meta = [guide ? t("visite.by") + " " + guide : "", v["Durée"]].filter(Boolean).join(" · ");
     const prix = v["Tarif direct"] || "";
+    const nom = trField(v, "Nom");
+    if (!bannerSrc) {
+      /* Sans visuel (ex. parcours autoguidé) : carte sobre à contour */
+      return (
+        '<button class="act-card act-card-plain" data-open="visite" data-arg="' + esc(v["id"]) + '">' +
+          '<div class="act-body"><div class="act-name">' + esc(nom) + '</div>' +
+          '<div class="act-meta">' + esc(meta) + '</div></div>' +
+          (prix ? '<span class="act-price act-price-soft">' + esc(prix) + '</span>' : '') +
+        '</button>'
+      );
+    }
     return (
-      '<button class="bandeau bandeau-tour" data-open="visite" data-arg="' + esc(v["id"]) + '">' +
-        photo +
-        '<div class="scrim"></div>' +
-        '<div class="content">' +
-          '<div><div class="t-name">' + esc(trField(v, "Nom")) + '</div>' +
-          '<div class="t-meta">' + esc(meta) + '</div></div>' +
-          (prix ? '<span class="t-price">' + esc(prix) + '</span>' : '') +
-        '</div>' +
+      '<button class="act-card" data-open="visite" data-arg="' + esc(v["id"]) + '">' +
+        '<img class="act-thumb" src="' + esc(bannerSrc) + '" alt="" loading="lazy">' +
+        '<div class="act-body"><div class="act-name">' + esc(nom) + '</div>' +
+        '<div class="act-meta">' + esc(meta) + '</div></div>' +
+        (prix ? '<span class="act-price">' + esc(prix) + '</span>' : '') +
       '</button>'
     );
   };
-  /* Regroupe par colonne optionnelle "Type" : visite (défaut), atelier, dîner */
+  /* Catégories : visites (guidées + autoguidées), ateliers, escape game, soirées partenaires.
+     La colonne optionnelle "Type" du Sheet les distingue ; vide = visite. */
   const typeOf = (v) => {
     const k = String(v["Type"] || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-    return /atelier|workshop|taller/.test(k) ? "atelier" : /diner|dinner|cena/.test(k) ? "diner" : "visite";
+    return /atelier|workshop|taller/.test(k) ? "atelier"
+      : /escape/.test(k) ? "escape"
+      : /diner|dinner|cena|soiree|partenaire/.test(k) ? "diner"
+      : "visite";
   };
-  const groups = ["visite", "atelier", "diner"]
-    .map(k => ({ k, items: visites.filter(v => typeOf(v) === k) }))
-    .filter(g => g.items.length);
-  list.innerHTML = groups.map(g =>
-    (groups.length > 1 ? '<div class="mini-label">' + t("type." + g.k) + '</div>' : '') +
-    g.items.map(card).join("")
-  ).join("");
+  const cats = [
+    { k: "visite", label: t("chip.visites"), always: true },
+    { k: "atelier", label: t("chip.ateliers"), always: true },
+    { k: "escape", label: t("chip.escape"), always: true },
+    { k: "diner", label: t("chip.soirees"), always: false }, // visible seulement s'il y en a de programmées
+  ].filter(c => c.always || visites.some(v => typeOf(v) === c.k));
+  if (!cats.some(c => c.k === offreActive)) offreActive = "visite";
+
+  const paint = () => {
+    $("#offre-chips").innerHTML = cats.map(c =>
+      '<button class="chip' + (c.k === offreActive ? ' active' : '') + '" role="tab" data-offre="' + c.k + '">' + esc(c.label) + '</button>'
+    ).join("");
+    $$("#offre-chips .chip").forEach(ch => ch.addEventListener("click", () => { offreActive = ch.dataset.offre; paint(); }));
+    const items = visites.filter(v => typeOf(v) === offreActive);
+    list.innerHTML = items.length
+      ? items.map(card).join("")
+      : '<div class="act-empty">' + t("empty.bientot") + '</div>';
+  };
+  paint();
 }
 
 /* ============================================================

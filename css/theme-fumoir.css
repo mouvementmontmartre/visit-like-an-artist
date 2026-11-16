@@ -69,3 +69,29 @@
 /* Cartouches (encarts crème) : coins doux, plus de double filet */
 .cartouche { border-radius: 10px; }
 .info-row { border-bottom-color: rgba(239,232,216,0.16); }
+
+/* ---------- Accueil « Fumoir » : accroche, puces, cartes crème ---------- */
+.hero-texte { padding: 6px 2px 4px; }
+.hero-loc { font-size: 12px; color: var(--fee); letter-spacing: 0.06em; }
+.hero-h1 {
+  margin: 8px 0 0; font-family: var(--display); font-weight: 400;
+  font-size: 40px; line-height: 1.06; letter-spacing: -0.015em; color: var(--velin);
+}
+.hero-h1 em { font-style: italic; }
+.offre-chips { margin: 18px 0 14px; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.offre-chips::-webkit-scrollbar { display: none; }
+.offre-chips .chip { flex-shrink: 0; min-height: 40px; padding: 0 16px; font-size: 13px; }
+
+.act-card {
+  display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+  background: var(--velin); color: var(--nuit); border-radius: 10px; padding: 10px; margin-bottom: 12px;
+}
+.act-thumb { width: 92px; height: 92px; border-radius: 6px; object-fit: cover; flex-shrink: 0; filter: sepia(.3); }
+.act-body { flex: 1; min-width: 0; }
+.act-name { font-family: var(--display); font-weight: 600; font-size: 19px; line-height: 1.1; }
+.act-meta { font-size: 12px; color: var(--muted-dark); margin-top: 5px; }
+.act-price { font-family: var(--display); font-weight: 600; font-size: 20px; padding-right: 6px; flex-shrink: 0; }
+.act-card-plain { background: transparent; color: var(--velin); border: 1px solid var(--line); padding: 16px; }
+.act-card-plain .act-meta { color: var(--muted); }
+.act-price-soft { font-family: var(--body); font-weight: 400; font-size: 13px; color: var(--fee); }
+.act-empty { padding: 28px 0; text-align: center; color: var(--muted); font-size: 14px; }

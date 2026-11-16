@@ -56,6 +56,12 @@ const CONFIG = {
     {
       id: "montmartre",
       nom: "Montmartre",
+      precision: "Paris 18e",
+      accroche: {
+        fr: ["La Butte, racontée par", "ceux qui l'habitent."],
+        en: ["The Butte, told by", "those who live it."],
+        es: ["La Butte, contada por", "quienes la habitan."],
+      },
       actif: true,
       carte: { latMin: 48.879, latMax: 48.891, lngMin: 2.325, lngMax: 2.352 },
     },
