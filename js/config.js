@@ -61,6 +61,14 @@ const CONFIG = {
     },
   ],
 
+  /* ---- BASE DE DONNÉES (Supabase) ----
+     URL et clé publiable : publiques par conception (lecture seule via RLS).
+     La clé secrète n'est JAMAIS ici : elle vit dans Netlify (SUPABASE_SECRET_KEY). */
+  supabase: {
+    url: "https://mepcwassmoespzzsdjxf.supabase.co",
+    cle: "sb_publishable_sQK7ItImsib5cDhXZN11XQ_V1wR0NBe",
+  },
+
   /* ---- ÉDITION EN COURS (change chaque année) ---- */
   edition: {
     titre: "4e édition",
