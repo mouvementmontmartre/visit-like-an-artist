@@ -9,12 +9,13 @@
    une modification du code : incrémenter CACHE_VERSION.
    ============================================================ */
 
-const CACHE_VERSION = "mm-v79";
+const CACHE_VERSION = "mm-v80";
 
 const SHELL = [
   "./",
   "./index.html",
   "./css/style.css",
+  "./css/theme-fumoir.css",
   "./js/config.js",
   "./js/csv.js",
   "./js/data-lieux.js",
