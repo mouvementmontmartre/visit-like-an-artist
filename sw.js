@@ -1,0 +1,74 @@
+/* ============================================================
+   SERVICE WORKER — hors ligne
+   Stratégie :
+   - App shell (HTML, CSS, JS, icônes, polices) : cache d'abord,
+     mis à jour en arrière-plan à chaque visite en ligne.
+   - Données Google Sheets : réseau d'abord (fraîcheur), le repli
+     hors-ligne est géré par app.js via localStorage.
+   Pour forcer une mise à jour chez tous les utilisateurs après
+   une modification du code : incrémenter CACHE_VERSION.
+   ============================================================ */
+
+const CACHE_VERSION = "mm-v79";
+
+const SHELL = [
+  "./",
+  "./index.html",
+  "./css/style.css",
+  "./js/config.js",
+  "./js/csv.js",
+  "./js/data-lieux.js",
+  "./js/i18n.js",
+  "./js/app.js",
+  "./manifest.json",
+  "./icons/logo.png",
+  "./icons/logo-light.png",
+  "./icons/logo-splash.png",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/apple-touch-icon.png",
+  "./icons/poster-festival.jpg",
+  "./icons/banniere-jazzical.jpg",
+  "./icons/banniere-dames.jpg",
+  "./icons/banniere-ecosysteme.jpg",
+  "./icons/sponsor-kubo.jpg",
+];
+
+self.addEventListener("install", (e) => {
+  e.waitUntil(
+    caches.open(CACHE_VERSION).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", (e) => {
+  const url = new URL(e.request.url);
+
+  // Les données Google (CSV) passent toujours par le réseau ;
+  // app.js gère lui-même le repli hors-ligne via localStorage.
+  if (url.hostname.includes("google")) return;
+
+  // App shell + polices : cache d'abord, réseau en secours,
+  // et mise à jour silencieuse du cache quand le réseau répond.
+  e.respondWith(
+    caches.match(e.request).then((cached) => {
+      const fetched = fetch(e.request)
+        .then((res) => {
+          if (res && res.ok && e.request.method === "GET") {
+            const clone = res.clone();
+            caches.open(CACHE_VERSION).then((c) => c.put(e.request, clone));
+          }
+          return res;
+        })
+        .catch(() => cached);
+      return cached || fetched;
+    })
+  );
+});

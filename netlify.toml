@@ -1,0 +1,9 @@
+# Configuration Netlify
+# Le site est statique ; seules les deux fonctions de paiement
+# (dossier netlify/functions) tournent côté serveur.
+
+[build]
+  publish = "."
+
+[functions]
+  directory = "netlify/functions"
