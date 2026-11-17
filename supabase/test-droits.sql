@@ -176,8 +176,8 @@ begin
         pg_temp.essai('authenticated', u_a, 'select 1 from public.paiements union all select 1 from public.remboursements union all select 1 from public.demandes_groupes union all select 1 from public.acces')),
       jsonb_build_array('Intervenant A', 'crée un brouillon de séance sur sa visite', '1',
         pg_temp.essai('authenticated', u_a, format('insert into public.seances (experience_id, debut, langue, capacite_max, participants_min, statut) values (%L, now() + interval %L, %L, 6, 1, %L)', x_a, '30 days', 'en', 'brouillon'))),
-      jsonb_build_array('Contrôle', 'le minimum est resté à 4 malgré la valeur 1 envoyée', '1',
-        pg_temp.essai(null, null, format('select 1 from public.seances where experience_id = %L and capacite_max = 6 and participants_min = 4 and cree_par = %L', x_a, u_a))),
+      jsonb_build_array('Contrôle', 'le minimum choisi par l''intervenant (1) est gardé', '1',
+        pg_temp.essai(null, null, format('select 1 from public.seances where experience_id = %L and capacite_max = 6 and participants_min = 1 and cree_par = %L and statut = %L', x_a, u_a, 'brouillon'))),
       jsonb_build_array('Intervenant A', 'ne publie pas une séance lui-même', 'refus',
         pg_temp.essai('authenticated', u_a, format('insert into public.seances (experience_id, debut, statut) values (%L, now() + interval %L, %L)', x_a, '31 days', 'publiee'))),
       jsonb_build_array('Intervenant A', 'ne passe pas son brouillon en ligne', 'refus',
@@ -195,7 +195,7 @@ begin
       jsonb_build_array('Intervenant A', 'ne change pas la visibilité d''un lieu', 'refus',
         pg_temp.essai('authenticated', u_a, format('update public.lieux set visibilite = %L where id = %L', 'adherent', l_pub))),
       jsonb_build_array('Intervenant A', 'dépose une proposition pour sa séance', '1',
-        pg_temp.essai('authenticated', u_a, format('insert into public.propositions (intervenant_id, type, cible_id, donnees) values (%L, %L, %L, %L)', i_a, 'seance', s_a, '{"point_rdv":"Place des Abbesses","participants_min":1}'))),
+        pg_temp.essai('authenticated', u_a, format('insert into public.propositions (intervenant_id, type, cible_id, donnees) values (%L, %L, %L, %L)', i_a, 'seance', s_a, '{"point_rdv":"Place des Abbesses","participants_min":3}'))),
       jsonb_build_array('Intervenant A', 'ne dépose pas de proposition au nom de B', 'refus',
         pg_temp.essai('authenticated', u_a, format('insert into public.propositions (intervenant_id, type, donnees) values (%L, %L, %L)', i_b, 'fiche', '{"nom":"Usurpé"}'))),
       jsonb_build_array('Intervenant A', 'ne propose pas de changer la séance de B', 'refus',
@@ -222,6 +222,46 @@ begin
         pg_temp.essai('authenticated', u_b, 'select 1 from public.propositions'))
     );
 
+    -- ---------- INTERVENANT A gère ses visites lui-même ----------
+    res := res || jsonb_build_array(
+      jsonb_build_array('Intervenant A', 'modifie image, description, durée, langues, point de départ de sa visite', '1',
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set photo_url = %L, description = %L, duree_minutes = 150, langues = %L, point_rdv = %L, point_rdv_lat = 48.884, point_rdv_lng = 2.332 where id = %L', 'https://exemple.invalid/photo.jpg', '{"fr":"Nouvelle description"}', '{fr,en}', '{"fr":"Place Blanche"}', x_a))),
+      jsonb_build_array('Contrôle', 'changements gardés, traductions à relire', '1',
+        pg_temp.essai(null, null, format('select 1 from public.experiences where id = %L and duree_minutes = 150 and point_rdv->>%L = %L and langues_relues = %L and publie and prix_centimes = 5000', x_a, 'fr', 'Place Blanche', '{fr}'))),
+      jsonb_build_array('Contrôle', 'le changement est noté au journal', '1',
+        pg_temp.essai(null, null, format('select 1 from public.journal_admin where acteur = %L and action = %L and details ? %L', u_a, 'visite_modifiee', 'point_rdv'))),
+      jsonb_build_array('Intervenant A', 'change sa jauge : minimum 3, maximum 12', '1',
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set participants_min = 3, capacite_max = 12 where id = %L', x_a))),
+      jsonb_build_array('Intervenant A', 'ne met pas un minimum plus grand que le maximum', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set participants_min = 15 where id = %L', x_a))),
+      jsonb_build_array('Intervenant A', 'ne change pas le titre d''une visite en ligne', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set titre = %L where id = %L', '{"fr":"Autre titre"}', x_a))),
+      jsonb_build_array('Intervenant A', 'ne retire pas sa visite de la publication', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set publie = false where id = %L', x_a))),
+      jsonb_build_array('Intervenant A', 'ne change pas la pré-réservation', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set prereservation_centimes = 0 where id = %L', x_a))),
+      jsonb_build_array('Intervenant A', 'ne modifie pas l''atelier de B', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set description = %L where id = %L', '{"fr":"Piraté"}', x_b))),
+      jsonb_build_array('Intervenant B', 'ne modifie pas la visite de A', 'refus',
+        pg_temp.essai('authenticated', u_b, format('update public.experiences set capacite_max = 99 where id = %L', x_a))),
+      jsonb_build_array('Intervenant A', 'propose une nouvelle visite (en essayant de la publier à 1 €)', '1',
+        pg_temp.essai('authenticated', u_a, format('insert into public.experiences (type, titre, publie, prix_centimes, intervenant_id) values (%L, %L, true, 100, %L)', 'visite_guidee', '{"fr":"Montmartre la nuit"}', i_b))),
+      jsonb_build_array('Contrôle', 'proposition à son nom, non publiée, à valider, sans prix', '1',
+        pg_temp.essai(null, null, format('select 1 from public.experiences where titre->>%L = %L and intervenant_id = %L and not publie and a_valider and prix_centimes is null and prereservation_centimes = 500 and participants_min >= 1 and slug like %L', 'fr', 'Montmartre la nuit', i_a, 'montmartre-la-nuit-%'))),
+      jsonb_build_array('Visiteur', 'ne voit pas la visite proposée', 'refus',
+        pg_temp.essai('anon', null, format('select 1 from public.experiences where titre->>%L = %L', 'fr', 'Montmartre la nuit'))),
+      jsonb_build_array('Intervenant A', 'corrige le titre de sa proposition', '1',
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set titre = %L where titre->>%L = %L', '{"fr":"Montmartre by night"}', 'fr', 'Montmartre la nuit'))),
+      jsonb_build_array('Intervenant A', 'ne publie pas sa proposition lui-même', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set publie = true, a_valider = false where titre->>%L = %L', 'fr', 'Montmartre by night'))),
+      jsonb_build_array('Intervenant A', 'ne propose pas d''escape game', 'refus',
+        pg_temp.essai('authenticated', u_a, format('insert into public.experiences (type, titre) values (%L, %L)', 'escape_game', '{"fr":"Mon escape"}'))),
+      jsonb_build_array('Admin', 'fixe le prix et publie la visite proposée', '1',
+        pg_temp.essai('authenticated', u_admin, format('update public.experiences set prix_centimes = 4000, capacite_max = 8, publie = true, a_valider = false where titre->>%L = %L', 'fr', 'Montmartre by night'))),
+      jsonb_build_array('Visiteur', 'voit maintenant la visite validée', '1',
+        pg_temp.essai('anon', null, format('select 1 from public.experiences where titre->>%L = %L', 'fr', 'Montmartre by night')))
+    );
+
     -- ---------- ADMIN ----------
     res := res || jsonb_build_array(
       jsonb_build_array('Admin', 'lit toutes les réservations (4)', '4',
@@ -240,8 +280,8 @@ begin
         pg_temp.essai(null, null, format('select 1 from public.intervenants where id = %L and nom = %L and publie and ordre = 0', i_a, 'Intervenant A corrigé'))),
       jsonb_build_array('Admin', 'valide le changement de lieu de rendez-vous', '1',
         pg_temp.essai('authenticated', u_admin, format('select 1 from (select public.valider_proposition(id) as r from public.propositions where cible_id = %L) x where (r->>%L)::int = 2', s_a, 'inscrits_a_prevenir'))),
-      jsonb_build_array('Contrôle', 'lieu changé, minimum toujours à 4', '1',
-        pg_temp.essai(null, null, format('select 1 from public.seances where id = %L and point_rdv = %L and participants_min = 4', s_a, 'Place des Abbesses'))),
+      jsonb_build_array('Contrôle', 'lieu et minimum (3) changés', '1',
+        pg_temp.essai(null, null, format('select 1 from public.seances where id = %L and point_rdv = %L and participants_min = 3', s_a, 'Place des Abbesses'))),
       jsonb_build_array('Contrôle', 'les 2 validations sont dans le journal', '2',
         pg_temp.essai(null, null, format('select 1 from public.journal_admin where acteur = %L', u_admin)))
     );

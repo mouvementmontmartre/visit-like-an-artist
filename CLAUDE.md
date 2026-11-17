@@ -1,6 +1,6 @@
 # Visit Like An Artist (VLAA)
 
-PWA de visites et d'expériences à Montmartre, du Mouvement Montmartre. JS pur (sans framework), Leaflet, service worker, Netlify, Stripe via 3 fonctions Netlify. Le contenu vient encore de Google Sheets publiés en CSV. Supabase est connecté dans `js/config.js` mais **la base est vide** et l'app ne l'appelle pas encore.
+PWA de visites et d'expériences à Montmartre, du Mouvement Montmartre. JS pur (sans framework), Leaflet, service worker, Netlify, Stripe via 3 fonctions Netlify. Le contenu vient encore de Google Sheets publiés en CSV. Supabase est connecté dans `js/config.js` ; le schéma est installé (étape 4) mais l'app ne l'appelle pas encore.
 
 La propriétaire n'est pas développeuse : réponds en français, simplement, et dis-lui exactement quoi cliquer quand une action est de son côté.
 
@@ -22,13 +22,15 @@ Le brief de passation (règles métier, écrans, données, paiement, AR) est fou
 - `js/config.js` : marque, vendeur, localités, Supabase (public), sources Sheets.
 - `css/style.css` (base) puis `css/theme-fumoir.css` (thème, chargé après : palette noir chaud, couleurs par type, badges, cartes, fiche, menu des langues, arabe).
 - `netlify/functions/` : `create-checkout`, `verify-session`, `restore-access` (Stripe Checkout, prix libre et visite guidée relue depuis la Sheet).
-- `supabase/schema.sql` : schéma complet (17 tables, 2 vues, droits). À coller dans l'éditeur SQL de Supabase sur base vide ; il refuse de tourner deux fois. `supabase/test-droits.sql` : 76 essais de droits, ne laisse rien dans la base, à relancer après tout changement de schéma.
+- `supabase/schema.sql` : schéma complet de référence (17 tables, 2 vues, droits), pour une base vide ; il refuse de tourner deux fois. `supabase/maj-NN-*.sql` : mises à jour à appliquer, dans l'ordre, sur la base déjà installée ; chaque changement de schéma se fait dans `schema.sql` ET dans un nouveau fichier `maj-NN`. `supabase/test-droits.sql` : 94 essais de droits, ne laisse rien dans la base, à relancer après chaque mise à jour.
 
 ## État d'avancement (tout sur `dev`)
 1. **Fait** : design système (29 pins, palette, couleurs par type d'expérience, badges).
 2. **Fait** : cartes d'accueil et en-tête de fiche. Le prix « 5 € en ligne, le reste sur place », les dates et les places ne sont volontairement **pas affichés** : ils attendent le vrai paiement et le moteur de réservation, sinon l'app promettrait ce qu'elle ne fait pas.
 3a. **Fait** : mécanisme multilingue, six langues, arabe de droite à gauche, polices à la demande, repli anglais puis français. Chinois, arabe et russe sont masqués du menu (`pret: false`) ; `?langues=toutes` les affiche pour tester.
-4. **Fichiers écrits et testés en local (PostgreSQL 16)**. Reste côté propriétaire : coller `schema.sql` puis `test-droits.sql` dans Supabase, régler la connexion par lien magique (inscriptions fermées, lien 15 min, envoi par Brevo), créer son compte admin. Passer à « Fait » quand le test affiche « TOUT EST OK » sur la vraie base.
+4. **Presque fait** : `schema.sql` installé sur la vraie base, test des droits OK (77/77, pg_cron actif), compte admin créé. L'ancien schéma (première proposition) a été rangé dans le schéma `ancien` (non exposé) et ses premières fiches recopiées non publiées (4 visites, 3 guides). Reste côté propriétaire : appliquer `maj-01-guides-autonomes.sql` puis relancer le test (94 essais), régler la connexion (inscriptions fermées, lien 15 min, URL du site `https://montmartre.app`).
+   - Envoi des emails par Brevo : aucun domaine n'y est authentifié (montmartre.tv en attente) ; garder l'envoi intégré de Supabase jusqu'à l'étape 6, puis authentifier `montmartre.app` dans Brevo et brancher le SMTP.
+   - Schéma `ancien` à supprimer quand tout fonctionne.
 5. **À faire** : réservation et paiement (créneaux, blocage 15 min, webhook Stripe, minimum de participants, remboursement automatique, emails).
 6. **À faire** : espace intervenants, administration, demandes privées, « nous rejoindre ».
 3b. **À faire en dernier** : traductions chinois, arabe, russe (relecture par des personnes natives), flèches « → » à remplacer par « ← » en arabe.
@@ -41,12 +43,13 @@ Ordre décidé : 4, 5, 6, 3b, 7.
 - Les traductions de contenu se génèrent **une seule fois à l'enregistrement**, puis sont stockées, avec le marquage « traduction automatique » jusqu'à relecture. Pas d'appel de traduction à chaque visite (coût).
 - Modèle le plus puissant pour les étapes 4 et 5 (schéma, droits, paiement, relecture de sécurité), modèle courant pour le reste.
 - Une session par étape pour garder les conversations courtes.
+- Les intervenants sont autonomes sur leurs visites (décision de la propriétaire, 17/11, qui remplace la règle du brief « toute modification validée ») : ils modifient eux-mêmes image, textes, durée, langues, point de départ et jauge minimum et maximum, et choisissent le minimum de leurs séances. Un intervenant qui a un compte peut proposer une nouvelle visite, validée ensuite par l'association. Restent à l'association : prix, pré-réservation, publication, titre d'une visite en ligne, règles d'annulation, mise en ligne des séances.
 
 ## Base de données (règles à respecter)
 - Tout est fermé par défaut : une nouvelle table ou fonction n'est accessible à personne tant qu'un `grant` et une règle RLS ne sont pas écrits (section 9 de `schema.sql`), puis vérifiés par un essai dans `test-droits.sql`.
 - Le navigateur (clé publiable) ne fait que lire le contenu publié. Réservations, accès, paiements et formulaires s'écrivent uniquement depuis les fonctions Netlify (clé secrète) par `reserver_places`, `confirmer_reservation`, `creer_acces`, `activer_acces`. Les prix sont calculés dans la base, jamais reçus du navigateur.
 - Le visiteur lit les séances par la vue `seances_publiques` (jauge), jamais la table `seances`. L'intervenant lit ses inscrits par la vue `mes_inscrits`.
-- Un intervenant ne modifie rien d'en ligne directement : brouillons de séance, puis `propositions`, appliquées par `valider_proposition` (liste blanche de champs).
+- Visites : l'intervenant les modifie directement ; `interne.experiences_garde` filtre les champs permis et `interne.experiences_journal` note chaque changement dans `journal_admin`. Une visite proposée par un intervenant arrive non publiée avec `a_valider = true` et sans prix. Séances : brouillons par l'intervenant, mise en ligne par l'association ; une séance en ligne se modifie par `propositions`, appliquées par `valider_proposition` (liste blanche de champs).
 - Les acheteurs n'ont pas de compte : lien d'accès par email, seule l'empreinte SHA-256 du jeton est en base (`acces.jeton_hash`).
 - Étapes payantes d'un circuit : jamais lisibles par le navigateur (seules les étapes `apercu` le sont), à servir par une fonction Netlify après vérification de l'accès.
 - Noms de tables en français (le brief les proposait en anglais) : experiences, seances, intervenants, lieux, reservations, demandes_groupes, candidatures, propositions.
