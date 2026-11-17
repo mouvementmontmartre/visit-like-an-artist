@@ -10,7 +10,7 @@ Le brief de passation (règles métier, écrans, données, paiement, AR) est fou
 - **Travaille uniquement sur la branche `dev`.** Ne touche jamais à `main`, n'ouvre aucune pull request, ne déploie rien sans accord explicite.
 - Netlify est relié à GitHub : fusionner dans `main` déploie en production, et les crédits Netlify sont limités. « Branch deploys » et « Deploy Previews » sont sur « None ».
 - Un commit et un envoi sur `dev` par **étape terminée**, pas par petite modification.
-- Avant chaque livraison : `node --check` sur chaque fichier JS, et incrément de `CACHE_VERSION` dans `sw.js` (actuellement `mm-v84`).
+- Avant chaque livraison : `node --check` sur chaque fichier JS, et incrément de `CACHE_VERSION` dans `sw.js` (actuellement `mm-v85`).
 - Aucune clé secrète dans le dépôt ni dans le chat (`SUPABASE_SECRET_KEY` et `STRIPE_SECRET_KEY` vivent dans les variables d'environnement Netlify). La clé publiable de `config.js` est publique par conception.
 - Pas de longs tirets dans les textes affichés.
 - Tout texte affiché passe par `t()` avec ses clés FR, EN, ES (jamais en dur). Dans le CSS, propriétés logiques (`margin-inline-start`, `text-align: start`, `inset-inline-end`) pour que l'arabe de droite à gauche fonctionne.
