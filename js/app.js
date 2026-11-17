@@ -490,25 +490,30 @@ async function renderAccueil() {
   const card = (v) => {
     const bannerSrc = visiteBannerSrc(v);
     const guide = trField(v, "Guide");
-    const meta = [guide ? t("visite.by") + " " + guide : "", v["Durée"]].filter(Boolean).join(" · ");
     const prix = v["Tarif direct"] || "";
     const nom = trField(v, "Nom");
+    const desc = trField(v, "Description");
+    const badge = offreBadgeHtml(offreTypeOf(v));
+    const corps =
+      '<div class="act-name">' + esc(nom) + '</div>' +
+      (desc ? '<div class="act-desc">' + esc(desc) + '</div>' : '') +
+      (guide ? '<div class="act-by">' + esc(t("card.with")) + ' <b>' + esc(guide) + '</b></div>' : '') +
+      (v["Durée"] ? '<div class="act-meta">' + esc(v["Durée"]) + '</div>' : '');
     if (!bannerSrc) {
       /* Sans visuel (ex. parcours autoguidé) : carte sobre à contour */
       return (
         '<button class="act-card act-card-plain" data-open="visite" data-arg="' + esc(v["id"]) + '">' +
-          '<div class="act-body">' + offreBadgeHtml(offreTypeOf(v)) + '<div class="act-name">' + esc(nom) + '</div>' +
-          '<div class="act-meta">' + esc(meta) + '</div></div>' +
+          '<div class="act-body">' + badge + corps + '</div>' +
           (prix ? '<span class="act-price act-price-soft">' + esc(prix) + '</span>' : '') +
         '</button>'
       );
     }
     return (
       '<button class="act-card" data-open="visite" data-arg="' + esc(v["id"]) + '">' +
-        '<img class="act-thumb" src="' + esc(bannerSrc) + '" alt="" loading="lazy">' +
-        '<div class="act-body">' + offreBadgeHtml(offreTypeOf(v)) + '<div class="act-name">' + esc(nom) + '</div>' +
-        '<div class="act-meta">' + esc(meta) + '</div></div>' +
-        (prix ? '<span class="act-price">' + esc(prix) + '</span>' : '') +
+        '<div class="act-media"><img class="act-thumb" src="' + esc(bannerSrc) + '" alt="" loading="lazy">' + badge + '</div>' +
+        '<div class="act-body">' + corps +
+          (prix ? '<div class="act-foot"><span class="act-price">' + esc(prix) + '</span></div>' : '') +
+        '</div>' +
       '</button>'
     );
   };
@@ -866,21 +871,29 @@ async function renderVisite(id) {
   $("#visite-sub").textContent = ["Visite guidée", v["Tarif direct"]].filter(Boolean).join(" · ");
 
   const rows = [
-    ["Guide", v["Guide"]],
     ["Durée", v["Durée"]],
     ["Tarif", v["Tarif direct"]],
     ["Rendez-vous", v["Rendez-vous"]],
   ].filter(r => r[1]);
 
-  const photo = visiteBannerSrc(v)
-    ? '<img class="media-photo" src="' + esc(visiteBannerSrc(v)) + '" alt="" loading="lazy">'
+  const banner = visiteBannerSrc(v);
+  const photo = banner
+    ? '<img class="media-photo" src="' + esc(banner) + '" alt="" loading="lazy">'
     : '<div class="media-bg"></div>';
+  const guide = v["Guide"];
+  const initiales = guide ? guide.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase() : "";
+  const description = trField(v, "Description");
 
   body.innerHTML =
-    '<div class="bandeau bandeau-tour" style="height:170px; pointer-events:none;">' +
-      photo + '<div class="scrim"></div>' +
-      '<div class="content"><div class="t-name" style="font-size:17px;">' + esc(trField(v, "Nom")) + '</div></div>' +
+    '<div class="fiche-hero">' + photo + '</div>' +
+    '<div class="fiche-head">' + offreBadgeHtml(offreTypeOf(v)) +
+      '<h1 class="fiche-title">' + esc(trField(v, "Nom")) + '</h1>' +
+      (description ? '<p class="fiche-desc">' + esc(description) + '</p>' : '') +
     '</div>' +
+    (guide
+      ? '<div class="fiche-host"><div class="fiche-avatar" aria-hidden="true">' + esc(initiales) + '</div>' +
+        '<div><div class="fiche-host-label">' + esc(t("fiche.host")) + '</div><div class="fiche-host-name">' + esc(guide) + '</div></div></div>'
+      : '') +
     rows.map(r => '<div class="info-row"><span class="k">' + esc(r[0]) + '</span><span class="v">' + esc(r[1]) + '</span></div>').join("") +
     (v["Lien réservation"]
       ? '<a class="cta" style="text-decoration:none;" href="' + esc(v["Lien réservation"]) + '" target="_blank" rel="noopener">' + t("cta.reserve") + (v["Tarif direct"] ? " · " + esc(v["Tarif direct"]) : "") + '</a>'
@@ -897,10 +910,7 @@ async function renderVisite(id) {
     '<button class="cta ghost" data-open="carte-visite" data-arg="' + esc(id) + '">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21 C12 21 5 14 5 9 A7 7 0 0 1 19 9 C19 14 12 21 12 21 Z"/><circle cx="12" cy="9" r="2.5"/></svg>' +
       t("cta.seeRouteOnMap") +
-    '</button>' +
-    (trField(v, "Description")
-      ? '<div class="cartouche" style="margin-top:14px;"><div class="cartouche-inner"><div class="cartouche-core" style="font-size:13px; line-height:1.6;">' + esc(trField(v, "Description")) + '</div></div></div>'
-      : "");
+    '</button>';
 
   const btnLibre = $("#btn-libre");
   if (btnLibre) btnLibre.addEventListener("click", () => startCheckout(id, "libre"));
