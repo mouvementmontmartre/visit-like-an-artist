@@ -93,14 +93,14 @@
 .offre-chips .chip { flex-shrink: 0; min-height: 40px; padding: 0 16px; font-size: 13px; }
 
 .act-card {
-  display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+  display: flex; align-items: center; gap: 14px; width: 100%; text-align: start;
   background: var(--velin); color: var(--nuit); border-radius: 10px; padding: 10px; margin-bottom: 12px;
 }
 .act-thumb { width: 92px; height: 92px; border-radius: 6px; object-fit: cover; flex-shrink: 0; filter: sepia(.3); }
 .act-body { flex: 1; min-width: 0; }
 .act-name { font-family: var(--display); font-weight: 600; font-size: 19px; line-height: 1.1; }
 .act-meta { font-size: 12px; color: var(--muted-dark); margin-top: 5px; }
-.act-price { font-family: var(--display); font-weight: 600; font-size: 20px; padding-right: 6px; flex-shrink: 0; }
+.act-price { font-family: var(--display); font-weight: 600; font-size: 20px; padding-inline-end: 6px; flex-shrink: 0; }
 .act-card-plain { background: transparent; color: var(--velin); border: 1px solid var(--line); padding: 16px; }
 .act-card-plain .act-meta { color: var(--muted); }
 .act-price-soft { font-family: var(--body); font-weight: 400; font-size: 13px; color: var(--fee); }
@@ -146,7 +146,7 @@
 .act-by { font-size: 12px; margin-top: 5px; color: var(--nuit); }
 .act-card:not(.act-card-plain) .act-body { display: flex; flex-direction: column; }
 .act-foot { margin-top: auto; padding-top: 8px; display: flex; justify-content: flex-end; align-items: baseline; }
-.act-foot .act-price { padding-right: 0; font-size: 15px; }
+.act-foot .act-price { padding-inline-end: 0; font-size: 15px; }
 .act-card-plain .act-desc { color: var(--muted); }
 .act-card-plain .act-by { color: var(--texte); }
 
@@ -184,3 +184,31 @@
 }
 .fiche-host-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--fee); }
 .fiche-host-name { font-family: var(--display); font-size: 18px; font-weight: 600; margin-top: 2px; }
+
+/* ---------- Menu des langues (design E32) ---------- */
+.lang-popover {
+  background: var(--panneau); border: 1px solid var(--line); border-radius: 18px;
+  min-width: 230px; box-shadow: 0 14px 36px rgba(0,0,0,0.6);
+}
+.lang-option {
+  width: 100%; gap: 14px; padding: 15px 18px; font-size: 17px; text-align: start;
+  color: var(--velin); border-bottom: 0; border-top: 1px solid var(--line);
+}
+.lang-option:first-child { border-top: 0; }
+.lang-option.active { background: rgba(217,185,106,0.12); color: var(--fee); font-weight: 600; }
+.lang-option .lang-globe { width: 18px; height: 18px; }
+
+/* ---------- Langues : polices et sens de lecture ---------- */
+/* Fraunces et DM Sans n'ont ni chinois, ni arabe, ni cyrillique : polices de repli chargées à la demande (i18n.js). */
+:root[lang="zh"] { --display: 'Fraunces', 'Noto Serif SC', Georgia, serif; --body: 'DM Sans', 'Noto Sans SC', system-ui, sans-serif; }
+:root[lang="ar"] { --display: 'Noto Naskh Arabic', 'Fraunces', Georgia, serif; --body: 'Noto Sans Arabic', 'DM Sans', system-ui, sans-serif; }
+:root[lang="ru"] { --display: 'Fraunces', 'Noto Serif', Georgia, serif; --body: 'DM Sans', 'Noto Sans', system-ui, sans-serif; }
+/* Arabe : jamais d'espacement entre les lettres (il casse la liaison), pas d'italique ni de capitales */
+:root[dir="rtl"] * { letter-spacing: normal !important; text-transform: none !important; }
+:root[dir="rtl"] em { font-style: normal; }
+/* Retour et flèches inversés de droite à gauche ; la carte reste dans son sens */
+:root[dir="rtl"] .back-btn svg,
+:root[dir="rtl"] .m-arrow { transform: scaleX(-1); }
+.map-wrap, .map-wrap .leaflet-container { direction: ltr; }
+/* Contenu venant des Sheets : chaque texte résout son propre sens (un nom français dans une page arabe reste lisible) */
+.act-name, .act-desc, .act-by, .act-meta, .fiche-title, .fiche-desc, .fiche-host-name, .info-row .v { unicode-bidi: plaintext; }

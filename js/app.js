@@ -477,7 +477,7 @@ async function renderAccueil() {
   const lang = getLang();
   if ($("#hero-loc")) $("#hero-loc").textContent = [loc.nom, loc.precision].filter(Boolean).join(", ");
   if ($("#hero-h1")) {
-    const acc = (loc.accroche && (loc.accroche[lang] || loc.accroche.fr)) || [t("hero.title")];
+    const acc = parLangue(loc.accroche) || [t("hero.title")];
     $("#hero-h1").innerHTML = esc(acc[0] || "") + (acc[1] ? " <em>" + esc(acc[1]) + "</em>" : "");
   }
 

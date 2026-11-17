@@ -13,15 +13,56 @@
      rien — le français reste affiché automatiquement.
    ============================================================ */
 
-const LANGS = ["fr", "en", "es"];
+/* Langues de l'app. `pret: false` = interface pas encore traduite : la langue n'apparaît
+   pas dans le menu (sauf en mode test, ajouter ?langues=toutes à l'adresse).
+   `repli` : langues essayées, dans l'ordre, quand un texte manque (puis le français).
+   `polices` : familles Google Fonts chargées à la demande (le chinois, l'arabe et le cyrillique
+   ne sont pas dans Fraunces ni DM Sans). `dir` : sens de lecture (l'arabe va de droite à gauche). */
+const LANG_META = {
+  fr: { nom: "Français", code: "FR", dir: "ltr", pret: true,  repli: [] },
+  en: { nom: "English",  code: "EN", dir: "ltr", pret: true,  repli: [] },
+  es: { nom: "Español",  code: "ES", dir: "ltr", pret: true,  repli: [] },
+  zh: { nom: "中文",      code: "中", dir: "ltr", pret: false, repli: ["en"],
+        polices: ["Noto+Sans+SC:wght@400;500;700", "Noto+Serif+SC:wght@400;600"] },
+  ar: { nom: "العربية",  code: "AR", dir: "rtl", pret: false, repli: ["en"],
+        polices: ["Noto+Sans+Arabic:wght@400;500;700", "Noto+Naskh+Arabic:wght@400;600"] },
+  ru: { nom: "Русский",  code: "RU", dir: "ltr", pret: false, repli: ["en"],
+        polices: ["Noto+Sans:wght@400;500;700", "Noto+Serif:wght@400;600"] },
+};
+const LANGS = Object.keys(LANG_META);
+
+/** Mode test : liste toutes les langues, même celles pas encore traduites (?langues=toutes). */
+const LANGUES_TEST = (() => {
+  try {
+    if (new URLSearchParams(location.search).get("langues") === "toutes") sessionStorage.setItem("langues-test", "1");
+    return sessionStorage.getItem("langues-test") === "1";
+  } catch (e) { return false; }
+})();
+function langDisponible(l) { return !!LANG_META[l] && (LANG_META[l].pret || LANGUES_TEST); }
+function languesAffichees() { return LANGS.filter(langDisponible); }
 
 function getLang() {
   const l = localStorage.getItem("lang");
-  return LANGS.includes(l) ? l : "fr";
+  return langDisponible(l) ? l : "fr";
 }
 function setLang(l) {
-  localStorage.setItem("lang", LANGS.includes(l) ? l : "fr");
+  localStorage.setItem("lang", langDisponible(l) ? l : "fr");
 }
+
+/** Pose la langue et le sens de lecture sur <html> et charge les polices utiles. */
+function appliquerLangue() {
+  const l = getLang(), meta = LANG_META[l];
+  document.documentElement.lang = l;
+  document.documentElement.dir = meta.dir;
+  if (meta.polices && !document.getElementById("police-" + l)) {
+    const link = document.createElement("link");
+    link.id = "police-" + l;
+    link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?" + meta.polices.map(f => "family=" + f).join("&") + "&display=swap";
+    document.head.appendChild(link);
+  }
+}
+appliquerLangue();
 
 const I18N = {
   fr: {
@@ -514,10 +555,26 @@ const I18N = {
   },
 };
 
+/* Interface à traduire (étape 3b) : vide pour l'instant, le repli anglais puis français s'applique. */
+I18N.zh = I18N.zh || {};
+I18N.ar = I18N.ar || {};
+I18N.ru = I18N.ru || {};
+
 function t(key) {
   const lang = getLang();
-  const raw = (I18N[lang] && I18N[lang][key]) || I18N.fr[key] || key;
-  return fillBrand(raw);
+  let raw = I18N[lang] && I18N[lang][key];
+  if (!raw) {
+    for (const l of LANG_META[lang].repli) { if (I18N[l] && I18N[l][key]) { raw = I18N[l][key]; break; } }
+  }
+  return fillBrand(raw || I18N.fr[key] || key);
+}
+
+/** Choisit la version d'un texte de config.js ({fr, en, es, ...}) : langue active, puis repli, puis français. */
+function parLangue(obj) {
+  if (!obj) return undefined;
+  const lang = getLang();
+  for (const l of [lang].concat(LANG_META[lang].repli, ["fr"])) { if (obj[l]) return obj[l]; }
+  return undefined;
 }
 
 /** Remplace {localite}, {marque}, {slogan} par les valeurs de config.js. */
@@ -526,7 +583,7 @@ function fillBrand(str) {
   const lang = getLang();
   const loc = (typeof currentLocalite === "function") ? currentLocalite() : null;
   const m = (typeof CONFIG !== "undefined" && CONFIG.marque) || {};
-  const slogan = (m.slogan && (m.slogan[lang] || m.slogan.fr)) || "";
+  const slogan = parLangue(m.slogan) || "";
   return str
     .replace(/\{slogan\}/g, slogan.replace(/\{localite\}/g, loc ? loc.nom : ""))
     .replace(/\{localite\}/g, loc ? loc.nom : "")
@@ -538,9 +595,12 @@ function fillBrand(str) {
 function trField(row, base) {
   if (!row) return "";
   const lang = getLang();
+  /* Colonnes "<base>_EN", "_ES", "_ZH", "_AR", "_RU" des Sheets ; sinon repli (anglais pour zh/ar/ru), puis français. */
   if (lang !== "fr") {
-    const val = row[base + "_" + lang.toUpperCase()];
-    if (val && String(val).trim()) return val;
+    for (const l of [lang].concat(LANG_META[lang].repli)) {
+      const val = row[base + "_" + l.toUpperCase()];
+      if (val && String(val).trim()) return val;
+    }
   }
   return row[base] || "";
 }
@@ -553,7 +613,7 @@ function applyI18n() {
     el.setAttribute("placeholder", t(el.getAttribute("data-i18n-placeholder")));
   });
   document.querySelectorAll("[data-lang-code]").forEach(el => {
-    el.textContent = getLang().toUpperCase();
+    el.textContent = LANG_META[getLang()].code;
   });
 }
 
@@ -564,6 +624,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const overlay = document.getElementById("lang-overlay");
   if (!popover || !overlay) return;
 
+  const globe = '<span class="lang-globe"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/></svg></span>';
+  popover.innerHTML = languesAffichees().map(l =>
+    '<button class="lang-option" data-lang="' + l + '">' + globe + '<span lang="' + l + '">' + LANG_META[l].nom + '</span></button>'
+  ).join("");
   popover.querySelectorAll(".lang-option").forEach(opt => {
     opt.classList.toggle("active", opt.dataset.lang === getLang());
     opt.addEventListener("click", () => {
@@ -583,7 +647,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const r = btn.getBoundingClientRect();
       popover.style.top = (r.bottom + 6) + "px";
       // Aligne le popover sur le bord droit du bouton, sans déborder de l'écran.
-      const left = Math.min(r.right - 150, window.innerWidth - 160);
+      const left = Math.min(r.right - 230, window.innerWidth - 240);
       popover.style.left = Math.max(10, left) + "px";
       popover.classList.add("open");
       overlay.classList.add("open");
