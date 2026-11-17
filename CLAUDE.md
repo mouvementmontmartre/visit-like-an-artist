@@ -36,7 +36,8 @@ Le brief de passation (règles métier, écrans, données, paiement, AR) est fou
    - liens d'adhésion Stripe (compte Mouvement Montmartre) : `plink_1UcTjACtjp0QuQA6Eu4JQKAL` (annuelle renouvelable, prix libre, champ « Prénom Nom », la plus récente), `plink_1SRbm0Ctjp0QuQA6HA5b0bmd` (don ponctuel, celui de `CONFIG.liens.adhesion`), anciens abonnements `plink_1Q1WVuCtjp0QuQA656ceY4W7` et `plink_1Oc9d1Ctjp0QuQA683pGDuqY` ;
    - import initial des adhésions Stripe existantes ; ajout manuel par l'admin pour les adhésions hors Stripe ;
    - affichage : l'adhérent tape son email, reçoit un lien par email (Brevo, domaine `montmartre.app` à authentifier), la carte s'enregistre sur son téléphone ; la liste ne sort jamais de la base ;
-   - retirer `sources.membres` de `config.js` ; questions posées à la propriétaire : durée d'un paiement ponctuel (un an ?), lien à mettre dans l'app (proposé : l'annuelle renouvelable), anciens liens à désactiver ?
+   - retirer `sources.membres` de `config.js` ;
+   - réponses de la propriétaire (17/11) : un paiement ponctuel vaut un an à partir de la date de paiement ; l'app ne propose plus que l'adhésion annuelle renouvelable (`CONFIG.liens.adhesion` = `https://buy.stripe.com/7sY5kC7kdfaygOU9mbawo0C`) ; les anciens abonnements encore actifs (12 € et 5 €) restent pris en compte, décision sur leur avenir plus tard ; le montant de l'adhésion peut changer, donc la validité de la carte ne dépend jamais du montant.
    Puis réservation et paiement (créneaux, blocage 15 min, webhook Stripe, minimum de participants, remboursement automatique, emails).
 6. **À faire** : espace intervenants, administration, demandes privées, « nous rejoindre ».
 3b. **À faire en dernier** : traductions chinois, arabe, russe (relecture par des personnes natives), flèches « → » à remplacer par « ← » en arabe.
