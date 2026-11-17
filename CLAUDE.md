@@ -22,13 +22,13 @@ Le brief de passation (règles métier, écrans, données, paiement, AR) est fou
 - `js/config.js` : marque, vendeur, localités, Supabase (public), sources Sheets.
 - `css/style.css` (base) puis `css/theme-fumoir.css` (thème, chargé après : palette noir chaud, couleurs par type, badges, cartes, fiche, menu des langues, arabe).
 - `netlify/functions/` : `create-checkout`, `verify-session`, `restore-access` (Stripe Checkout, prix libre et visite guidée relue depuis la Sheet).
-- `supabase/schema.sql` : **ancienne proposition**, à refaire (voir étape 4).
+- `supabase/schema.sql` : schéma complet (17 tables, 2 vues, droits). À coller dans l'éditeur SQL de Supabase sur base vide ; il refuse de tourner deux fois. `supabase/test-droits.sql` : 76 essais de droits, ne laisse rien dans la base, à relancer après tout changement de schéma.
 
 ## État d'avancement (tout sur `dev`)
 1. **Fait** : design système (29 pins, palette, couleurs par type d'expérience, badges).
 2. **Fait** : cartes d'accueil et en-tête de fiche. Le prix « 5 € en ligne, le reste sur place », les dates et les places ne sont volontairement **pas affichés** : ils attendent le vrai paiement et le moteur de réservation, sinon l'app promettrait ce qu'elle ne fait pas.
 3a. **Fait** : mécanisme multilingue, six langues, arabe de droite à gauche, polices à la demande, repli anglais puis français. Chinois, arabe et russe sont masqués du menu (`pret: false`) ; `?langues=toutes` les affiche pour tester.
-4. **À faire** : schéma Supabase (base vide), droits d'accès (RLS), connexion par lien magique.
+4. **Fichiers écrits et testés en local (PostgreSQL 16)**. Reste côté propriétaire : coller `schema.sql` puis `test-droits.sql` dans Supabase, régler la connexion par lien magique (inscriptions fermées, lien 15 min, envoi par Brevo), créer son compte admin. Passer à « Fait » quand le test affiche « TOUT EST OK » sur la vraie base.
 5. **À faire** : réservation et paiement (créneaux, blocage 15 min, webhook Stripe, minimum de participants, remboursement automatique, emails).
 6. **À faire** : espace intervenants, administration, demandes privées, « nous rejoindre ».
 3b. **À faire en dernier** : traductions chinois, arabe, russe (relecture par des personnes natives), flèches « → » à remplacer par « ← » en arabe.
@@ -41,6 +41,15 @@ Ordre décidé : 4, 5, 6, 3b, 7.
 - Les traductions de contenu se génèrent **une seule fois à l'enregistrement**, puis sont stockées, avec le marquage « traduction automatique » jusqu'à relecture. Pas d'appel de traduction à chaque visite (coût).
 - Modèle le plus puissant pour les étapes 4 et 5 (schéma, droits, paiement, relecture de sécurité), modèle courant pour le reste.
 - Une session par étape pour garder les conversations courtes.
+
+## Base de données (règles à respecter)
+- Tout est fermé par défaut : une nouvelle table ou fonction n'est accessible à personne tant qu'un `grant` et une règle RLS ne sont pas écrits (section 9 de `schema.sql`), puis vérifiés par un essai dans `test-droits.sql`.
+- Le navigateur (clé publiable) ne fait que lire le contenu publié. Réservations, accès, paiements et formulaires s'écrivent uniquement depuis les fonctions Netlify (clé secrète) par `reserver_places`, `confirmer_reservation`, `creer_acces`, `activer_acces`. Les prix sont calculés dans la base, jamais reçus du navigateur.
+- Le visiteur lit les séances par la vue `seances_publiques` (jauge), jamais la table `seances`. L'intervenant lit ses inscrits par la vue `mes_inscrits`.
+- Un intervenant ne modifie rien d'en ligne directement : brouillons de séance, puis `propositions`, appliquées par `valider_proposition` (liste blanche de champs).
+- Les acheteurs n'ont pas de compte : lien d'accès par email, seule l'empreinte SHA-256 du jeton est en base (`acces.jeton_hash`).
+- Étapes payantes d'un circuit : jamais lisibles par le navigateur (seules les étapes `apercu` le sont), à servir par une fonction Netlify après vérification de l'accès.
+- Noms de tables en français (le brief les proposait en anglais) : experiences, seances, intervenants, lieux, reservations, demandes_groupes, candidatures, propositions.
 
 ## Test local
 Depuis un conteneur cloud, Google Sheets, Leaflet (unpkg) et les polices sont bloqués : tester avec des données simulées et Leaflet installé en local, jamais en modifiant le dépôt pour ça.
