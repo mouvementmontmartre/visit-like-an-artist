@@ -774,3 +774,15 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   .point-sheet { transition: none; }
   .acc-head svg.chev { transition: none; }
 }
+
+/* Texte lu par les lecteurs d'écran, invisible à l'écran */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+/* Carte de membre expirée */
+.member-card.expired { filter: grayscale(0.7); opacity: 0.85; }
+#membre-adherer[hidden] { display: none; }
+#membre-result:not(:empty) { margin-bottom: 18px; }
+#membre-form[hidden] { display: none; }
+#membre-form-note { margin-top: 10px; font-size: 14px; line-height: 1.5; }

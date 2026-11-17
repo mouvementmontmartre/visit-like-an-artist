@@ -109,14 +109,14 @@ const CONFIG = {
     // Change souvent : URL à remplacer dès que la Sheet est créée et publiée.
     programmeFestival: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ7dYdZOylWiCdBdeTf0W7sCXXtbf07j3jSjGGuhFrBphP5iCA9sWAMoMJaY5p2BEOAL8LjyinPXUll/pub?gid=841437823&single=true&output=csv",
 
-    // Carte de membre (onglet Carte_Membre réduit : Nom, Email, Date Adhésion, Statut)
-    membres: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQj_2YGaC1qdpYm2WYjnTLhvz-QkDZDG01MCYqZFhoUlvsT2uxjNnPTkOMs-lWlnh6HhbnPi2EGrqK9/pub?gid=438910386&single=true&output=csv",
+    // Carte de membre : plus de Sheet. Les adhésions viennent de Stripe et
+    // sont vérifiées côté serveur (fonction Netlify « carte », Supabase).
   },
 
   /* ---- LIENS EXTERNES ---- */
   liens: {
     ajouterEvenement: "https://tally.so/r/Y5vaVv",           // formulaire Tally d'ajout à l'agenda
-    adhesion: "https://donate.stripe.com/3cI14m4814vU6ag7e3awo0y",           // page pour devenir adhérent
+    adhesion: "https://buy.stripe.com/7sY5kC7kdfaygOU9mbawo0C",             // adhésion annuelle renouvelable (Stripe)
     siteWeb: "https://montmartrefestival.com",                // site du festival
     siteAssociation: "https://www.mouvementmontmartre.org",   // site de l'association
     instagram: "https://www.instagram.com/mouvement.montmartre/",

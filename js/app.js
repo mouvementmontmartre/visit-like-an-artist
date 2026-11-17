@@ -105,7 +105,7 @@ function openTarget(target, arg) {
     case "festival":        renderFestival(); showScreen("festival"); break;
     case "carte-festival":  renderCarteFestival(); showScreen("carte-festival"); break;
     case "carte-tab":       showScreen("carte"); renderEcoMap(); break;
-    case "membre":          showScreen("membre"); break;
+    case "membre":          showScreen("membre"); renderMembre(); break;
     case "infos":           renderInfos(); showScreen("infos"); break;
     case "infos-festival":  renderInfosFestival(); showScreen("infos-festival"); break;
     case "visite":          renderVisite(arg); showScreen("visite"); break;
@@ -1358,53 +1358,134 @@ function renderDayDetail() {
    CARTE DE MEMBRE
    ============================================================ */
 
-$("#membre-check").addEventListener("click", async () => {
-  const email = ($("#membre-email").value || "").trim().toLowerCase();
-  const result = $("#membre-result");
-  if (!email.includes("@")) {
-    result.innerHTML = '<div class="member-note">Entrez l\'adresse email utilisée pour votre adhésion.</div>';
-    return;
-  }
-  result.innerHTML = '<div class="loading">Vérification…</div>';
-  const rows = await loadCSV(CONFIG.sources.membres, "membres");
+/* La carte est gardée sur ce téléphone : { jeton, carte, maj }.
+   Le jeton est secret (comme un mot de passe) : il n'est jamais affiché. */
+const CARTE_CLE = "carteMembre";
+function carteLue() {
+  try { const v = JSON.parse(localStorage.getItem(CARTE_CLE) || "null"); return v && v.jeton ? v : null; }
+  catch (e) { return null; }
+}
+function carteEcrite(v) {
+  try { if (v) localStorage.setItem(CARTE_CLE, JSON.stringify(v)); else localStorage.removeItem(CARTE_CLE); }
+  catch (e) { /* stockage indisponible : la carte ne sera pas gardée */ }
+}
 
-  // Lecture robuste : si la ligne d'en-têtes est correcte, on lit par nom
-  // de colonne ; si elle a disparu ou changé (imperfection humaine dans la
-  // Sheet), on retombe sur l'ordre des colonnes : Nom, Email, Date, Statut.
-  const normalize = (r) => {
-    if ("Email" in r) {
-      return { nom: r["Nom"], email: r["Email"], date: r["Date Adhésion"], statut: r["Statut"] };
-    }
-    const vals = Object.values(r);
-    return { nom: vals[0] || "", email: vals[1] || "", date: vals[2] || "", statut: vals[3] || "" };
-  };
-  const members = rows.map(normalize).filter(m => (m.email || "").includes("@"));
-  const found = members.find(m => m.email.trim().toLowerCase() === email);
+async function appelCarte(corps) {
+  const res = await fetch("/.netlify/functions/carte", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corps),
+  });
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* réponse vide */ }
+  return { status: res.status, data };
+}
 
-  if (!found) {
-    result.innerHTML =
-      '<div class="member-note">Cette adresse ne figure pas dans notre liste d\'adhérents. ' +
-      'Si vous venez d\'adhérer, la liste peut mettre un peu de temps à se mettre à jour.</div>' +
-      '<a class="cta ghost" style="text-decoration:none;" href="' + esc(CONFIG.liens.adhesion) + '" target="_blank" rel="noopener">Devenir adhérent·e</a>';
-    return;
-  }
+function dateCarte(isoDate) {
+  try { return new Date(isoDate).toLocaleDateString(getLang(), { day: "numeric", month: "long", year: "numeric" }); }
+  catch (e) { return String(isoDate || "").slice(0, 10); }
+}
 
-  const active = (found.statut || "").trim().toUpperCase() === "V";
-  result.innerHTML =
-    '<div class="member-card"><div class="mc-inner"><div class="mc-core">' +
+function carteHtml(c, note) {
+  const valide = new Date(c.valide_jusqua) > new Date();
+  return (
+    '<div class="member-card' + (valide ? '' : ' expired') + '"><div class="mc-inner"><div class="mc-core">' +
       '<div class="mc-eyebrow">Mouvement Montmartre</div>' +
-      '<div class="mc-name">' + esc(found.nom || "Membre") + '</div>' +
-      '<div class="mc-since">' +
-        (active
-          ? "Adhésion active" + (found.date ? " · depuis le " + esc(found.date) : "")
-          : "Adhésion à renouveler") +
-      '</div>' +
+      '<div class="mc-name">' + esc(c.nom || t("member.formula.adhesion")) + '</div>' +
+      '<div class="mc-since">' + esc(t("member.formula." + (c.formule === "bienfaiteur" ? "bienfaiteur" : "adhesion"))) + '</div>' +
+      '<div class="mc-since">' + esc(t(valide ? "member.validUntil" : "member.expiredOn").replace("{date}", dateCarte(c.valide_jusqua))) + '</div>' +
+      (c.membre_depuis ? '<div class="mc-since">' + esc(t("member.since").replace("{date}", dateCarte(c.membre_depuis))) + '</div>' : '') +
       '<img class="mc-logo" src="icons/logo.png" alt="">' +
     '</div></div></div>' +
-    (!active
-      ? '<a class="cta ghost" style="text-decoration:none;" href="' + esc(CONFIG.liens.adhesion) + '" target="_blank" rel="noopener">Renouveler mon adhésion</a>'
-      : '');
+    (note ? '<div class="member-note">' + esc(note) + '</div>' : '') +
+    (!valide ? '<a class="cta gaz" style="text-decoration:none;" href="' + esc(CONFIG.liens.adhesion) + '" target="_blank" rel="noopener">' + esc(t("member.renew")) + '</a>' : '') +
+    '<button class="cta ghost" type="button" id="membre-oublier">' + esc(t("member.forget")) + '</button>'
+  );
+}
+
+/** Affiche l'écran « Ma carte de membre » : la carte gardée, sinon le formulaire. */
+async function renderMembre(note) {
+  const result = $("#membre-result"), form = $("#membre-form");
+  if (!result || !form) return;
+  const st = carteLue();
+  const afficher = (s, n) => {
+    const adherer = $("#membre-adherer");
+    if (adherer) adherer.hidden = !!(s && s.carte);   // la carte propose déjà « Renouveler » si besoin
+    if (s && s.carte) {
+      result.innerHTML = carteHtml(s.carte, n);
+      form.hidden = true;
+      $("#membre-oublier").addEventListener("click", () => { carteEcrite(null); renderMembre(); });
+    } else {
+      result.innerHTML = n ? '<div class="member-note">' + esc(n) + '</div>' : '';
+      form.hidden = false;
+    }
+  };
+  afficher(st, note);
+  if (!st) return;
+
+  // Mise à jour depuis le serveur (validité, renouvellement).
+  try {
+    const r = await appelCarte({ action: "voir", jeton: st.jeton });
+    if (r.status === 200 && r.data.carte) {
+      carteEcrite({ jeton: st.jeton, carte: r.data.carte, maj: Date.now() });
+      afficher(carteLue(), note);
+    } else if (r.status === 404 || r.status === 400) {
+      carteEcrite(null);
+      afficher(null, t("member.revoked"));
+    }
+  } catch (e) {
+    if (st.carte) afficher(st, note || t("member.offline"));
+  }
+}
+
+$("#membre-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = ($("#membre-email").value || "").trim().toLowerCase();
+  const out = $("#membre-form-note"), bouton = $("#membre-check");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { out.textContent = t("member.emailInvalid"); return; }
+  out.textContent = t("member.loading");
+  bouton.disabled = true;
+  try {
+    const r = await appelCarte({ action: "lien", email, langue: getLang() });
+    out.textContent = r.status === 200 ? t("member.linkSent")
+      : r.status === 503 ? t("member.unavailable")
+      : r.status === 400 ? t("member.emailInvalid")
+      : t("member.error");
+  } catch (err) {
+    out.textContent = t("member.error");
+  } finally {
+    bouton.disabled = false;
+  }
 });
+
+/** Arrivée par le lien de l'email (#carte=…) ou au retour du paiement d'adhésion (?adhesion=cs_…). */
+async function handleCarteRetour() {
+  const hash = window.location.hash || "";
+  const m = hash.match(/^#carte=([A-Za-z0-9_-]{43})$/);
+  const params = new URLSearchParams(window.location.search);
+  const session = params.get("adhesion");
+  if (!m && !session) return;
+  history.replaceState(null, "", window.location.pathname);   // le jeton ne reste pas dans l'adresse
+  openTarget("membre");
+
+  if (m) {
+    carteEcrite({ jeton: m[1], carte: null, maj: 0 });
+    renderMembre();
+    return;
+  }
+  if (!/^cs_(live|test)_[A-Za-z0-9]+$/.test(session)) return;
+  const result = $("#membre-result");
+  if (result) result.innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>';
+  try {
+    const r = await appelCarte({ action: "session", session_id: session });
+    if (r.status === 200 && r.data.jeton) {
+      carteEcrite({ jeton: r.data.jeton, carte: r.data.carte, maj: Date.now() });
+      renderMembre(t("member.welcome"));
+      return;
+    }
+  } catch (e) { /* on retombe sur le message ci-dessous */ }
+  renderMembre(t("member.paymentPending"));
+}
 
 /* ============================================================
    INFOS (association + festival)
@@ -1513,6 +1594,10 @@ document.addEventListener("DOMContentLoaded", () => {
   applyBrand();
   renderAccueil();
   handleCheckoutReturn();
+
+  // L'ancienne liste des adhérents (Sheet publique) ne doit plus rester sur les téléphones.
+  try { localStorage.removeItem("csv:membres"); } catch (e) { /* rien */ }
+  handleCarteRetour();
 
   // Encadré "À propos" + lien adhésion sur l'écran "Ma carte de membre"
   const membreAbout = $("#membre-about");

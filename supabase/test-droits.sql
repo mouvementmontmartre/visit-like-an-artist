@@ -113,6 +113,7 @@ begin
 
     insert into public.propositions (id, intervenant_id, type, donnees) values
       (p_a, i_a, 'fiche', '{"nom":"Intervenant A corrigé","publie":false,"ordre":999}');
+    insert into public.codes_import (code_hash, expire_le) values (repeat('7', 64), now() + interval '30 minutes');
     insert into public.demandes_groupes (localite_id, type, nom, email) values
       ('montmartre', 'visite', 'Groupe test', 'groupe@exemple.invalid');
 
@@ -318,6 +319,70 @@ begin
         pg_temp.essai('service_role', null, 'select 1 from (select public.liberer_reservations_expirees() as n) x where n = 1'))
     );
 
+    -- ---------- ADHÉSIONS ET CARTES DE MEMBRE ----------
+    res := res || jsonb_build_array(
+      jsonb_build_array('Serveur', 'enregistre une adhésion annuelle (abonnement Stripe)', '1',
+        pg_temp.essai('service_role', null, format('select public.enregistrer_adhesion_abonnement(%L, %L, %L, %L, %L, now() - interval %L, now() + interval %L, %L)', 'sub_test_1', 'cus_test_1', 'Membre@Exemple.invalid', 'Camille Membre', 'adhesion', '10 days', '355 days', 'active'))),
+      jsonb_build_array('Serveur', 'le renouvellement prolonge la même adhésion (pas de doublon)', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.enregistrer_adhesion_abonnement(%L, %L, %L, null, %L, now(), now() + interval %L, %L) as r) x where (select count(*) from public.adhesions where stripe_subscription = %L) = 1 and (r->>%L)::timestamptz > now() + interval %L', 'sub_test_1', 'cus_test_1', 'membre@exemple.invalid', 'adhesion', '720 days', 'active', 'sub_test_1', 'valide_jusqua', '700 days'))),
+      jsonb_build_array('Serveur', 'enregistre un paiement ponctuel, reçu deux fois', '2',
+        pg_temp.essai('service_role', null, format('select public.enregistrer_adhesion_ponctuelle(%L, null, %L, %L, %L, now()) union all select public.enregistrer_adhesion_ponctuelle(%L, null, %L, %L, %L, now())', 'pi_adh_1', 'ponctuel@exemple.invalid', 'Paul Ponctuel', 'adhesion', 'pi_adh_1', 'ponctuel@exemple.invalid', 'Paul Ponctuel', 'adhesion'))),
+      jsonb_build_array('Contrôle', 'une seule adhésion ponctuelle, valable un an', '1',
+        pg_temp.essai(null, null, format('select 1 from public.adhesions where stripe_payment_intent = %L and valide_jusqua > now() + interval %L', 'pi_adh_1', '364 days'))),
+      jsonb_build_array('Serveur', 'refuse un lien de carte pour un email non adhérent', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.carte_creer_lien(%L, %L, %L) as r) x where r = %L', 'inconnu@exemple.invalid', repeat('e', 64), 'email', 'inconnu'))),
+      jsonb_build_array('Serveur', 'crée le lien de carte d''un adhérent', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.carte_creer_lien(%L, %L, %L) as r) x where r = %L', 'membre@exemple.invalid', repeat('d', 64), 'paiement', 'cree'))),
+      jsonb_build_array('Serveur', 'montre la carte : nom, valable', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.carte_par_jeton(%L) as c) x where c->>%L = %L and (c->>%L)::boolean', repeat('d', 64), 'nom', 'Camille Membre', 'valide'))),
+      jsonb_build_array('Serveur', 'un jeton inconnu ne montre rien', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.carte_par_jeton(%L) as c) x where c is null', repeat('f', 64)))),
+      jsonb_build_array('Serveur', 'au-delà de 3 demandes par heure, plus d''email', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.carte_creer_lien(%L, repeat(%L, 64), %L) a, public.carte_creer_lien(%L, repeat(%L, 64), %L) b, public.carte_creer_lien(%L, repeat(%L, 64), %L) c, public.carte_creer_lien(%L, repeat(%L, 64), %L) d) x where c = %L and d = %L', 'membre@exemple.invalid', '1', 'email', 'membre@exemple.invalid', '2', 'email', 'membre@exemple.invalid', '3', 'email', 'membre@exemple.invalid', '4', 'email', 'cree', 'trop_de_demandes'))),
+      jsonb_build_array('Serveur', 'arrête l''abonnement', '1',
+        pg_temp.essai('service_role', null, format('select public.enregistrer_adhesion_abonnement(%L, null, null, null, null, null, null, %L)', 'sub_test_1', 'arretee'))),
+      jsonb_build_array('Contrôle', 'abonnement arrêté : carte valable jusqu''à la date payée', '1',
+        pg_temp.essai(null, null, format('select 1 from public.adhesions where stripe_subscription = %L and statut = %L and valide_jusqua > now() + interval %L', 'sub_test_1', 'arretee', '700 days'))),
+      jsonb_build_array('Serveur', 'note le remboursement du paiement ponctuel', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.adhesion_remboursee(%L) as n) x where n = 1', 'pi_adh_1'))),
+      jsonb_build_array('Serveur', 'paiement remboursé : plus de carte', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.carte_creer_lien(%L, %L, %L) as l) x where l = %L', 'ponctuel@exemple.invalid', repeat('9', 64), 'admin', 'inconnu'))),
+      jsonb_build_array('Serveur', 'enregistre un bienfaiteur (mensuel) et son lien de carte', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.enregistrer_adhesion_abonnement(%L, null, %L, %L, %L, now(), now() + interval %L, %L)) x', 'sub_test_2', 'bienfaiteur@exemple.invalid', 'Bea Bienfaitrice', 'bienfaiteur', '30 days', 'active'))),
+      jsonb_build_array('Serveur', 'crée le lien de carte du bienfaiteur', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.carte_creer_lien(%L, %L, %L) as l) x where l = %L', 'bienfaiteur@exemple.invalid', repeat('8', 64), 'admin', 'cree'))),
+      jsonb_build_array('Serveur', 'bienfaiteur : la carte l''indique', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.carte_par_jeton(%L) as c) x where c->>%L = %L', repeat('8', 64), 'formule', 'bienfaiteur'))),
+      jsonb_build_array('Visiteur', 'ne lit pas les adhésions ni les liens de carte', 'refus',
+        pg_temp.essai('anon', null, 'select 1 from public.adhesions union all select 1 from public.cartes_liens')),
+      jsonb_build_array('Visiteur', 'ne lit pas une carte directement', 'refus',
+        pg_temp.essai('anon', null, format('select public.carte_par_jeton(%L)', repeat('d', 64)))),
+      jsonb_build_array('Visiteur', 'ne crée pas de code d''import', 'refus',
+        pg_temp.essai('anon', null, 'select public.code_import_creer()')),
+      jsonb_build_array('Intervenant A', 'ne lit pas les adhésions', 'refus',
+        pg_temp.essai('authenticated', u_a, 'select 1 from public.adhesions')),
+      jsonb_build_array('Intervenant A', 'ne lit pas les liens de carte', 'refus',
+        pg_temp.essai('authenticated', u_a, 'select 1 from public.cartes_liens')),
+      jsonb_build_array('Intervenant A', 'n''ajoute pas d''adhésion', 'refus',
+        pg_temp.essai('authenticated', u_a, format('select public.ajouter_adhesion_manuelle(%L, %L, current_date + 365)', 'faux@exemple.invalid', 'Faux'))),
+      jsonb_build_array('Intervenant A', 'ne crée pas de code d''import', 'refus',
+        pg_temp.essai('authenticated', u_a, 'select public.code_import_creer()')),
+      jsonb_build_array('Intervenant A', 'ne s''enregistre pas comme adhérent', 'refus',
+        pg_temp.essai('authenticated', u_a, format('select public.enregistrer_adhesion_ponctuelle(%L, null, %L, %L, %L, now())', 'pi_faux', 'faux@exemple.invalid', 'Faux', 'adhesion'))),
+      jsonb_build_array('Admin', 'lit les adhésions', '3',
+        pg_temp.essai('authenticated', u_admin, format('select 1 from public.adhesions where email like %L', '%@exemple.invalid'))),
+      jsonb_build_array('Admin', 'ajoute une adhésion payée en espèces', '1',
+        pg_temp.essai('authenticated', u_admin, format('select public.ajouter_adhesion_manuelle(%L, %L, current_date + 365, %L, %L)', 'especes@exemple.invalid', 'Eva Espèces', 'adhesion', 'payé en espèces'))),
+      jsonb_build_array('Admin', 'crée un code d''import', '1',
+        pg_temp.essai('authenticated', u_admin, 'select public.code_import_creer()')),
+      jsonb_build_array('Intervenant A', 'n''utilise pas un code d''import', 'refus',
+        pg_temp.essai('authenticated', u_a, format('select public.code_import_utiliser(%L)', repeat('7', 64)))),
+      jsonb_build_array('Serveur', 'un code d''import ne sert qu''une fois', '1',
+        pg_temp.essai(null, null, format('select 1 from (select public.code_import_utiliser(%L) as a) x where a', repeat('7', 64)))),
+      jsonb_build_array('Serveur', 'deuxième usage du même code refusé', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.code_import_utiliser(%L) as a) x where not a', repeat('7', 64))))
+    );
+
     raise exception 'FIN_DU_TEST';   -- annule toutes les fausses données
   exception when others then
     if sqlerrm <> 'FIN_DU_TEST' then
@@ -342,7 +407,7 @@ begin
 
   select count(*)::text into v from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and has_function_privilege('authenticated', p.oid, 'execute')
-     and p.proname not in ('valider_proposition', 'refuser_proposition');
+     and p.proname not in ('valider_proposition', 'refuser_proposition', 'code_import_creer', 'ajouter_adhesion_manuelle');
   res := res || jsonb_build_array(jsonb_build_array('Structure', 'fonctions serveur appelables par un compte connecté', '0', v));
 
   begin

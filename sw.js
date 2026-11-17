@@ -9,7 +9,7 @@
    une modification du code : incrémenter CACHE_VERSION.
    ============================================================ */
 
-const CACHE_VERSION = "mm-v84";
+const CACHE_VERSION = "mm-v85";
 
 const SHELL = [
   "./",
@@ -55,6 +55,9 @@ self.addEventListener("fetch", (e) => {
   // Les données Google (CSV) passent toujours par le réseau ;
   // app.js gère lui-même le repli hors-ligne via localStorage.
   if (url.hostname.includes("google")) return;
+
+  // Fonctions serveur (paiement, carte de membre) : jamais en cache.
+  if (url.pathname.startsWith("/.netlify/functions/")) return;
 
   // App shell + polices : cache d'abord, réseau en secours,
   // et mise à jour silencieuse du cache quand le réseau répond.
