@@ -31,7 +31,8 @@ Le brief de passation (règles métier, écrans, données, paiement, AR) est fou
 4. **Fait** (17/11) : `schema.sql` puis `maj-01-guides-autonomes.sql` installés sur la vraie base, test des droits entièrement OK (pg_cron actif), compte admin créé. Connexion réglée : inscriptions fermées, lien de connexion valable 15 min, URL du site et de redirection `https://montmartre.app`. L'ancien schéma (première proposition) a été rangé dans le schéma `ancien` (non exposé) et ses premières fiches recopiées non publiées (4 visites, 3 guides, incomplètes : prix, jauge, rendez-vous, textes).
    - Envoi des emails par Brevo : aucun domaine n'y est authentifié (montmartre.tv en attente) ; garder l'envoi intégré de Supabase jusqu'à l'étape 6, puis authentifier `montmartre.app` dans Brevo et brancher le SMTP.
    - Schéma `ancien` à supprimer quand tout fonctionne.
-5. **À faire** : réservation et paiement (créneaux, blocage 15 min, webhook Stripe, minimum de participants, remboursement automatique, emails).
+5. **À faire** : d'abord, **carte de membre** : `CONFIG.sources.membres` est une Sheet publiée (Nom, Email, Date, Statut) que `js/app.js` télécharge en entier dans le navigateur pour chercher un email, donc la liste des adhérents est publique. Remplacer par une table Supabase fermée et une fonction serveur qui répond seulement adhérent ou non ; retirer le lien de `config.js`. La propriétaire doit arrêter la publication de la Sheet (signalé le 17/11).
+   Puis réservation et paiement (créneaux, blocage 15 min, webhook Stripe, minimum de participants, remboursement automatique, emails).
 6. **À faire** : espace intervenants, administration, demandes privées, « nous rejoindre ».
 3b. **À faire en dernier** : traductions chinois, arabe, russe (relecture par des personnes natives), flèches « → » à remplacer par « ← » en arabe.
 7. **À faire** : AR (8th Wall), chargé uniquement à l'ouverture d'une étape AR.
