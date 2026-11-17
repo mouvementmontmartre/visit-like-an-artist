@@ -429,33 +429,37 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   color: var(--velin) !important;
   border-color: rgba(237,230,214,0.22) !important;
 }
+/* Pins : pastille ronde 30 px, glyphe plein 19 px en noir chaud, bord sombre (design « Pins système »).
+   Trois familles : culture et création (laiton), sortir (terracotta), repères (crème). */
 .map-pin {
   width: 30px; height: 30px;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  border: 2px solid var(--nuit);
-  color: var(--nuit);
+  border: 2px solid #1B1613;
+  color: #14100E;
   padding: 0;
   cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
 }
 .map-pin svg { width: 19px; height: 19px; }
-.map-pin.fee { background: var(--fee); }
-.map-pin.gaz { background: var(--gaz); }
-.map-pin.velin { background: var(--velin); }
+.map-pin.culture { background: #D9B96A; }
+.map-pin.sortir  { background: #C98A5A; }
+.map-pin.reperes { background: #EFE8D8; }
 .map-pin.you {
   width: 16px; height: 16px;
   background: #6FA8DC;
   border: 2px solid #fff;
   box-shadow: 0 0 0 8px rgba(111,168,220,0.25);
 }
+/* Étape numérotée : pastille crème, chiffre en Fraunces gras */
 .map-pin .pin-num {
-  font-family: var(--display); font-weight: 900; font-size: 12px;
+  font-family: 'Fraunces', Georgia, serif; font-weight: 900; font-size: 13px; color: #14100E;
 }
-.leaflet-marker-icon { transition: opacity 0.2s ease; }
+/* Pin sélectionné : agrandi (x1,28) avec anneau crème, sans effet d'opacité sur les autres */
 .leaflet-marker-icon.pin-selected { z-index: 1000 !important; }
 .leaflet-marker-icon.pin-selected .map-pin {
   transform: scale(1.28);
-  box-shadow: 0 0 0 5px rgba(237,230,214,0.35), 0 2px 10px rgba(0,0,0,0.5);
+  box-shadow: 0 0 0 5px rgba(239,232,216,0.35), 0 2px 10px rgba(0,0,0,0.5);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 .map-legend {

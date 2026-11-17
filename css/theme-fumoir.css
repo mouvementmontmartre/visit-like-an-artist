@@ -6,14 +6,24 @@
    ============================================================ */
 
 :root {
-  --nuit: #10241C;
-  --nuit-2: #0B1A14;
-  --velin: #EFE8D8;
-  --fee: #D9B96A;            /* accent laiton */
+  /* Fonds : noir chaud partout (accueil, intervenants, écosystème, espace intervenants) */
+  --nuit: #14100E;
+  --nuit-2: #100C0A;         /* barres (navigation, en-têtes flottants) */
+  --panneau: #1B1613;        /* panneaux et cartes sombres */
+  --line: #2A211A;           /* filets */
+  --texte: #E3D9C8;          /* texte courant */
+  --velin: #EFE8D8;          /* crème */
+  --fee: #D9B96A;            /* laiton, accent */
   --gaz: #D9B96A;
-  --muted: #C9D3C6;
-  --muted-dark: #4A5A50;
-  --line: #3C5A4C;
+  --terracotta: #C98A5A;     /* famille de pins « sortir » */
+  --muted: #CBBFAE;          /* texte secondaire */
+  --muted-dim: #A39482;      /* texte discret */
+  --muted-dark: #5A4E40;     /* texte secondaire sur fond crème */
+  /* Une couleur de fond par type d'expérience (fiches, badges) */
+  --fond-visite: #10241C;    /* vert */
+  --fond-atelier: #22130D;   /* chocolat */
+  --fond-soiree: #240509;    /* lie-de-vin */
+  --fond-escape: #1F1424;    /* violet */
   --display: 'Fraunces', Georgia, serif;
   --body: 'DM Sans', system-ui, sans-serif;
 }
@@ -39,12 +49,12 @@
 .back-title { font-family: var(--display); font-weight: 400; letter-spacing: -0.015em; }
 .bandeau-hero-tourisme .title { font-size: 30px; line-height: 1.08; }
 .bandeau-hero-tourisme .eyebrow { letter-spacing: 0.06em; text-transform: none; font-size: 12px; }
-.bandeau-hero-tourisme .scrim { background: linear-gradient(0deg, rgba(11,26,20,.92), rgba(11,26,20,.45) 60%, rgba(11,26,20,.15)); }
+.bandeau-hero-tourisme .scrim { background: linear-gradient(0deg, rgba(16,12,10,.92), rgba(16,12,10,.45) 60%, rgba(16,12,10,.15)); }
 
 /* Cartes d'activité */
 .bandeau { border-radius: 10px; border-color: var(--line); }
 .bandeau-tour .t-name { font-family: var(--display); font-weight: 600; font-size: 19px; line-height: 1.1; }
-.bandeau-tour .t-meta { font-size: 12px; color: #DCE3D9; }
+.bandeau-tour .t-meta { font-size: 12px; color: var(--texte); }
 .bandeau-tour .t-price {
   font-family: var(--display); font-size: 15px; font-weight: 600;
   background: var(--velin); color: var(--nuit);
@@ -63,7 +73,7 @@
 
 /* Barre de navigation */
 .bottom-nav, nav.bottom-nav { background: var(--nuit-2); border-top: 1px solid var(--line); }
-.nav-item { color: #9DB0A4; }
+.nav-item { color: var(--muted-dim); }
 .nav-item.active { color: var(--fee); }
 
 /* Cartouches (encarts crème) : coins doux, plus de double filet */
@@ -95,3 +105,31 @@
 .act-card-plain .act-meta { color: var(--muted); }
 .act-price-soft { font-family: var(--body); font-weight: 400; font-size: 13px; color: var(--fee); }
 .act-empty { padding: 28px 0; text-align: center; color: var(--muted); font-size: 14px; }
+
+/* ---------- Couleur par type d'expérience ---------- */
+/* Badge de type : pastille teintée, liseré laiton, texte et icône laiton */
+.type-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px 3px 7px; margin-bottom: 6px; border-radius: 999px;
+  background: var(--fond-visite);
+  box-shadow: inset 0 0 0 1px rgba(217,185,106,0.4);
+  color: var(--fee); font-size: 10.5px; letter-spacing: 0.04em; font-weight: 500; line-height: 1.4;
+}
+.type-badge.t-atelier { background: var(--fond-atelier); }
+.type-badge.t-diner   { background: var(--fond-soiree); }
+.type-badge.t-escape  { background: var(--fond-escape); }
+.act-card-plain .type-badge { margin-bottom: 8px; }
+
+/* Fond de la fiche selon le type (posé par renderVisite via data-offre) */
+#screen-visite[data-offre="visite"]  { background: var(--fond-visite); }
+#screen-visite[data-offre="atelier"] { background: var(--fond-atelier); }
+#screen-visite[data-offre="diner"]   { background: var(--fond-soiree); }
+#screen-visite[data-offre="escape"]  { background: var(--fond-escape); }
+
+/* Cartes sans photo : dégradé laiton / terracotta à la place de l'ancien vert */
+.bandeau .media-bg {
+  background:
+    linear-gradient(135deg, rgba(217,185,106,0.22), rgba(201,138,90,0.20)),
+    repeating-linear-gradient(45deg, rgba(239,232,216,0.05) 0 12px, rgba(239,232,216,0) 12px 24px),
+    var(--nuit-2);
+}
