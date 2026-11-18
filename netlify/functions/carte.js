@@ -22,7 +22,7 @@
    ============================================================ */
 
 const {
-  SITE_URL, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR,
+  SITE_URL, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE,
   json, sha256hex, nouveauJeton, jetonValide, emailValide,
   rpc, stripe, enregistrerSession,
 } = require("../lib/commun");
@@ -67,6 +67,7 @@ async function envoyerEmail(email, lien, langue) {
     headers: { "api-key": process.env.BREVO_API_KEY, "Content-Type": "application/json", accept: "application/json" },
     body: JSON.stringify({
       sender: { name: NOM_EXPEDITEUR, email: EMAIL_EXPEDITEUR },
+      replyTo: { name: NOM_EXPEDITEUR, email: EMAIL_REPONSE },
       to: [{ email }],
       subject: tx.sujet,
       htmlContent: html,

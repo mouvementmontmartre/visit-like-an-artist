@@ -8,7 +8,7 @@
    - STRIPE_WEBHOOK_SECRET  secret de signature du webhook (whsec_…)
    - SUPABASE_SECRET_KEY    clé secrète Supabase (sb_secret_… ou service_role)
    - BREVO_API_KEY          clé API Brevo (envoi des emails)
-   - SUPABASE_URL, SITE_URL, EMAIL_EXPEDITEUR : facultatives
+   - SUPABASE_URL, SITE_URL, EMAIL_EXPEDITEUR, EMAIL_REPONSE : facultatives
    ============================================================ */
 
 const crypto = require("crypto");
@@ -17,6 +17,8 @@ const SUPABASE_URL = (process.env.SUPABASE_URL || "https://mepcwassmoespzzsdjxf.
 const SITE_URL = (process.env.SITE_URL || "https://montmartre.app").replace(/\/$/, "");
 const EMAIL_EXPEDITEUR = process.env.EMAIL_EXPEDITEUR || "bonjour@montmartre.app";
 const NOM_EXPEDITEUR = "Mouvement Montmartre";
+/* Les réponses des destinataires arrivent ici (montmartre.app n'a pas de boîte mail). */
+const EMAIL_REPONSE = process.env.EMAIL_REPONSE || "mouvementmontmartre@gmail.com";
 
 /* Produits Stripe qui donnent une carte de membre (compte Mouvement
    Montmartre). On reconnaît l'adhésion par le PRODUIT, pas par le prix :
@@ -214,7 +216,7 @@ async function enregistrerSession(session) {
 }
 
 module.exports = {
-  SITE_URL, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, PRODUITS_ADHESION, LIENS_PONCTUELS,
+  SITE_URL, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE, PRODUITS_ADHESION, LIENS_PONCTUELS,
   json, sha256hex, nouveauJeton, jetonValide, emailValide,
   rpc, table, stripe, signatureStripeValide,
   idDe, iso, periode, nomDeSession, formuleAbonnement, enregistrerAbonnement, enregistrerSession,
