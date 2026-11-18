@@ -202,6 +202,7 @@ create table public.experiences (
   delai_annulation_heures integer not null default 48 check (delai_annulation_heures >= 0),
   telephone_obligatoire boolean not null default false,
   privatisable        boolean not null default false,
+  age_minimum         integer check (age_minimum between 1 and 99),   -- soirées : âge minimum à confirmer
   frais_annulation_tardive_centimes integer not null default 1000 check (frais_annulation_tardive_centimes >= 0),
       -- par personne, en plus de la pré-réservation, si annulation tardive ou absence
   delai_frais_heures  integer not null default 24 check (delai_frais_heures >= 0),
@@ -492,6 +493,9 @@ create table public.reservations (
   stripe_customer       text,
   stripe_payment_method text,
   accord_frais_le       timestamptz,
+  cgv_version   text,                     -- version des CGV acceptée
+  consentements jsonb not null default '{}',  -- cases cochées et leur heure
+  carte_retiree_le timestamptz,           -- carte retirée de Stripe (CGV art. 10.4)
   annulee_par   text check (annulee_par in ('client', 'organisation', 'minimum', 'paiement_tardif', 'expiration')),
   absent_le     timestamptz,
   rappel_envoye_le timestamptz,
@@ -992,6 +996,7 @@ as $$
     'frais_centimes', r.frais_centimes,
     'type', e.type, 'titre', e.titre, 'duree_minutes', e.duree_minutes,
     'frais_par_personne_centimes', e.frais_annulation_tardive_centimes,
+    'cgv_version', r.cgv_version,
     'debut', s.debut, 'fin', s.fin, 'langue_seance', s.langue,
     'point_rdv', s.point_rdv, 'point_rdv_precis', s.point_rdv_precis,
     'message_inscrits', s.message_inscrits,
@@ -1065,7 +1070,7 @@ end $$;
 create function public.reserver_places(
   p_seance_id uuid, p_personnes integer, p_nom text, p_email text,
   p_telephone text default null, p_langue text default 'fr',
-  p_cgv_acceptees boolean default false, p_accord_frais boolean default false
+  p_consentements jsonb default '{}', p_cgv_version text default null
 ) returns jsonb
 language plpgsql set search_path = ''
 as $$
@@ -1079,8 +1084,15 @@ declare
   v_total integer;
   v_en_ligne integer;
   v_frais boolean;
+  v_accords jsonb;
 begin
-  if not coalesce(p_cgv_acceptees, false) then raise exception 'CGV_NON_ACCEPTEES'; end if;
+  -- Cases cochées (CGV, section 2) : chacune est gardée avec son heure.
+  select coalesce(jsonb_object_agg(k, now()), '{}'::jsonb) into v_accords
+    from jsonb_each(coalesce(p_consentements, '{}'::jsonb)) as c(k, v)
+   where v = 'true'::jsonb
+     and k in ('cgv', 'non_remboursable', 'sans_retractation', 'prelevement', 'age', 'photos');
+  if not v_accords ? 'cgv' then raise exception 'CGV_NON_ACCEPTEES'; end if;
+  if coalesce(p_cgv_version, '') = '' then raise exception 'CGV_VERSION_MANQUANTE'; end if;
 
   select * into s from public.seances where id = p_seance_id for update;
   if not found or s.statut <> 'publiee' or s.debut <= now() then
@@ -1093,8 +1105,12 @@ begin
     raise exception 'NOMBRE_INVALIDE';
   end if;
   if e.telephone_obligatoire and v_tel is null then raise exception 'TELEPHONE_REQUIS'; end if;
+  if not (v_accords ? 'non_remboursable' and v_accords ? 'sans_retractation') then
+    raise exception 'CONSENTEMENTS_MANQUANTS';
+  end if;
+  if e.age_minimum is not null and not v_accords ? 'age' then raise exception 'AGE_NON_CONFIRME'; end if;
   v_frais := e.type in ('visite_guidee', 'atelier') and e.frais_annulation_tardive_centimes > 0;
-  if v_frais and not coalesce(p_accord_frais, false) then raise exception 'ACCORD_FRAIS_REQUIS'; end if;
+  if v_frais and not v_accords ? 'prelevement' then raise exception 'ACCORD_FRAIS_REQUIS'; end if;
 
   v_prises := interne.places_prises(s.id);
   if v_prises + p_personnes > s.capacite_max then
@@ -1109,12 +1125,12 @@ begin
   insert into public.reservations
     (seance_id, experience_id, nom, email, telephone, langue, personnes, statut, bloque_jusqua,
      prix_unitaire_centimes, total_centimes, paye_en_ligne_centimes, reste_sur_place_centimes,
-     cgv_acceptees_le, accord_frais_le)
+     cgv_acceptees_le, accord_frais_le, cgv_version, consentements)
   values
     (s.id, e.id, btrim(p_nom), v_email, v_tel, coalesce(p_langue, 'fr'), p_personnes,
      'en_attente', now() + interval '15 minutes',
      e.prix_centimes, v_total, v_en_ligne, v_total - v_en_ligne, now(),
-     case when v_frais then now() end)
+     case when v_frais then now() end, p_cgv_version, v_accords)
   returning * into r;
 
   return jsonb_build_object(
@@ -1122,7 +1138,7 @@ begin
     'a_payer_centimes', r.paye_en_ligne_centimes,
     'reste_sur_place_centimes', r.reste_sur_place_centimes,
     'bloque_jusqua', r.bloque_jusqua,
-    'garder_carte', v_frais,
+    'garder_carte', v_frais, 'age_minimum', e.age_minimum,
     'frais_centimes', case when v_frais then e.frais_annulation_tardive_centimes * p_personnes else 0 end,
     'experience_type', e.type, 'experience_titre', e.titre, 'debut', s.debut);
 end $$;
@@ -1383,7 +1399,7 @@ begin
   return jsonb_build_object('annulees', v_annulees, 'confirmees', v_ok);
 end $$;
 
--- Rappels 36 h avant (avec un lien « Je ne peux plus venir »).
+-- Rappels 48 h avant (CGV art. 10.5) (avec un lien « Je ne peux plus venir »).
 create function public.preparer_rappels() returns integer
 language plpgsql set search_path = ''
 as $$
@@ -1396,12 +1412,12 @@ begin
       from public.reservations res
       join public.seances se on se.id = res.seance_id
      where res.statut = 'confirmee' and res.rappel_envoye_le is null
-       and se.statut = 'publiee' and se.debut > now() and se.debut <= now() + interval '36 hours'
+       and se.statut = 'publiee' and se.debut > now() and se.debut <= now() + interval '48 hours'
      for update of res skip locked
   loop
     update public.reservations set rappel_envoye_le = now() where id = r.id;
-    -- Réservé moins de 36 h avant : l'email de confirmation suffit.
-    if r.confirmee_le < r.debut - interval '36 hours' then
+    -- Réservé moins de 48 h avant : l'email de confirmation suffit.
+    if r.confirmee_le < r.debut - interval '48 hours' then
       perform interne.envoyer('rappel', r.email, r.langue, r.id,
                               jsonb_build_object('jeton', interne.lien_reservation(r.id)));
       n := n + 1;
@@ -1525,6 +1541,33 @@ language sql set search_path = ''
 as $$
   update public.reservations set frais_statut = 'preleve', frais_payment_intent = p_payment_intent
    where id = p_reservation_id and frais_statut in ('a_payer', 'echec', 'en_cours');
+$$;
+
+
+-- Cartes à retirer de Stripe (CGV art. 10.4) : 7 jours après la séance, ou dès
+-- qu'aucun frais ne peut plus être dû (annulation sans frais, frais réglés ou
+-- abandonnés, remboursement, séance annulée, paiement abandonné).
+create function public.cartes_a_retirer(p_limite integer default 20) returns jsonb
+language sql stable set search_path = ''
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object('id', x.id, 'stripe_payment_method', x.stripe_payment_method)), '[]'::jsonb)
+    from (select r.id, r.stripe_payment_method
+            from public.reservations r join public.seances s on s.id = r.seance_id
+           where r.stripe_payment_method is not null and r.carte_retiree_le is null
+             and r.frais_statut not in ('a_prelever', 'en_cours', 'a_payer')
+             and (coalesce(s.fin, s.debut) < now() - interval '7 days'
+                  or s.statut = 'annulee'
+                  or r.statut in ('remboursee', 'expiree')
+                  or (r.statut = 'annulee' and r.frais_statut in ('aucun', 'preleve', 'echec')))
+           order by r.cree_le limit p_limite) x;
+$$;
+
+-- La carte est retirée : plus aucun frais ne pourra être prélevé.
+create function public.carte_retiree(p_reservation_id uuid) returns void
+language sql set search_path = ''
+as $$
+  update public.reservations set carte_retiree_le = now(), stripe_payment_method = null
+   where id = p_reservation_id and carte_retiree_le is null;
 $$;
 
 -- Lien pour l'écran de confirmation, au retour du paiement (session Stripe vérifiée).

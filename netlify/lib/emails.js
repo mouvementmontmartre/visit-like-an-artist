@@ -34,6 +34,8 @@ const T = {
     regle_soiree: "Vous ne pouvez plus venir ? Prévenez-nous avec le bouton ci-dessous.",
     bouton_annuler: "Je ne peux plus venir",
     calendrier: "Le fichier joint ajoute la visite à votre calendrier.",
+    cgv: "Cette activité de loisirs a lieu à une date déterminée : elle n'ouvre pas de droit de rétractation (article L221-28, 12° du Code de la consommation). Vos conditions générales de vente :",
+    lien_cgv: "lire les CGV",
     annulation_sujet: (d) => "Annulation enregistrée : " + d,
     annulation_texte: "Votre annulation est enregistrée et votre place a été libérée.",
     annulation_frais: (m) => "L'annulation intervenant moins de 24 h avant, " + m + " de frais d'annulation tardive vont être prélevés sur la carte utilisée lors de la réservation.",
@@ -65,6 +67,8 @@ const T = {
     regle_soiree: "Can't make it? Let us know with the button below.",
     bouton_annuler: "I can no longer come",
     calendrier: "The attached file adds the tour to your calendar.",
+    cgv: "This leisure activity takes place on a set date: there is no right of withdrawal (article L221-28, 12° of the French Consumer Code). Your terms and conditions of sale:",
+    lien_cgv: "read the terms",
     annulation_sujet: (d) => "Cancellation recorded: " + d,
     annulation_texte: "Your cancellation is recorded and your spot has been released.",
     annulation_frais: (m) => "As you cancelled less than 24 hours before, a late cancellation fee of " + m + " will be charged to the card used for the booking.",
@@ -96,6 +100,8 @@ const T = {
     regle_soiree: "¿Ya no puedes venir? Avísanos con el botón de abajo.",
     bouton_annuler: "Ya no puedo venir",
     calendrier: "El archivo adjunto añade la visita a tu calendario.",
+    cgv: "Esta actividad de ocio tiene lugar en una fecha determinada: no da derecho de desistimiento (artículo L221-28, 12° del Código de consumo francés). Tus condiciones generales de venta:",
+    lien_cgv: "leer las condiciones",
     annulation_sujet: (d) => "Cancelación registrada: " + d,
     annulation_texte: "Tu cancelación está registrada y tu plaza ha quedado libre.",
     annulation_frais: (m) => "Como la cancelación se hace con menos de 24 h de antelación, se cobrarán " + m + " de gastos de cancelación tardía en la tarjeta utilizada.",
@@ -170,7 +176,9 @@ function rediger(envoi) {
       corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p><p>" + esc(c ? t.confirmation_intro : t.rappel_intro) + "</p>" +
         "<h2 style=\"font-size:20px;margin:16px 0 4px\">" + esc(nomVisite) + "</h2>" + recap + reste + mot +
         "<p>" + esc(estVisite(d) ? t.regle(fraisPers) : t.regle_soiree) + "</p>" +
-        (lienResa ? bouton(lienResa, t.bouton_annuler) : "") + "<p style=\"font-size:13px;color:#5A4E44\">" + esc(t.calendrier) + "</p>" + fin;
+        (lienResa ? bouton(lienResa, t.bouton_annuler) : "") + "<p style=\"font-size:13px;color:#5A4E44\">" + esc(t.calendrier) + "</p>" +
+        (c ? "<p style=\"font-size:13px;color:#5A4E44\">" + esc(t.cgv) + ' <a href="' + esc(SITE_URL + "/cgv.html") + '">' + esc(t.lien_cgv) +
+          (d.cgv_version ? " (" + esc(d.cgv_version) + ")" : "") + "</a></p>" : "") + fin;
       pieces = [{ name: "visite.ics", content: Buffer.from(ics(d), "utf8").toString("base64") }];
       break;
     }

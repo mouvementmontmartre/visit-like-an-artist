@@ -1,7 +1,9 @@
 /* ============================================================
    FONCTION NETLIFY — reserver
    POST { seance_id, personnes, nom, email, telephone, langue,
-          cgv, accord_frais }
+          consentements: { cgv, non_remboursable, sans_retractation,
+                           prelevement, age, photos } }
+   Chaque case cochée est gardée avec son heure et la version des CGV.
    1. Bloque les places 15 minutes (base, prix calculés par la base).
    2. Crée la session de paiement Stripe et renvoie son adresse.
    Pour une visite ou un atelier, la carte est gardée (accord donné)
@@ -9,10 +11,11 @@
    Si Stripe échoue, les places sont libérées tout de suite.
    ============================================================ */
 
-const { SITE_URL, json, rpc, stripePost, emailValide } = require("../lib/commun");
+const { SITE_URL, CGV_VERSION, json, rpc, stripePost, emailValide } = require("../lib/commun");
 
 const ERREURS = {
   CGV_NON_ACCEPTEES: 400, ACCORD_FRAIS_REQUIS: 400, TELEPHONE_REQUIS: 400, NOMBRE_INVALIDE: 400,
+  CONSENTEMENTS_MANQUANTS: 400, AGE_NON_CONFIRME: 400,
   SEANCE_INDISPONIBLE: 409, COMPLET: 409,
 };
 const MENTION_FRAIS = {
@@ -36,12 +39,19 @@ exports.handler = async (event) => {
     return json(400, { error: "Paramètres invalides", code: "PARAMETRES" });
   }
 
+  // Seules les cases connues, et seulement si elles sont vraiment cochées (true).
+  const c = p.consentements && typeof p.consentements === "object" ? p.consentements : {};
+  const consentements = {};
+  for (const k of ["cgv", "non_remboursable", "sans_retractation", "prelevement", "age", "photos"]) {
+    if (c[k] === true) consentements[k] = true;
+  }
+
   let resa;
   try {
     resa = await rpc("reserver_places", {
       p_seance_id: p.seance_id, p_personnes: personnes, p_nom: nom, p_email: email,
       p_telephone: telephone || null, p_langue: langue,
-      p_cgv_acceptees: p.cgv === true, p_accord_frais: p.accord_frais === true,
+      p_consentements: consentements, p_cgv_version: CGV_VERSION,
     });
   } catch (e) {
     const code = Object.keys(ERREURS).find((k) => (e.message || "").includes(k));

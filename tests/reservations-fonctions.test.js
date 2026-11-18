@@ -36,6 +36,8 @@ function stripePost(chemin, f, cle) {
   } else if (chemin === "refunds") {
     const r = { id: nouvelId("re"), payment_intent: f.payment_intent, amount: Number(f.amount) };
     ST.refunds.push(r); rep = [200, r];
+  } else if (/^payment_methods\/[^/]+\/detach$/.test(chemin)) {
+    rep = [200, { id: chemin.split("/")[1], customer: null }];
   } else if (chemin === "payment_intents") {
     if (fraisReponse === "succeeded") { const pi = { id: nouvelId("pi"), status: "succeeded", amount: Number(f.amount), params: f }; ST.pis[pi.id] = pi; rep = [200, pi]; }
     else rep = [402, { error: { code: "authentication_required", message: "auth" } }];
@@ -130,12 +132,18 @@ function verifier(nom, cond, detail) {
     "insert into public.seances (experience_id, debut, point_rdv, point_rdv_precis, message_inscrits, statut, participants_min, capacite_max) values ($1, now() + make_interval(hours => $2), 'Square', 'Devant le kiosque', 'Je porte un chapeau <gris>', 'publiee', $3, $4) returning id",
     [x, h, min, cap])).rows[0].id;
   const sLoin = await seance(120), sProche = await seance(20, 1), sMin = await seance(40, 4), sPetite = await seance(100, 1, 1);
-  const base = { personnes: 2, nom: "Camille <b>Durand</b>", email: "Camille@Exemple.invalid", telephone: "0612345678", langue: "fr", cgv: true, accord_frais: true };
+  const base = { personnes: 2, nom: "Camille <b>Durand</b>", email: "Camille@Exemple.invalid", telephone: "0612345678", langue: "fr", consentements: { cgv: true, non_remboursable: true, sans_retractation: true, prelevement: true } };
 
   // ---- reserver ----
   let r = await post(reserver, Object.assign({}, base, { seance_id: "pas-un-uuid" }));
   verifier("reserver : paramètres invalides refusés", r.statusCode === 400);
-  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, accord_frais: false }));
+  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, consentements: { cgv: true, non_remboursable: true, sans_retractation: true } }));
+  verifier("reserver : sans accord pour les frais, refus clair (cases)", r.statusCode === 400 && lire(r).code === "ACCORD_FRAIS_REQUIS", lire(r));
+  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, consentements: { cgv: true, prelevement: true, sans_retractation: true } }));
+  verifier("reserver : sans la case « non remboursable », refus", r.statusCode === 400 && lire(r).code === "CONSENTEMENTS_MANQUANTS", lire(r));
+  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, consentements: { cgv: "oui", non_remboursable: 1, sans_retractation: true, prelevement: true } }));
+  verifier("reserver : une case qui n'est pas vraiment cochée (true) ne compte pas", r.statusCode === 400 && lire(r).code === "CGV_NON_ACCEPTEES", lire(r));
+  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, consentements: { cgv: true, non_remboursable: true, sans_retractation: true } }));
   verifier("reserver : sans accord pour les frais, refus clair", r.statusCode === 400 && lire(r).code === "ACCORD_FRAIS_REQUIS", lire(r));
   r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, telephone: "" }));
   verifier("reserver : téléphone obligatoire pour une visite", r.statusCode === 400 && lire(r).code === "TELEPHONE_REQUIS");
@@ -166,6 +174,8 @@ function verifier(nom, cond, detail) {
   const m1 = conf && conf.htmlContent.match(/https:\/\/montmartre\.app\/#reservation=([0-9a-f]{64})/);
   verifier("confirmation : bouton « Je ne peux plus venir » avec lien personnel", !!m1);
   verifier("confirmation : fichier calendrier joint", conf && conf.attachment && /BEGIN:VEVENT/.test(Buffer.from(conf.attachment[0].content, "base64").toString()));
+  verifier("confirmation : rappel « pas de droit de rétractation » et lien vers les CGV datées", conf && /L221-28/.test(conf.textContent) && conf.htmlContent.includes("https://montmartre.app/cgv.html") && /2026-11-18/.test(conf.htmlContent));
+  verifier("cases cochées et version des CGV gardées", (await ligne("select consentements ?& array['cgv','non_remboursable','sans_retractation','prelevement'] as ok, cgv_version from public.reservations where id = $1", [resa1])).ok === true);
   verifier("pas de long tiret dans les emails", !brevo.some((m) => /—/.test(m.subject + m.htmlContent)));
   verifier("alertes : association et guide prévenus", mails("alerte_inscription").map((m) => m.to[0].email).sort().join() === "guide@exemple.invalid,mouvementmontmartre@gmail.com");
   verifier("le lien personnel n'est plus stocké après l'envoi", !(await ligne("select 1 from public.envois where statut = 'envoye' and donnees ? 'jeton'")));
@@ -196,6 +206,8 @@ function verifier(nom, cond, detail) {
   verifier("annulation : email au client et alertes au guide et à l'association", mails("annulation_client").length === 1 && mails("alerte_annulation").length === 2);
   verifier("annulation : aucun remboursement (5 € gardés), aucun prélèvement", ST.refunds.length === 0 && !ST.appels.some((c) => c.chemin === "payment_intents"));
   r = await post(reservation, { action: "annuler", jeton: m1[1] });
+  const det = ST.appels.find((c) => c.chemin === "payment_methods/pm_carte/detach");
+  verifier("annulation sans frais : carte retirée de Stripe aussitôt (CGV 10.4)", det && /^detach-/.test(det.cle) && (await ligne("select stripe_payment_method, carte_retiree_le from public.reservations where id = $1", [resa1])).carte_retiree_le !== null, det);
   verifier("annuler deux fois : sans effet", r.statusCode === 200 && lire(r).annulation.deja_annulee === true);
 
   // ---- annulation tardive : frais prélevés ----
@@ -209,6 +221,7 @@ function verifier(nom, cond, detail) {
   verifier("frais prélevés sur la carte gardée, hors session, avec clé anti-doublon", pf && pf.f.payment_method === "pm_tard" && pf.f.off_session === "true" && pf.f.amount === "2000" && /^frais-/.test(pf.cle), pf);
   verifier("frais : reçu envoyé au client", mails("frais_preleves").length === 1 && /20\s€/.test(mails("frais_preleves")[0].textContent));
   await post(taches, {});
+  verifier("frais prélevés : carte retirée ensuite", ST.appels.some((c) => c.chemin === "payment_methods/pm_tard/detach"));
   verifier("tâche relancée : pas de deuxième prélèvement", ST.appels.filter((c) => c.chemin === "payment_intents").length === 1);
 
   // ---- la banque demande une validation : lien de paiement ----

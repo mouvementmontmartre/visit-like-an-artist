@@ -119,14 +119,30 @@ async function traiterFrais(limite = 20) {
   return { preleves, liens, erreurs };
 }
 
+/** Cartes enregistrées à retirer de Stripe (CGV art. 10.4). */
+async function traiterCartes(limite = 20) {
+  const lot = await rpc("cartes_a_retirer", { p_limite: limite });
+  let retirees = 0, erreurs = 0;
+  for (const c of lot || []) {
+    const rep = await stripePost("payment_methods/" + encodeURIComponent(c.stripe_payment_method) + "/detach", {}, "detach-" + c.id)
+      .catch((e) => ({ ok: false, data: { error: { message: e.message } } }));
+    const err = (rep.data && rep.data.error) || {};
+    const dejaRetiree = !rep.ok && (err.code === "resource_missing" || /not attached|does not have/i.test(err.message || ""));
+    if (rep.ok || dejaRetiree) { await rpc("carte_retiree", { p_reservation_id: c.id }); retirees++; }
+    else { erreurs++; console.error("carte non retirée", c.id, err.message); }
+  }
+  return { retirees, erreurs };
+}
+
 /** Tout ce qui est en attente (appelé par la tâche planifiée, et juste après
     une action pour ne pas faire attendre les emails). */
 async function toutTraiter() {
   const bilan = {};
-  for (const [nom, f] of [["remboursements", traiterRemboursements], ["frais", traiterFrais], ["emails", traiterEnvois]]) {
+  for (const [nom, f] of [["remboursements", traiterRemboursements], ["frais", traiterFrais],
+                          ["cartes", traiterCartes], ["emails", traiterEnvois]]) {
     try { bilan[nom] = await f(); } catch (e) { bilan[nom] = { erreur: e.message }; console.error("toutTraiter", nom, e.message); }
   }
   return bilan;
 }
 
-module.exports = { confirmerSession, traiterEnvois, traiterRemboursements, traiterFrais, toutTraiter, envoyerEmail };
+module.exports = { confirmerSession, traiterEnvois, traiterRemboursements, traiterFrais, traiterCartes, toutTraiter, envoyerEmail };

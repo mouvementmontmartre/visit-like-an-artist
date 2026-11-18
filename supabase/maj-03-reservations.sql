@@ -6,8 +6,9 @@
 -- passe ou rien ne passe. (Une base neuve n'en a pas besoin.)
 --
 -- Ajoute le cycle complet des réservations : confirmation, rappel
--- 36 h avant, « Je ne peux plus venir », frais d'annulation tardive et
--- d'absence (10 € par personne, carte enregistrée avec accord), séances
+-- 48 h avant, « Je ne peux plus venir », frais d'annulation tardive et
+-- d'absence (10 € par personne, carte enregistrée avec accord et retirée
+-- 7 jours après la séance), cases des CGV horodatées, séances
 -- annulées si le minimum n'est pas atteint 48 h avant, remboursements
 -- et emails en file. Ensuite : relancer supabase/test-droits.sql.
 -- ============================================================
@@ -26,12 +27,16 @@ end $$;
 
 alter table public.experiences
   add column frais_annulation_tardive_centimes integer not null default 1000 check (frais_annulation_tardive_centimes >= 0),
-  add column delai_frais_heures integer not null default 24 check (delai_frais_heures >= 0);
+  add column delai_frais_heures integer not null default 24 check (delai_frais_heures >= 0),
+  add column age_minimum integer check (age_minimum between 1 and 99);
 alter table public.seances add column minimum_verifie_le timestamptz;
 alter table public.reservations
   add column stripe_customer text,
   add column stripe_payment_method text,
   add column accord_frais_le timestamptz,
+  add column cgv_version text,
+  add column consentements jsonb not null default '{}',
+  add column carte_retiree_le timestamptz,
   add column annulee_par text check (annulee_par in ('client', 'organisation', 'minimum', 'paiement_tardif', 'expiration')),
   add column absent_le timestamptz,
   add column rappel_envoye_le timestamptz,
@@ -122,6 +127,7 @@ as $$
     'frais_centimes', r.frais_centimes,
     'type', e.type, 'titre', e.titre, 'duree_minutes', e.duree_minutes,
     'frais_par_personne_centimes', e.frais_annulation_tardive_centimes,
+    'cgv_version', r.cgv_version,
     'debut', s.debut, 'fin', s.fin, 'langue_seance', s.langue,
     'point_rdv', s.point_rdv, 'point_rdv_precis', s.point_rdv_precis,
     'message_inscrits', s.message_inscrits,
@@ -195,7 +201,7 @@ end $$;
 create function public.reserver_places(
   p_seance_id uuid, p_personnes integer, p_nom text, p_email text,
   p_telephone text default null, p_langue text default 'fr',
-  p_cgv_acceptees boolean default false, p_accord_frais boolean default false
+  p_consentements jsonb default '{}', p_cgv_version text default null
 ) returns jsonb
 language plpgsql set search_path = ''
 as $$
@@ -209,8 +215,15 @@ declare
   v_total integer;
   v_en_ligne integer;
   v_frais boolean;
+  v_accords jsonb;
 begin
-  if not coalesce(p_cgv_acceptees, false) then raise exception 'CGV_NON_ACCEPTEES'; end if;
+  -- Cases cochées (CGV, section 2) : chacune est gardée avec son heure.
+  select coalesce(jsonb_object_agg(k, now()), '{}'::jsonb) into v_accords
+    from jsonb_each(coalesce(p_consentements, '{}'::jsonb)) as c(k, v)
+   where v = 'true'::jsonb
+     and k in ('cgv', 'non_remboursable', 'sans_retractation', 'prelevement', 'age', 'photos');
+  if not v_accords ? 'cgv' then raise exception 'CGV_NON_ACCEPTEES'; end if;
+  if coalesce(p_cgv_version, '') = '' then raise exception 'CGV_VERSION_MANQUANTE'; end if;
 
   select * into s from public.seances where id = p_seance_id for update;
   if not found or s.statut <> 'publiee' or s.debut <= now() then
@@ -223,8 +236,12 @@ begin
     raise exception 'NOMBRE_INVALIDE';
   end if;
   if e.telephone_obligatoire and v_tel is null then raise exception 'TELEPHONE_REQUIS'; end if;
+  if not (v_accords ? 'non_remboursable' and v_accords ? 'sans_retractation') then
+    raise exception 'CONSENTEMENTS_MANQUANTS';
+  end if;
+  if e.age_minimum is not null and not v_accords ? 'age' then raise exception 'AGE_NON_CONFIRME'; end if;
   v_frais := e.type in ('visite_guidee', 'atelier') and e.frais_annulation_tardive_centimes > 0;
-  if v_frais and not coalesce(p_accord_frais, false) then raise exception 'ACCORD_FRAIS_REQUIS'; end if;
+  if v_frais and not v_accords ? 'prelevement' then raise exception 'ACCORD_FRAIS_REQUIS'; end if;
 
   v_prises := interne.places_prises(s.id);
   if v_prises + p_personnes > s.capacite_max then
@@ -239,12 +256,12 @@ begin
   insert into public.reservations
     (seance_id, experience_id, nom, email, telephone, langue, personnes, statut, bloque_jusqua,
      prix_unitaire_centimes, total_centimes, paye_en_ligne_centimes, reste_sur_place_centimes,
-     cgv_acceptees_le, accord_frais_le)
+     cgv_acceptees_le, accord_frais_le, cgv_version, consentements)
   values
     (s.id, e.id, btrim(p_nom), v_email, v_tel, coalesce(p_langue, 'fr'), p_personnes,
      'en_attente', now() + interval '15 minutes',
      e.prix_centimes, v_total, v_en_ligne, v_total - v_en_ligne, now(),
-     case when v_frais then now() end)
+     case when v_frais then now() end, p_cgv_version, v_accords)
   returning * into r;
 
   return jsonb_build_object(
@@ -252,7 +269,7 @@ begin
     'a_payer_centimes', r.paye_en_ligne_centimes,
     'reste_sur_place_centimes', r.reste_sur_place_centimes,
     'bloque_jusqua', r.bloque_jusqua,
-    'garder_carte', v_frais,
+    'garder_carte', v_frais, 'age_minimum', e.age_minimum,
     'frais_centimes', case when v_frais then e.frais_annulation_tardive_centimes * p_personnes else 0 end,
     'experience_type', e.type, 'experience_titre', e.titre, 'debut', s.debut);
 end $$;
@@ -513,7 +530,7 @@ begin
   return jsonb_build_object('annulees', v_annulees, 'confirmees', v_ok);
 end $$;
 
--- Rappels 36 h avant (avec un lien « Je ne peux plus venir »).
+-- Rappels 48 h avant (CGV art. 10.5) (avec un lien « Je ne peux plus venir »).
 create function public.preparer_rappels() returns integer
 language plpgsql set search_path = ''
 as $$
@@ -526,12 +543,12 @@ begin
       from public.reservations res
       join public.seances se on se.id = res.seance_id
      where res.statut = 'confirmee' and res.rappel_envoye_le is null
-       and se.statut = 'publiee' and se.debut > now() and se.debut <= now() + interval '36 hours'
+       and se.statut = 'publiee' and se.debut > now() and se.debut <= now() + interval '48 hours'
      for update of res skip locked
   loop
     update public.reservations set rappel_envoye_le = now() where id = r.id;
-    -- Réservé moins de 36 h avant : l'email de confirmation suffit.
-    if r.confirmee_le < r.debut - interval '36 hours' then
+    -- Réservé moins de 48 h avant : l'email de confirmation suffit.
+    if r.confirmee_le < r.debut - interval '48 hours' then
       perform interne.envoyer('rappel', r.email, r.langue, r.id,
                               jsonb_build_object('jeton', interne.lien_reservation(r.id)));
       n := n + 1;
@@ -657,6 +674,33 @@ as $$
    where id = p_reservation_id and frais_statut in ('a_payer', 'echec', 'en_cours');
 $$;
 
+
+-- Cartes à retirer de Stripe (CGV art. 10.4) : 7 jours après la séance, ou dès
+-- qu'aucun frais ne peut plus être dû (annulation sans frais, frais réglés ou
+-- abandonnés, remboursement, séance annulée, paiement abandonné).
+create function public.cartes_a_retirer(p_limite integer default 20) returns jsonb
+language sql stable set search_path = ''
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object('id', x.id, 'stripe_payment_method', x.stripe_payment_method)), '[]'::jsonb)
+    from (select r.id, r.stripe_payment_method
+            from public.reservations r join public.seances s on s.id = r.seance_id
+           where r.stripe_payment_method is not null and r.carte_retiree_le is null
+             and r.frais_statut not in ('a_prelever', 'en_cours', 'a_payer')
+             and (coalesce(s.fin, s.debut) < now() - interval '7 days'
+                  or s.statut = 'annulee'
+                  or r.statut in ('remboursee', 'expiree')
+                  or (r.statut = 'annulee' and r.frais_statut in ('aucun', 'preleve', 'echec')))
+           order by r.cree_le limit p_limite) x;
+$$;
+
+-- La carte est retirée : plus aucun frais ne pourra être prélevé.
+create function public.carte_retiree(p_reservation_id uuid) returns void
+language sql set search_path = ''
+as $$
+  update public.reservations set carte_retiree_le = now(), stripe_payment_method = null
+   where id = p_reservation_id and carte_retiree_le is null;
+$$;
+
 -- Lien pour l'écran de confirmation, au retour du paiement (session Stripe vérifiée).
 create function public.lien_reservation_session(p_stripe_session_id text) returns jsonb
 language plpgsql set search_path = ''
@@ -702,11 +746,11 @@ create policy "admin supprime" on public.intervenants_contacts for delete to aut
 -- Droits : fermés par défaut, puis le strict nécessaire.
 revoke all on public.intervenants_contacts, public.reservations_liens, public.envois from public, anon, authenticated;
 revoke all on sequence public.envois_id_seq from public, anon, authenticated;
-revoke all on function public.reserver_places(uuid, integer, text, text, text, text, boolean, boolean), public.confirmer_reservation(uuid, text, text, integer, text, text), public.liberer_reservation(text, uuid), public.reservation_par_jeton(text), public.annuler_par_client(text), public.annuler_seance(uuid, text), public.signaler_absence(uuid), public.verifier_minimums(), public.preparer_rappels(), public.envois_a_traiter(integer), public.envoi_resultat(bigint, boolean, text), public.remboursements_a_traiter(integer), public.remboursement_resultat(uuid, boolean, text, text), public.frais_a_traiter(integer), public.frais_resultat(uuid, text, text, text, text), public.frais_payes(uuid, text), public.lien_reservation_session(text), public.effacer_telephones_anciens() from public, anon, authenticated;
+revoke all on function public.reserver_places(uuid, integer, text, text, text, text, jsonb, text), public.confirmer_reservation(uuid, text, text, integer, text, text), public.liberer_reservation(text, uuid), public.reservation_par_jeton(text), public.annuler_par_client(text), public.annuler_seance(uuid, text), public.signaler_absence(uuid), public.verifier_minimums(), public.preparer_rappels(), public.envois_a_traiter(integer), public.envoi_resultat(bigint, boolean, text), public.remboursements_a_traiter(integer), public.remboursement_resultat(uuid, boolean, text, text), public.frais_a_traiter(integer), public.frais_resultat(uuid, text, text, text, text), public.frais_payes(uuid, text), public.lien_reservation_session(text), public.cartes_a_retirer(integer), public.carte_retiree(uuid), public.effacer_telephones_anciens() from public, anon, authenticated;
 revoke all on function interne.email_association(), interne.nouveau_jeton(), interne.sha256(text), interne.donnees_reservation(uuid), interne.envoyer(text, text, text, uuid, jsonb), interne.alerter(text, uuid, jsonb), interne.lien_reservation(uuid), interne.rembourser(uuid, text) from public, anon, authenticated;
 grant all on public.intervenants_contacts, public.reservations_liens, public.envois to service_role;
 grant all on sequence public.envois_id_seq to service_role;
-grant execute on function public.reserver_places(uuid, integer, text, text, text, text, boolean, boolean), public.confirmer_reservation(uuid, text, text, integer, text, text), public.liberer_reservation(text, uuid), public.reservation_par_jeton(text), public.annuler_par_client(text), public.annuler_seance(uuid, text), public.signaler_absence(uuid), public.verifier_minimums(), public.preparer_rappels(), public.envois_a_traiter(integer), public.envoi_resultat(bigint, boolean, text), public.remboursements_a_traiter(integer), public.remboursement_resultat(uuid, boolean, text, text), public.frais_a_traiter(integer), public.frais_resultat(uuid, text, text, text, text), public.frais_payes(uuid, text), public.lien_reservation_session(text), public.effacer_telephones_anciens() to service_role;
+grant execute on function public.reserver_places(uuid, integer, text, text, text, text, jsonb, text), public.confirmer_reservation(uuid, text, text, integer, text, text), public.liberer_reservation(text, uuid), public.reservation_par_jeton(text), public.annuler_par_client(text), public.annuler_seance(uuid, text), public.signaler_absence(uuid), public.verifier_minimums(), public.preparer_rappels(), public.envois_a_traiter(integer), public.envoi_resultat(bigint, boolean, text), public.remboursements_a_traiter(integer), public.remboursement_resultat(uuid, boolean, text, text), public.frais_a_traiter(integer), public.frais_resultat(uuid, text, text, text, text), public.frais_payes(uuid, text), public.lien_reservation_session(text), public.cartes_a_retirer(integer), public.carte_retiree(uuid), public.effacer_telephones_anciens() to service_role;
 grant execute on function interne.email_association(), interne.nouveau_jeton(), interne.sha256(text), interne.donnees_reservation(uuid), interne.envoyer(text, text, text, uuid, jsonb), interne.alerter(text, uuid, jsonb), interne.lien_reservation(uuid), interne.rembourser(uuid, text) to service_role;
 grant select, insert, update, delete on public.intervenants_contacts to authenticated;
 grant execute on function public.annuler_seance(uuid, text) to authenticated;
