@@ -1,5 +1,5 @@
 -- ============================================================
--- VISIT LIKE AN ARTIST : mise à jour n° 3 (réservations)
+-- ARTDIVE : mise à jour n° 3 (réservations)
 --
 -- Pour une base où schema.sql, maj-01 et maj-02 sont DÉJÀ installés.
 -- À coller en entier dans Supabase > SQL Editor, puis « Run ». Tout

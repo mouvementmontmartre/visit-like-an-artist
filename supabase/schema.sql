@@ -1,5 +1,5 @@
 -- ============================================================
--- VISIT LIKE AN ARTIST : schéma de la base (étape 4)
+-- ARTDIVE : schéma de la base (étape 4)
 --
 -- À coller EN ENTIER dans Supabase > SQL Editor, sur une base vide,
 -- puis cliquer sur « Run ». Tout passe ou rien ne passe : en cas

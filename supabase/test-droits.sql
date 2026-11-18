@@ -1,5 +1,5 @@
 -- ============================================================
--- VISIT LIKE AN ARTIST : test des droits d'accès
+-- ARTDIVE : test des droits d'accès
 --
 -- À coller EN ENTIER dans Supabase > SQL Editor APRÈS schema.sql,
 -- puis « Run ». Le résultat est un tableau : chaque ligne doit

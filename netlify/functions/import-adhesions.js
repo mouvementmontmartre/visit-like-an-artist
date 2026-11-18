@@ -8,7 +8,7 @@
 
    Protégée par un code à usage unique (30 min) que l'association crée
    dans Supabase > SQL Editor :  select public.code_import_creer();
-   puis : https://montmartre.app/.netlify/functions/import-adhesions?code=CODE
+   puis : https://artdive.app/.netlify/functions/import-adhesions?code=CODE
 
    Ne renvoie que des totaux, jamais de noms ni d'emails.
    ============================================================ */

@@ -141,8 +141,8 @@ function ics(d) {
   const fin = d.fin || new Date(new Date(d.debut).getTime() + (d.duree_minutes || 120) * 60000).toISOString();
   const txt = (s) => String(s || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
   return [
-    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Mouvement Montmartre//Visit Like An Artist//FR", "METHOD:PUBLISH",
-    "BEGIN:VEVENT", "UID:" + d.reference + "@montmartre.app", "DTSTAMP:" + f(new Date().toISOString()),
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Mouvement Montmartre//ArtDive//FR", "METHOD:PUBLISH",
+    "BEGIN:VEVENT", "UID:" + d.reference + "@artdive.app", "DTSTAMP:" + f(new Date().toISOString()),
     "DTSTART:" + f(d.debut), "DTEND:" + f(fin), "SUMMARY:" + txt(titre(d, "fr")),
     "LOCATION:" + txt(d.point_rdv_precis || d.point_rdv), "DESCRIPTION:" + txt("Réservation " + d.reference),
     "END:VEVENT", "END:VCALENDAR", "",

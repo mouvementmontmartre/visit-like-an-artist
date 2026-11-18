@@ -1,5 +1,5 @@
 -- ============================================================
--- VISIT LIKE AN ARTIST : mise à jour n° 1 (guides autonomes)
+-- ARTDIVE : mise à jour n° 1 (guides autonomes)
 --
 -- Pour une base où schema.sql est DÉJÀ installé. À coller en entier
 -- dans Supabase > SQL Editor, puis « Run ». Tout passe ou rien ne passe.

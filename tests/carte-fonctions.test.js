@@ -228,8 +228,8 @@ function verifier(nom, cond, detail) {
   r = await post(carte, { action: "lien", email: " Camille@Exemple.invalid ", langue: "en" });
   const mail = brevo[brevo.length - 1];
   verifier("lien : adhérente → email envoyé, en anglais", r.statusCode === 200 && brevo.length === 1 && mail.to[0].email === "camille@exemple.invalid" && /member card/.test(mail.subject), mail && mail.subject);
-  const m = (mail.textContent || "").match(/https:\/\/montmartre\.app\/#carte=([A-Za-z0-9_-]{43})/);
-  verifier("lien : pointe vers montmartre.app, jeton après #", !!m, mail.textContent);
+  const m = (mail.textContent || "").match(/https:\/\/artdive\.app\/#carte=([A-Za-z0-9_-]{43})/);
+  verifier("lien : pointe vers artdive.app, jeton après #", !!m, mail.textContent);
   r = await post(carte, { action: "voir", jeton: m && m[1] });
   verifier("lien : le jeton reçu par email ouvre la carte", r.statusCode === 200 && lire(r).carte.valide === true);
   const avant = brevo.length;

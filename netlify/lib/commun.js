@@ -14,13 +14,13 @@
 const crypto = require("crypto");
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://mepcwassmoespzzsdjxf.supabase.co").replace(/\/$/, "");
-const SITE_URL = (process.env.SITE_URL || "https://montmartre.app").replace(/\/$/, "");
-const EMAIL_EXPEDITEUR = process.env.EMAIL_EXPEDITEUR || "bonjour@montmartre.app";
+const SITE_URL = (process.env.SITE_URL || "https://artdive.app").replace(/\/$/, "");
+const EMAIL_EXPEDITEUR = process.env.EMAIL_EXPEDITEUR || "bonjour@artdive.app";
 /* Version des CGV en vigueur (date). À changer à chaque nouvelle version publiée dans cgv.html :
    chaque réservation garde la version acceptée. */
 const CGV_VERSION = "2026-11-18";
 const NOM_EXPEDITEUR = "Mouvement Montmartre";
-/* Les réponses des destinataires arrivent ici (montmartre.app n'a pas de boîte mail). */
+/* Les réponses des destinataires arrivent ici (artdive.app n'a pas de boîte mail). */
 const EMAIL_REPONSE = process.env.EMAIL_REPONSE || "mouvementmontmartre@gmail.com";
 
 /* Produits Stripe qui donnent une carte de membre (compte Mouvement

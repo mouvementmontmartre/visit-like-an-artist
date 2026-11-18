@@ -1,6 +1,6 @@
-# Visit Like An Artist (VLAA)
+# ArtDive (anciennement Visit Like An Artist, VLAA)
 
-PWA de visites et d'expériences à Montmartre, du Mouvement Montmartre. JS pur (sans framework), Leaflet, service worker, Netlify, Stripe via 3 fonctions Netlify. Le contenu vient encore de Google Sheets publiés en CSV. Supabase est connecté dans `js/config.js` ; le schéma est installé (étape 4) mais l'app ne l'appelle pas encore.
+PWA de visites et d'expériences à Montmartre, du Mouvement Montmartre. **Nom : ArtDive, adresse : `https://artdive.app`** (changement décidé par la propriétaire le 18/11 ; le dépôt garde son nom `visit-like-an-artist`). JS pur (sans framework), Leaflet, service worker, Netlify, Stripe via 3 fonctions Netlify. Le contenu vient encore de Google Sheets publiés en CSV. Supabase est connecté dans `js/config.js` ; le schéma est installé (étape 4) mais l'app ne l'appelle pas encore.
 
 La propriétaire n'est pas développeuse : réponds en français, simplement, et dis-lui exactement quoi cliquer quand une action est de son côté.
 
@@ -10,7 +10,7 @@ Le brief de passation (règles métier, écrans, données, paiement, AR) est fou
 - **Travaille uniquement sur la branche `dev`.** Ne touche jamais à `main`, n'ouvre aucune pull request, ne déploie rien sans accord explicite.
 - Netlify est relié à GitHub : fusionner dans `main` déploie en production, et les crédits Netlify sont limités. « Branch deploys » et « Deploy Previews » sont sur « None ».
 - Un commit et un envoi sur `dev` par **étape terminée**, pas par petite modification.
-- Avant chaque livraison : `node --check` sur chaque fichier JS, et incrément de `CACHE_VERSION` dans `sw.js` (actuellement `mm-v87`).
+- Avant chaque livraison : `node --check` sur chaque fichier JS, et incrément de `CACHE_VERSION` dans `sw.js` (actuellement `mm-v88`).
 - Aucune clé secrète dans le dépôt ni dans le chat (`SUPABASE_SECRET_KEY` et `STRIPE_SECRET_KEY` vivent dans les variables d'environnement Netlify). La clé publiable de `config.js` est publique par conception.
 - Pas de longs tirets dans les textes affichés.
 - Tout texte affiché passe par `t()` avec ses clés FR, EN, ES (jamais en dur). Dans le CSS, propriétés logiques (`margin-inline-start`, `text-align: start`, `inset-inline-end`) pour que l'arabe de droite à gauche fonctionne.
@@ -64,6 +64,7 @@ Le brief de passation (règles métier, écrans, données, paiement, AR) est fou
 Ordre décidé : 4, 5, 6, 3b, 7.
 
 ## Décisions
+- **ArtDive / artdive.app** (18/11) : nom dans `CONFIG.marque`, `index.html`, `manifest.json`, `cgv.html` ; `SITE_URL` par défaut `https://artdive.app`, expéditeur par défaut `bonjour@artdive.app` (variables `SITE_URL`, `EMAIL_EXPEDITEUR` pour changer sans code). Toutes les adresses `montmartre.app` des tâches de mise en ligne ci-dessous se lisent **artdive.app**. Brevo : `montmartre.app` est authentifié mais **`artdive.app` doit l'être aussi** (DNS) avant d'envoyer depuis `bonjour@artdive.app`. Supabase Auth : URL du site et de redirection à passer sur `https://artdive.app`. Questions posées à la propriétaire : DNS de artdive.app, sort de montmartre.app, préfixe des références de réservation (aujourd'hui `VLAA-`), slogan « comme un artiste », nouveau logo.
 - Les lieux « public » ont aussi un pin sur la carte, pas seulement les adhérents. Les « invité » restent trouvables par la recherche uniquement.
 - Les traductions de contenu se génèrent **une seule fois à l'enregistrement**, puis sont stockées, avec le marquage « traduction automatique » jusqu'à relecture. Pas d'appel de traduction à chaque visite (coût).
 - Modèle le plus puissant pour les étapes 4 et 5 (schéma, droits, paiement, relecture de sécurité), modèle courant pour le reste.

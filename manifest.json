@@ -1,6 +1,6 @@
 {
-  "name": "Visit Like An Artist",
-  "short_name": "VLAA",
+  "name": "ArtDive",
+  "short_name": "ArtDive",
   "description": "Programme, carte du quartier, visites guidées et agenda culturel du Mouvement Montmartre.",
   "start_url": "./index.html",
   "scope": "./",

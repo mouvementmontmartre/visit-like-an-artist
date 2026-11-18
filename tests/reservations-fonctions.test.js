@@ -152,7 +152,7 @@ function verifier(nom, cond, detail) {
   verifier("reserver : adresse de paiement Stripe renvoyée", r.statusCode === 200 && lire(r).url === sess1.url, lire(r));
   verifier("reserver : 10 € à payer (2 × 5 €), prix venu de la base", sess1.params["line_items[0][price_data][unit_amount]"] === "1000");
   verifier("reserver : carte gardée pour les frais, avec la mention", sess1.params["payment_intent_data[setup_future_usage]"] === "off_session" && /24 h/.test(sess1.params["custom_text[submit][message]"]));
-  verifier("reserver : expiration 30 min, retour vers montmartre.app", Number(sess1.params.expires_at) - Date.now() / 1000 > 1700 && sess1.params.success_url === "https://montmartre.app/?reservation={CHECKOUT_SESSION_ID}");
+  verifier("reserver : expiration 30 min, retour vers artdive.app", Number(sess1.params.expires_at) - Date.now() / 1000 > 1700 && sess1.params.success_url === "https://artdive.app/?reservation={CHECKOUT_SESSION_ID}");
   const resa1 = sess1.metadata.reservation_id;
   verifier("reserver : places bloquées en attente du paiement", (await ligne("select statut from public.reservations where id = $1", [resa1])).statut === "en_attente");
   r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, personnes: 9 }));
@@ -171,10 +171,10 @@ function verifier(nom, cond, detail) {
   verifier("email de confirmation envoyé tout de suite, au client", conf && conf.to[0].email === "camille@exemple.invalid");
   verifier("confirmation : récapitulatif, reste sur place, monnaie, frais", conf && /90\s€/.test(conf.textContent) && /monnaie/.test(conf.textContent) && /10\s€ de frais/.test(conf.textContent) && /Devant le kiosque/.test(conf.textContent), conf && conf.textContent);
   verifier("confirmation : textes venus de la base échappés (pas de HTML injecté)", conf && !conf.htmlContent.includes("<b>Durand") && conf.htmlContent.includes("&lt;gris&gt;"));
-  const m1 = conf && conf.htmlContent.match(/https:\/\/montmartre\.app\/#reservation=([0-9a-f]{64})/);
+  const m1 = conf && conf.htmlContent.match(/https:\/\/artdive\.app\/#reservation=([0-9a-f]{64})/);
   verifier("confirmation : bouton « Je ne peux plus venir » avec lien personnel", !!m1);
   verifier("confirmation : fichier calendrier joint", conf && conf.attachment && /BEGIN:VEVENT/.test(Buffer.from(conf.attachment[0].content, "base64").toString()));
-  verifier("confirmation : rappel « pas de droit de rétractation » et lien vers les CGV datées", conf && /L221-28/.test(conf.textContent) && conf.htmlContent.includes("https://montmartre.app/cgv.html") && /2026-11-18/.test(conf.htmlContent));
+  verifier("confirmation : rappel « pas de droit de rétractation » et lien vers les CGV datées", conf && /L221-28/.test(conf.textContent) && conf.htmlContent.includes("https://artdive.app/cgv.html") && /2026-11-18/.test(conf.htmlContent));
   verifier("cases cochées et version des CGV gardées", (await ligne("select consentements ?& array['cgv','non_remboursable','sans_retractation','prelevement'] as ok, cgv_version from public.reservations where id = $1", [resa1])).ok === true);
   verifier("pas de long tiret dans les emails", !brevo.some((m) => /—/.test(m.subject + m.htmlContent)));
   verifier("alertes : association et guide prévenus", mails("alerte_inscription").map((m) => m.to[0].email).sort().join() === "guide@exemple.invalid,mouvementmontmartre@gmail.com");

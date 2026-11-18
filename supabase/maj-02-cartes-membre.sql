@@ -1,5 +1,5 @@
 -- ============================================================
--- VISIT LIKE AN ARTIST : mise à jour n° 2 (cartes de membre)
+-- ARTDIVE : mise à jour n° 2 (cartes de membre)
 --
 -- Pour une base où schema.sql et maj-01 sont DÉJÀ installés. À coller
 -- en entier dans Supabase > SQL Editor, puis « Run ». Tout passe ou

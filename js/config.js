@@ -19,8 +19,8 @@ const CONFIG = {
      Fichiers statiques à changer à la main si le nom change :
      index.html (title + balises og/twitter) et manifest.json. */
   marque: {
-    nom: "Visit Like An Artist",
-    nomCourt: "VLAA",
+    nom: "ArtDive",
+    nomCourt: "ArtDive",
     slogan: {
       fr: "Explore {localite} comme un artiste",
       en: "Explore {localite} like an artist",
