@@ -1,8 +1,8 @@
 /* ============================================================
    FONCTION NETLIFY — stripe-webhook
    Stripe appelle cette adresse à chaque évènement de paiement.
-   Aujourd'hui : adhésions (cartes de membre). Ensuite (étape 5) :
-   réservations.
+   Adhésions (cartes de membre) et réservations (visites, ateliers,
+   soirées), y compris les frais d'annulation tardive payés par lien.
 
    Sécurité :
    - la signature Stripe est vérifiée (STRIPE_WEBHOOK_SECRET) : un
@@ -14,7 +14,7 @@
 
    Évènements à cocher dans Stripe (Développeurs > Webhooks) :
    checkout.session.completed, checkout.session.async_payment_succeeded,
-   invoice.paid, customer.subscription.updated,
+   checkout.session.expired, invoice.paid, customer.subscription.updated,
    customer.subscription.deleted, charge.refunded
    ============================================================ */
 
@@ -22,14 +22,32 @@ const {
   json, table, rpc, stripe, signatureStripeValide, idDe,
   enregistrerAbonnement, enregistrerSession, formuleAbonnement,
 } = require("../lib/commun");
+const { confirmerSession, toutTraiter } = require("../lib/reservations");
 
 async function traiter(evt) {
   const obj = evt.data && evt.data.object;
   switch (evt.type) {
     case "checkout.session.completed":
     case "checkout.session.async_payment_succeeded": {
+      const meta = obj.metadata || {};
+      if (meta.reservation_id) {                      // réservation de visite, atelier ou soirée
+        const session = await stripe("checkout/sessions/" + obj.id);
+        await confirmerSession(session);
+        return "reservation";
+      }
+      if (meta.frais_reservation_id) {                // frais payés avec le lien envoyé par email
+        if (obj.payment_status === "paid") {
+          await rpc("frais_payes", { p_reservation_id: meta.frais_reservation_id, p_payment_intent: idDe(obj.payment_intent) });
+        }
+        return;
+      }
       const session = await stripe("checkout/sessions/" + obj.id, { "expand[]": "line_items.data.price" });
       await enregistrerSession(session);
+      return;
+    }
+    case "checkout.session.expired": {
+      const meta = obj.metadata || {};
+      if (meta.reservation_id) await rpc("liberer_reservation", { p_stripe_session_id: obj.id, p_reservation_id: meta.reservation_id });
       return;
     }
     case "invoice.paid": {
@@ -77,7 +95,8 @@ exports.handler = async (event) => {
     const lignes = await table("GET", "webhook_evenements?select=traite_le&stripe_event_id=eq." + encodeURIComponent(evt.id));
     if (lignes && lignes[0] && lignes[0].traite_le) return json(200, { recu: true, deja_traite: true });
 
-    await traiter(evt);
+    const quoi = await traiter(evt);
+    if (quoi === "reservation") await toutTraiter().catch(() => {});   // confirmation envoyée sans attendre
 
     await table("PATCH", "webhook_evenements?stripe_event_id=eq." + encodeURIComponent(evt.id),
       { traite_le: new Date().toISOString() }, { Prefer: "return=minimal" });

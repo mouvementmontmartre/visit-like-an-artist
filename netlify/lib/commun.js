@@ -97,6 +97,21 @@ async function stripe(chemin, params) {
   return data;
 }
 
+/** Écriture Stripe (POST). La clé d'idempotence garantit qu'un même
+    remboursement ou prélèvement n'est jamais fait deux fois, même si
+    l'appel est répété. Renvoie { ok, status, data }. */
+async function stripePost(chemin, params, cleIdempotence) {
+  const cle = process.env.STRIPE_SECRET_KEY;
+  if (!cle) throw new Error("STRIPE_SECRET_KEY absente");
+  const h = { Authorization: "Bearer " + cle, "Content-Type": "application/x-www-form-urlencoded" };
+  if (cleIdempotence) h["Idempotency-Key"] = cleIdempotence;
+  const res = await fetch("https://api.stripe.com/v1/" + chemin, {
+    method: "POST", headers: h, body: new URLSearchParams(params).toString(),
+  });
+  const data = await res.json();
+  return { ok: res.ok, status: res.status, data };
+}
+
 /** Vérifie la signature d'un webhook Stripe (en-tête Stripe-Signature). */
 function signatureStripeValide(corpsBrut, entete, secret, toleranceSec = 300) {
   if (!entete || !secret) return false;
@@ -218,6 +233,6 @@ async function enregistrerSession(session) {
 module.exports = {
   SITE_URL, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE, PRODUITS_ADHESION, LIENS_PONCTUELS,
   json, sha256hex, nouveauJeton, jetonValide, emailValide,
-  rpc, table, stripe, signatureStripeValide,
+  rpc, table, stripe, stripePost, signatureStripeValide,
   idDe, iso, periode, nomDeSession, formuleAbonnement, enregistrerAbonnement, enregistrerSession,
 };

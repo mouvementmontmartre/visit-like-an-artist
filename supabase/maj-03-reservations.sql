@@ -121,6 +121,7 @@ as $$
     'total_centimes', r.total_centimes,
     'frais_centimes', r.frais_centimes,
     'type', e.type, 'titre', e.titre, 'duree_minutes', e.duree_minutes,
+    'frais_par_personne_centimes', e.frais_annulation_tardive_centimes,
     'debut', s.debut, 'fin', s.fin, 'langue_seance', s.langue,
     'point_rdv', s.point_rdv, 'point_rdv_precis', s.point_rdv_precis,
     'message_inscrits', s.message_inscrits,

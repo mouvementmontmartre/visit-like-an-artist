@@ -1,9 +1,14 @@
 # Configuration Netlify
-# Le site est statique ; seules les deux fonctions de paiement
-# (dossier netlify/functions) tournent côté serveur.
+# Le site est statique ; les fonctions serveur (paiement, réservations,
+# carte de membre, webhook Stripe) sont dans netlify/functions.
 
 [build]
   publish = "."
 
 [functions]
   directory = "netlify/functions"
+
+# Tâche planifiée des réservations (minimums, rappels, remboursements,
+# frais, emails) : toutes les 15 minutes. Ne tourne qu'en production.
+[functions."taches"]
+  schedule = "*/15 * * * *"
