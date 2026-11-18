@@ -106,6 +106,7 @@ function openTarget(target, arg) {
     case "carte-festival":  renderCarteFestival(); showScreen("carte-festival"); break;
     case "carte-tab":       showScreen("carte"); renderEcoMap(); break;
     case "membre":          showScreen("membre"); renderMembre(); break;
+    case "espace":          showScreen("espace"); renderEspace(); break;
     case "infos":           renderInfos(); showScreen("infos"); break;
     case "infos-festival":  renderInfosFestival(); showScreen("infos-festival"); break;
     case "visite":          renderVisite(arg); showScreen("visite"); break;
@@ -1673,6 +1674,148 @@ async function handleReservationRetour() {
 }
 
 /* ============================================================
+   ESPACE INTERVENANTS ET ADMINISTRATION : CONNEXION (E11)
+   Connexion sans mot de passe : un lien valable 15 minutes est
+   envoyé par email (Supabase Auth). Seuls les comptes créés par
+   l'association peuvent se connecter (inscriptions fermées).
+   Au retour, Supabase place la session dans l'adresse après « # » ;
+   elle est gardée sur ce téléphone puis retirée de l'adresse.
+   Les droits réels sont appliqués par la base (règles RLS) : cet
+   écran ne fait qu'aiguiller vers l'espace correspondant au rôle.
+   ============================================================ */
+
+const SESSION_CLE = "sessionEspace";
+let noteEspace = null;   // message à afficher au prochain affichage de l'écran
+function sessionLue() {
+  try { const s = JSON.parse(localStorage.getItem(SESSION_CLE) || "null"); return s && s.access_token ? s : null; }
+  catch (e) { return null; }
+}
+function sessionEcrite(s) {
+  try { if (s) localStorage.setItem(SESSION_CLE, JSON.stringify(s)); else localStorage.removeItem(SESSION_CLE); }
+  catch (e) { /* stockage indisponible */ }
+}
+
+async function authAppel(chemin, opts = {}) {
+  const h = Object.assign({ apikey: CONFIG.supabase.cle, "Content-Type": "application/json" }, opts.headers || {});
+  const res = await fetch(CONFIG.supabase.url + chemin, { method: opts.method || "GET", headers: h,
+    body: opts.body ? JSON.stringify(opts.body) : undefined, cache: "no-store" });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* réponse vide */ }
+  return { ok: res.ok, status: res.status, data };
+}
+
+/** Session valide (renouvelée si elle expire dans moins d'une minute), ou null. */
+async function sessionValide() {
+  const s = sessionLue();
+  if (!s) return null;
+  if (s.expires_at && s.expires_at - 60 > Date.now() / 1000) return s;
+  const r = await authAppel("/auth/v1/token?grant_type=refresh_token", { method: "POST", body: { refresh_token: s.refresh_token } });
+  if (!r.ok || !r.data || !r.data.access_token) { sessionEcrite(null); return null; }
+  const n = { access_token: r.data.access_token, refresh_token: r.data.refresh_token,
+    expires_at: r.data.expires_at || Math.floor(Date.now() / 1000) + (r.data.expires_in || 3600) };
+  sessionEcrite(n);
+  return n;
+}
+
+/** Lecture de la base au nom de la personne connectée (les règles RLS s'appliquent). */
+async function supaConnecte(chemin) {
+  const s = await sessionValide();
+  if (!s) throw new Error("SESSION");
+  const r = await authAppel("/rest/v1/" + chemin, { headers: { Authorization: "Bearer " + s.access_token } });
+  if (!r.ok) throw new Error("Supabase " + r.status);
+  return r.data;
+}
+
+/** Demande du lien de connexion. Réponse identique que le compte existe ou non. */
+async function demanderLienConnexion(email) {
+  const retour = window.location.origin + "/";
+  try {
+    await authAppel("/auth/v1/otp?redirect_to=" + encodeURIComponent(retour), { method: "POST",
+      body: { email, create_user: false } });
+  } catch (e) { /* même message affiché */ }
+}
+
+/** Retour du lien de l'email : #access_token=… ou #error=… */
+function handleConnexionRetour() {
+  const h = window.location.hash || "";
+  if (!/^#(access_token|error)=|&(access_token|error)=/.test(h)) return false;
+  const p = new URLSearchParams(h.slice(1));
+  history.replaceState(null, "", window.location.pathname);   // la session ne reste pas dans l'adresse
+  if (p.get("access_token") && p.get("refresh_token")) {
+    sessionEcrite({ access_token: p.get("access_token"), refresh_token: p.get("refresh_token"),
+      expires_at: Number(p.get("expires_at")) || Math.floor(Date.now() / 1000) + (Number(p.get("expires_in")) || 3600) });
+    openTarget("espace");
+  } else {
+    noteEspace = p.get("error_code") === "otp_expired" ? t("espace.expire") : t("espace.lienInvalide");
+    openTarget("espace");
+  }
+  return true;
+}
+
+async function deconnecter() {
+  const s = sessionLue();
+  sessionEcrite(null);
+  if (s) authAppel("/auth/v1/logout", { method: "POST", headers: { Authorization: "Bearer " + s.access_token } }).catch(() => {});
+  renderEspace();
+}
+
+/** Écran de l'espace : formulaire de connexion, ou accueil selon le rôle. */
+async function renderEspace(note) {
+  const corps = $("#espace-body");
+  if (!corps) return;
+  note = note || noteEspace; noteEspace = null;
+  let s = null;
+  try { s = await sessionValide(); } catch (e) { s = sessionLue(); }
+  if (!s) {
+    corps.innerHTML =
+      '<h1 class="espace-titre">' + esc(t("espace.titre")) + '</h1>' +
+      '<p class="espace-texte">' + esc(t("espace.texte")) + '</p>' +
+      (note ? '<div class="resa-etat">' + esc(note) + '</div>' : '') +
+      '<form id="espace-form" novalidate>' +
+        '<label class="resa-champ"><span>' + esc(t("espace.email")) + '</span>' +
+        '<input class="input-field" id="espace-email" type="email" inputmode="email" autocomplete="email" required></label>' +
+        '<button type="submit" class="cta fee" id="espace-envoyer">' + esc(t("espace.envoyer")) + '</button>' +
+        '<div id="espace-note" class="member-note" role="status" aria-live="polite"></div>' +
+      '</form>' +
+      '<div class="member-note">' + esc(t("espace.duree")) + '</div>' +
+      '<p class="espace-texte">' + esc(t("espace.pasEncore")) + ' <a href="mailto:' + esc(CONFIG.contacts.general) + '">' + esc(t("espace.nousEcrire")) + '</a></p>';
+    $("#espace-form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const email = ($("#espace-email").value || "").trim().toLowerCase();
+      const out = $("#espace-note"), b = $("#espace-envoyer");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { out.textContent = t("member.emailInvalid"); return; }
+      b.disabled = true; out.textContent = t("member.loading");
+      await demanderLienConnexion(email);
+      out.textContent = t("espace.envoye");
+      b.disabled = false;
+    });
+    return;
+  }
+  corps.innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>';
+  let profil = null, nom = "";
+  try {
+    const user = (await authAppel("/auth/v1/user", { headers: { Authorization: "Bearer " + s.access_token } })).data || {};
+    profil = (await supaConnecte("profils?select=role,intervenant_id&user_id=eq." + encodeURIComponent(user.id || "")))[0] || null;
+    nom = user.email || "";
+    if (profil && profil.intervenant_id) {
+      const i = (await supaConnecte("intervenants?select=nom&id=eq." + encodeURIComponent(profil.intervenant_id)))[0];
+      if (i) nom = i.nom;
+    }
+  } catch (e) {
+    if (e.message === "SESSION") { renderEspace(t("espace.expire")); return; }
+    corps.innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>';
+    return;
+  }
+  const role = profil ? profil.role : null;
+  corps.innerHTML =
+    '<h1 class="espace-titre">' + esc(tx("espace.bonjour", { nom })) + '</h1>' +
+    '<p class="espace-texte">' + esc(role === "admin" ? t("espace.admin") : role === "intervenant" ? t("espace.intervenant") : t("espace.sansRole")) + '</p>' +
+    (role ? '<div class="resa-etat">' + esc(t("espace.bientot")) + '</div>' : '') +
+    '<button type="button" class="cta ghost" id="espace-deconnexion">' + esc(t("espace.deconnexion")) + '</button>';
+  $("#espace-deconnexion").addEventListener("click", deconnecter);
+}
+
+/* ============================================================
    CARTE DE MEMBRE
    ============================================================ */
 
@@ -1870,6 +2013,7 @@ function renderInfos() {
     '</div>' +
     '<a class="cta gaz" style="text-decoration:none; margin-top:10px;" href="https://tally.so/r/wbq651" target="_blank" rel="noopener">' + t("cta.joinMovement") + '</a>' +
     '<a class="cta ghost" style="text-decoration:none; margin-top:10px;" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener">' + t("cta.donate") + '</a>' +
+    '<button type="button" class="cta ghost" style="margin-top:10px;" data-open="espace">' + esc(t("espace.entree")) + '</button>' +
     accItem(ICON_TOPIC.about, t("infos.aboutTitle"),
       "<p>" + t("infos.about1") + "</p>" +
       "<p>" + t("infos.about2") + "</p>" +
@@ -1916,8 +2060,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // L'ancienne liste des adhérents (Sheet publique) ne doit plus rester sur les téléphones.
   try { localStorage.removeItem("csv:membres"); } catch (e) { /* rien */ }
-  handleCarteRetour();
-  handleReservationRetour();
+  if (!handleConnexionRetour()) {
+    handleCarteRetour();
+    handleReservationRetour();
+  }
 
   // Encadré "À propos" + lien adhésion sur l'écran "Ma carte de membre"
   const membreAbout = $("#membre-about");
