@@ -837,3 +837,4 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .resa-carte .member-note { color: var(--muted-dark, #5A4E40); }
 .resa-titre { display: block; font-family: var(--display, serif); font-size: 21px; margin-block-end: 8px; }
 .resa-etat { padding: 14px; border-radius: 10px; border: 1px solid var(--fee); margin-block-start: 16px; font-size: 14px; line-height: 1.5; }
+.resa-mention { font-size: 13px; line-height: 1.55; color: var(--muted); margin-block: 16px 4px; padding: 12px 14px; border-inline-start: 2px solid var(--fee); background: rgba(255,255,255,.03); }

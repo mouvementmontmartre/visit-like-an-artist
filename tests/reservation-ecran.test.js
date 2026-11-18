@@ -20,7 +20,7 @@ const EXP = {
   "circuit-test": { id: "11111111-1111-1111-1111-111111111111", type: "visite_guidee", titre: { fr: "Circuit des Peintres", en: "Painters walk" },
     prix_centimes: 5000, prereservation_centimes: 500, frais_annulation_tardive_centimes: 1000, telephone_obligatoire: true },
   "soiree-test": { id: "22222222-2222-2222-2222-222222222222", type: "soiree", titre: { fr: "Soirée jazz" },
-    prix_centimes: 2500, prereservation_centimes: null, frais_annulation_tardive_centimes: 1000, telephone_obligatoire: false },
+    prix_centimes: 2500, prereservation_centimes: null, frais_annulation_tardive_centimes: 1000, telephone_obligatoire: false, age_minimum: 18 },
 };
 const SEANCES = {
   "11111111-1111-1111-1111-111111111111": [
@@ -90,18 +90,25 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   // 2. Formulaire
   await pg.click("#btn-reserver");
   v("formulaire : ouvert avec le résumé", await attendre(pg, "#reserver-body", "Circuit des Peintres") && await attendre(pg, "#reserver-body", "english"));
-  v("formulaire : case des frais avec 10 € par personne", await attendre(pg, "#reserver-body", "10 € de frais par personne") || await attendre(pg, "#reserver-body", "de frais par personne"));
+  v("formulaire : case d'autorisation avec 10 € par personne, soit 20 € pour 2", await attendre(pg, "#reserver-body", "par personne inscrite, soit 20"));
+  v("formulaire : mention « vendue par Sylvain Lesecq, guide ou artiste indépendant »", await attendre(pg, "#reserver-body", "vendue par Sylvain Lesecq, guide ou artiste indépendant"));
+  v("formulaire : bouton avec obligation de paiement", await attendre(pg, "#resa-payer", "Payer 10 € et réserver (commande avec obligation de paiement)") || await attendre(pg, "#resa-payer", "(commande avec obligation de paiement)"));
+  v("formulaire : 5 cases, aucune pré-cochée, photos facultative", (await pg.$$eval("#resa-form input[type=checkbox]", (l) => l.length + ":" + l.filter((c) => c.checked).length)) === "5:0" && await attendre(pg, "#reserver-body", "(facultatif) J'accepte que des photos"));
+  v("formulaire : lien vers la page des CGV", (await pg.$('#resa-form a[href="cgv.html"]')) !== null);
   await pg.click("#resa-payer");
   v("formulaire : champs vides signalés", await attendre(pg, "#resa-note", "Vérifiez votre nom"));
   await pg.fill("#resa-nom", "Camille Durand"); await pg.fill("#resa-email", "Camille@Exemple.invalid"); await pg.fill("#resa-tel", "0612345678");
   await pg.click("#resa-payer");
   v("formulaire : cases non cochées signalées", await attendre(pg, "#resa-note", "Cochez les conditions"));
-  await pg.check("#resa-cgv"); await pg.check("#resa-frais");
+  await pg.check("#resa-c-cgv"); await pg.check("#resa-c-non_remboursable"); await pg.check("#resa-c-sans_retractation");
+  await pg.click("#resa-payer");
+  v("formulaire : sans l'autorisation de prélèvement, refus", await attendre(pg, "#resa-note", "Cochez les conditions"));
+  await pg.check("#resa-c-prelevement");
   await pg.screenshot({ path: OUT + "/resa-formulaire.png", fullPage: true });
   await pg.click("#resa-payer");
   await pg.waitForURL("https://checkout.stripe.test/**", { timeout: 8000 }).catch(() => {});
   const envoi = st.appels.find((a) => a.f === "reserver");
-  v("paiement : envoi vers Stripe avec les bonnes données", pg.url().startsWith("https://checkout.stripe.test/") && envoi && envoi.corps.personnes === 2 && envoi.corps.email === "camille@exemple.invalid" && envoi.corps.accord_frais === true && envoi.corps.cgv === true && envoi.corps.seance_id === "aaaaaaaa-0000-0000-0000-000000000002", JSON.stringify(envoi));
+  v("paiement : envoi vers Stripe avec les bonnes données", pg.url().startsWith("https://checkout.stripe.test/") && envoi && envoi.corps.personnes === 2 && envoi.corps.email === "camille@exemple.invalid" && JSON.stringify(envoi.corps.consentements) === JSON.stringify({ cgv: true, non_remboursable: true, sans_retractation: true, prelevement: true }) && envoi.corps.seance_id === "aaaaaaaa-0000-0000-0000-000000000002", JSON.stringify(envoi));
   v("aucune erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
   await ctx.close();
 
@@ -113,7 +120,8 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   v("retour depuis le formulaire : on revient à la fiche", await pg.$eval("#screen-visite", (e) => e.classList.contains("active")));
   await pg.click("#btn-reserver");
   await pg.fill("#resa-nom", "A B"); await pg.fill("#resa-email", "a@exemple.invalid"); await pg.fill("#resa-tel", "0612345678");
-  await pg.check("#resa-cgv"); await pg.check("#resa-frais"); await pg.click("#resa-payer");
+  for (const c of ["cgv", "non_remboursable", "sans_retractation", "prelevement"]) await pg.check("#resa-c-" + c);
+  await pg.click("#resa-payer");
   v("plus de places : message clair", await attendre(pg, "#resa-note", "plus assez de places"));
   await ctx.close();
 
@@ -122,10 +130,13 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   await ouvrir(pg, "soiree-test");
   v("soirée : 12 places restantes sur 40, sans « confirmée »", await attendre(pg, "#visite-seances", "12 places restantes sur 40") && !(await pg.$eval("#visite-seances", (e) => e.textContent.includes("Confirmée"))));
   await pg.click("#btn-reserver");
-  v("soirée : pas de case de frais, téléphone facultatif", (await pg.$("#resa-frais")) === null && await attendre(pg, "#reserver-body", "Téléphone (facultatif)"));
-  await pg.fill("#resa-nom", "Lou"); await pg.fill("#resa-email", "lou@exemple.invalid"); await pg.check("#resa-cgv"); await pg.click("#resa-payer");
+  v("soirée : pas de case de frais, téléphone facultatif, case d'âge 18 ans", (await pg.$("#resa-c-prelevement")) === null && await attendre(pg, "#reserver-body", "Téléphone (facultatif)") && await attendre(pg, "#reserver-body", "âge minimum requis (18 ans)"));
+  v("soirée : mention du prix total payé à l'association", await attendre(pg, "#reserver-body", "Vous payez en ligne le prix total de 25"));
+  await pg.fill("#resa-nom", "Lou"); await pg.fill("#resa-email", "lou@exemple.invalid");
+  for (const c of ["cgv", "non_remboursable", "sans_retractation", "age"]) await pg.check("#resa-c-" + c);
+  await pg.click("#resa-payer");
   await pg.waitForURL("https://checkout.stripe.test/**", { timeout: 8000 }).catch(() => {});
-  v("soirée : paiement sans accord de frais", st.appels.some((a) => a.f === "reserver" && a.corps.accord_frais === false));
+  v("soirée : paiement avec les cases de la soirée, sans prélèvement", st.appels.some((a) => a.f === "reserver" && a.corps.consentements.age === true && !a.corps.consentements.prelevement));
   await ctx.close();
 
   // 5. Retour du paiement
@@ -172,6 +183,8 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   ({ pg, ctx, st } = await page({ lang: "en" }));
   await ouvrir(pg, "circuit-test");
   v("anglais : dates et prix traduits", await attendre(pg, "#visite-seances", "Choose a date") && await attendre(pg, "#visite-seances", "Book your spot for"));
+  await pg.click("#btn-reserver");
+  v("anglais : bouton « order with obligation to pay »", await attendre(pg, "#resa-payer", "order with obligation to pay"));
   v("anglais : aucune erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
   await ctx.close();
 

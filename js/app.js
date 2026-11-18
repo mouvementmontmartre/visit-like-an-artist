@@ -1409,7 +1409,7 @@ async function afficherSeances(slug, guideNom) {
   if (!zone) return;
   let exp;
   try {
-    exp = (await supa("experiences?select=id,type,titre,prix_centimes,prereservation_centimes,frais_annulation_tardive_centimes,telephone_obligatoire" +
+    exp = (await supa("experiences?select=id,type,titre,prix_centimes,prereservation_centimes,frais_annulation_tardive_centimes,telephone_obligatoire,age_minimum" +
       "&slug=eq." + encodeURIComponent(slug) + "&publie=eq.true&actif=eq.true"))[0];
   } catch (e) { return; }                        // hors ligne ou pas encore dans la base : la fiche reste comme avant
   if (!exp || !RESA_TYPES.includes(exp.type) || exp.prix_centimes == null) return;
@@ -1497,6 +1497,38 @@ function peindreSeances() {
   if (go) go.addEventListener("click", ouvrirReservation);
 }
 
+/** Cases à cocher du paiement (CGV, section 2) : une par engagement, jamais pré-cochées. */
+function casesResa() {
+  const e = RESA.exp, visite = estVisiteResa(e.type);
+  const lienCgv = ' <a href="cgv.html" target="_blank" rel="noopener">' + esc(t("resa.cgvLink")) + '</a>';
+  const cases = [{ cle: "cgv", obligatoire: true, html: esc(t("resa.c.cgv")) + lienCgv }];
+  if (visite) {
+    cases.push({ cle: "non_remboursable", obligatoire: true, html: esc(t("resa.c.nonRemb")) });
+    cases.push({ cle: "sans_retractation", obligatoire: true, html: esc(t("resa.c.retract")) });
+    if (e.frais_annulation_tardive_centimes > 0) {
+      cases.push({ cle: "prelevement", obligatoire: true, html: esc(tx("resa.c.prel", {
+        u: euros(e.frais_annulation_tardive_centimes), m: euros(e.frais_annulation_tardive_centimes * RESA.personnes) })) });
+    }
+    cases.push({ cle: "photos", obligatoire: false, html: esc(t("resa.c.photos")) });
+  } else {
+    cases.push({ cle: "non_remboursable", obligatoire: true, html: esc(t("resa.c.nonRembSoiree")) });
+    cases.push({ cle: "sans_retractation", obligatoire: true, html: esc(t("resa.c.retractSoiree")) });
+  }
+  if (e.age_minimum) cases.push({ cle: "age", obligatoire: true, html: esc(tx("resa.c.age", { n: e.age_minimum })) });
+  return cases;
+}
+
+/** Mention affichée au-dessus du bouton (CGV, section 2). */
+function mentionResa() {
+  const e = RESA.exp, s = RESA.seance, n = RESA.personnes;
+  if (!estVisiteResa(e.type)) {
+    return '<p class="resa-mention">' + esc(tx("resa.m.soiree", { m: euros(aPayerResa()), lieu: s.point_rdv || "" })) + '</p>';
+  }
+  return '<p class="resa-mention">' + esc(tx("resa.m.visite", {
+    m: euros(aPayerResa()), g: RESA.guide || t("resa.m.intervenant"),
+    r: euros(e.prix_centimes - e.prereservation_centimes), p: euros(e.prix_centimes), min: s.participants_min })) + '</p>';
+}
+
 /** Écran E8 : coordonnées, conditions, paiement. */
 function ouvrirReservation() {
   if (!RESA || !RESA.seance) return;
@@ -1516,12 +1548,11 @@ function ouvrirReservation() {
         prixHtml() +
         '<div class="resa-ligne resa-total"><span>' + esc(t("resa.total")) + '</span><b>' + esc(euros(aPayerResa())) + '</b></div>' +
         '<div class="member-note">' + esc(t("resa.vat")) + '</div>' +
-        '<label class="resa-case"><input type="checkbox" id="resa-cgv"><span>' + esc(t("resa.cgv")) + ' <a href="#" data-open="infos">' + esc(t("resa.cgvLink")) + '</a></span></label>' +
-        (visite ? '<label class="resa-case"><input type="checkbox" id="resa-frais"><span>' + esc(tx("resa.fees", { m: euros(e.frais_annulation_tardive_centimes) })) + '</span></label>' +
-                  '<div class="member-note">' + esc(t("resa.noRefund")) + '</div>' : '') +
-        '<button type="submit" class="cta fee" id="resa-payer">' + esc(tx("resa.payBtn", { m: euros(aPayerResa()) })) + '</button>' +
+        mentionResa() + casesResa().map((c) =>
+          '<label class="resa-case"><input type="checkbox" id="resa-c-' + c.cle + '"><span>' + c.html + '</span></label>').join("") +
+        '<button type="submit" class="cta fee" id="resa-payer">' + esc(tx("resa.payOblig", { m: euros(aPayerResa()) })) + '</button>' +
         '<div id="resa-note" class="resa-erreur" role="alert"></div>' +
-        '<div class="member-note resa-centre">' + esc(t("resa.secure")) + '</div>' +
+        '<div class="member-note resa-centre">' + esc(t("resa.m.secure")) + '</div>' +
       '</form>';
     brancherStepper("form", () => { garder(); peindre(); });
     $("#resa-form").addEventListener("submit", payer);
@@ -1540,20 +1571,22 @@ function ouvrirReservation() {
     if (!champs.nom.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || (e.telephone_obligatoire && champs.tel.trim().length < 6)) {
       note.textContent = t("resa.err.form"); return;
     }
-    if (!$("#resa-cgv").checked || (visite && !$("#resa-frais").checked)) { note.textContent = t("resa.err.cgv"); return; }
+    const consentements = {};
+    casesResa().forEach((c) => { if ($("#resa-c-" + c.cle).checked) consentements[c.cle] = true; });
+    if (casesResa().some((c) => c.obligatoire && !consentements[c.cle])) { note.textContent = t("resa.err.cgv"); return; }
     note.textContent = ""; btn.disabled = true;
     try {
       const res = await fetch("/.netlify/functions/reserver", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ seance_id: s.id, personnes: RESA.personnes, nom: champs.nom.trim(), email,
-          telephone: champs.tel.trim(), langue: getLang(), cgv: true, accord_frais: visite }),
+          telephone: champs.tel.trim(), langue: getLang(), consentements }),
       });
       const d = await res.json().catch(() => ({}));
       if (res.ok && d.url) { window.location.href = d.url; return; }
       note.textContent = d.code === "COMPLET" ? t("resa.err.full")
         : d.code === "SEANCE_INDISPONIBLE" ? t("resa.err.gone")
         : ["PARAMETRES", "TELEPHONE_REQUIS"].includes(d.code) ? t("resa.err.form")
-        : ["CGV_NON_ACCEPTEES", "ACCORD_FRAIS_REQUIS"].includes(d.code) ? t("resa.err.cgv") : t("resa.err.pay");
+        : ["CGV_NON_ACCEPTEES", "ACCORD_FRAIS_REQUIS", "CONSENTEMENTS_MANQUANTS", "AGE_NON_CONFIRME"].includes(d.code) ? t("resa.err.cgv") : t("resa.err.pay");
     } catch (err) {
       note.textContent = t("resa.err.pay");
     }
@@ -1808,10 +1841,11 @@ function bindAccordion(container) {
 function legalBlockHtml() {
   const v = CONFIG.vendeur || {};
   return [
-    [v.nom, v.forme].filter(Boolean).map(esc).join(" — "),
+    [v.nom, v.forme].filter(Boolean).map(esc).join(", "),
     esc(v.adresse || ""),
     [v.rna ? "RNA " + esc(v.rna) : "", v.siret ? "SIRET " + esc(v.siret) : ""].filter(Boolean).join(" · "),
-    v.mentionTva ? esc(v.mentionTva) : ""
+    v.mentionTva ? esc(v.mentionTva) : "",
+    '<a href="cgv.html" target="_blank" rel="noopener">' + esc(t("resa.cgvFull")) + '</a>'
   ].filter(Boolean).join("<br>");
 }
 
