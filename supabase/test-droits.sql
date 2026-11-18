@@ -59,6 +59,10 @@ declare
   s_b uuid := gen_random_uuid();
   r_bloquee uuid := gen_random_uuid();
   p_a uuid := gen_random_uuid();
+  s_loin uuid := gen_random_uuid();  s_tot uuid := gen_random_uuid();  s_min uuid := gen_random_uuid();
+  s_passee uuid := gen_random_uuid(); s_rappel uuid := gen_random_uuid();
+  r_loin uuid := gen_random_uuid();  r_tot uuid := gen_random_uuid();  r_tot_sans uuid := gen_random_uuid();
+  r_min uuid := gen_random_uuid();   r_passee uuid := gen_random_uuid(); r_rappel uuid := gen_random_uuid();
   v_etape text := 'creation';
 begin
   begin  -- tout ce bloc est annulé à la fin
@@ -111,6 +115,32 @@ begin
       (gen_random_uuid(), s_a, x_a, 'Paul Vieux', 'paul@exemple.invalid', '0600000003', 3, 'en_attente', now() - interval '1 hour', 5000, 15000, 1500, 13500, now()),
       (gen_random_uuid(), s_b, x_b, 'Ana Martin', 'ana@exemple.invalid', '0700000004', 1, 'confirmee', null, 4500, 4500, 500, 4000, now());
 
+    -- Cycle de réservation : séances proches, loin, passée ; réservations avec carte enregistrée.
+    insert into public.seances (id, experience_id, debut, langue, point_rdv, point_rdv_precis, statut, participants_min) values
+      (s_loin,   x_a, now() + interval '5 days',  'fr', 'Square', 'Devant le kiosque', 'publiee', 4),
+      (s_tot,    x_a, now() + interval '20 hours', 'fr', 'Square', 'Devant le kiosque', 'publiee', 1),
+      (s_min,    x_a, now() + interval '40 hours', 'fr', 'Square', 'Devant le kiosque', 'publiee', 4),
+      (s_passee, x_a, now() - interval '2 hours',  'fr', 'Square', 'Devant le kiosque', 'publiee', 1),
+      (s_rappel, x_a, now() + interval '30 hours', 'fr', 'Square', 'Devant le kiosque', 'publiee', 1);
+    insert into public.reservations (id, seance_id, experience_id, nom, email, telephone, personnes, statut,
+        prix_unitaire_centimes, total_centimes, paye_en_ligne_centimes, reste_sur_place_centimes, cgv_acceptees_le,
+        accord_frais_le, stripe_customer, stripe_payment_method, confirmee_le) values
+      (r_loin,     s_loin,   x_a, 'Lou Loin',    'lou@exemple.invalid',    '06', 1, 'confirmee', 5000, 5000, 500, 4500, now(), now(), 'cus_l', 'pm_l', now()),
+      (r_tot,      s_tot,    x_a, 'Tom Tard',    'tom@exemple.invalid',    '06', 2, 'confirmee', 5000, 10000, 1000, 9000, now(), now(), 'cus_t', 'pm_t', now()),
+      (r_tot_sans, s_tot,    x_a, 'Sam Sanscarte', 'sam@exemple.invalid',  '06', 1, 'confirmee', 5000, 5000, 500, 4500, now(), null, null, null, now()),
+      (r_min,      s_min,    x_a, 'Mia Minimum', 'mia@exemple.invalid',    '06', 1, 'confirmee', 5000, 5000, 500, 4500, now(), now(), 'cus_m', 'pm_m', now()),
+      (r_passee,   s_passee, x_a, 'Abel Absent', 'abel@exemple.invalid',   '06', 1, 'confirmee', 5000, 5000, 500, 4500, now(), now(), 'cus_a', 'pm_a', now() - interval '3 days'),
+      (r_rappel,   s_rappel, x_a, 'Rémi Rappel', 'remi@exemple.invalid',   '06', 1, 'confirmee', 5000, 5000, 500, 4500, now(), now(), 'cus_r', 'pm_r', now() - interval '3 days');
+    insert into public.paiements (reservation_id, experience_id, experience_type, localite_id, intervenant_id,
+        montant_centimes, stripe_payment_intent) values
+      (r_min, x_a, 'visite_guidee', 'montmartre', i_a, 500, 'pi_mia'),
+      (r_loin, x_a, 'visite_guidee', 'montmartre', i_a, 500, 'pi_lou');
+    insert into public.reservations_liens (jeton_hash, reservation_id) values
+      (interne.sha256('jeton-loin'), r_loin), (interne.sha256('jeton-tot'), r_tot),
+      (interne.sha256('jeton-tot-sans'), r_tot_sans);
+    insert into public.intervenants_contacts (intervenant_id, email) values
+      (i_a, 'guide-a@exemple.invalid'), (i_b, 'guide-b@exemple.invalid');
+
     insert into public.propositions (id, intervenant_id, type, donnees) values
       (p_a, i_a, 'fiche', '{"nom":"Intervenant A corrigé","publie":false,"ordre":999}');
     insert into public.codes_import (code_hash, expire_le) values (repeat('7', 64), now() + interval '30 minutes');
@@ -142,7 +172,7 @@ begin
       jsonb_build_array('Visiteur', 'ne crée pas de réservation directement', 'refus',
         pg_temp.essai('anon', null, format('insert into public.reservations (seance_id, experience_id, nom, email, personnes, statut, prix_unitaire_centimes, total_centimes, paye_en_ligne_centimes, reste_sur_place_centimes, cgv_acceptees_le) values (%L, %L, %L, %L, 1, %L, 0, 0, 0, 0, now())', s_a, x_a, 'Pirate', 'pirate@exemple.invalid', 'confirmee'))),
       jsonb_build_array('Visiteur', 'n''appelle pas la fonction de réservation', 'refus',
-        pg_temp.essai('anon', null, format('select public.reserver_places(%L, 1, %L, %L, %L, %L, true)', s_a, 'Pirate', 'pirate@exemple.invalid', '0600000000', 'fr'))),
+        pg_temp.essai('anon', null, format('select public.reserver_places(%L, 1, %L, %L, %L, %L, true, true)', s_a, 'Pirate', 'pirate@exemple.invalid', '0600000000', 'fr'))),
       jsonb_build_array('Visiteur', 'ne confirme pas une réservation sans payer', 'refus',
         pg_temp.essai('anon', null, format('select public.confirmer_reservation(%L, %L, %L, 500)', r_bloquee, 'cs_faux', 'pi_faux'))),
       jsonb_build_array('Visiteur', 'ne s''offre pas un accès au circuit', 'refus',
@@ -163,13 +193,13 @@ begin
 
     -- ---------- INTERVENANT A (connecté par lien magique) ----------
     res := res || jsonb_build_array(
-      jsonb_build_array('Intervenant A', 'voit ses 2 séances, brouillon compris', '2',
+      jsonb_build_array('Intervenant A', 'voit ses 7 séances, brouillon compris', '7',
         pg_temp.essai('authenticated', u_a, 'select 1 from public.seances')),
       jsonb_build_array('Intervenant A', 'ne voit pas la séance de B', 'refus',
         pg_temp.essai('authenticated', u_a, format('select 1 from public.seances where id = %L', s_b))),
       jsonb_build_array('Intervenant A', 'voit son inscrite confirmée, nom abrégé', '1',
         pg_temp.essai('authenticated', u_a, format('select 1 from public.mes_inscrits where nom = %L and telephone = %L', 'Camille D.', '0600000001'))),
-      jsonb_build_array('Intervenant A', 'ne voit que ses inscrits (1 ligne en tout)', '1',
+      jsonb_build_array('Intervenant A', 'ne voit que ses inscrits (7 lignes, aucune de B)', '7',
         pg_temp.essai('authenticated', u_a, 'select 1 from public.mes_inscrits')),
       jsonb_build_array('Intervenant A', 'ne lit pas les réservations complètes (emails)', 'refus',
         pg_temp.essai('authenticated', u_a, 'select 1 from public.reservations')),
@@ -265,7 +295,7 @@ begin
 
     -- ---------- ADMIN ----------
     res := res || jsonb_build_array(
-      jsonb_build_array('Admin', 'lit toutes les réservations (4)', '4',
+      jsonb_build_array('Admin', 'lit toutes les réservations (10)', '10',
         pg_temp.essai('authenticated', u_admin, 'select 1 from public.reservations')),
       jsonb_build_array('Admin', 'voit l''expérience non publiée', '1',
         pg_temp.essai('authenticated', u_admin, format('select 1 from public.experiences where id = %L', x_cache))),
@@ -290,15 +320,17 @@ begin
     -- ---------- SERVEUR (fonctions Netlify, clé secrète) ----------
     res := res || jsonb_build_array(
       jsonb_build_array('Serveur', 'refuse une réservation sans téléphone (visite)', 'refus',
-        pg_temp.essai('service_role', null, format('select public.reserver_places(%L, 1, %L, %L, null, %L, true)', s_a, 'Sans Tel', 'sanstel@exemple.invalid', 'fr'))),
+        pg_temp.essai('service_role', null, format('select public.reserver_places(%L, 1, %L, %L, null, %L, true, true)', s_a, 'Sans Tel', 'sanstel@exemple.invalid', 'fr'))),
+      jsonb_build_array('Serveur', 'refuse une visite sans accord pour les frais d''annulation tardive', 'refus',
+        pg_temp.essai('service_role', null, format('select public.reserver_places(%L, 1, %L, %L, %L, %L, true, false)', s_a, 'Sans Accord', 'accord@exemple.invalid', '0611111111', 'fr'))),
       jsonb_build_array('Serveur', 'refuse sans acceptation des CGV', 'refus',
-        pg_temp.essai('service_role', null, format('select public.reserver_places(%L, 1, %L, %L, %L, %L, false)', s_a, 'Sans Cgv', 'cgv@exemple.invalid', '0611111111', 'fr'))),
+        pg_temp.essai('service_role', null, format('select public.reserver_places(%L, 1, %L, %L, %L, %L, false, true)', s_a, 'Sans Cgv', 'cgv@exemple.invalid', '0611111111', 'fr'))),
       jsonb_build_array('Serveur', 'refuse 8 places quand il en reste 7', 'refus',
-        pg_temp.essai('service_role', null, format('select public.reserver_places(%L, 8, %L, %L, %L, %L, true)', s_a, 'Trop Nombreux', 'trop@exemple.invalid', '0611111111', 'fr'))),
+        pg_temp.essai('service_role', null, format('select public.reserver_places(%L, 8, %L, %L, %L, %L, true, true)', s_a, 'Trop Nombreux', 'trop@exemple.invalid', '0611111111', 'fr'))),
       jsonb_build_array('Serveur', 'bloque les 7 dernières places : 35 € en ligne, 315 € sur place', '1',
-        pg_temp.essai('service_role', null, format('select 1 from (select public.reserver_places(%L, 7, %L, %L, %L, %L, true) as r) x where (r->>%L)::int = 3500 and (r->>%L)::int = 31500', s_a, 'Grande Famille', 'Famille@Exemple.invalid', '0611111111', 'fr', 'a_payer_centimes', 'reste_sur_place_centimes'))),
+        pg_temp.essai('service_role', null, format('select 1 from (select public.reserver_places(%L, 7, %L, %L, %L, %L, true, true) as r) x where (r->>%L)::int = 3500 and (r->>%L)::int = 31500', s_a, 'Grande Famille', 'Famille@Exemple.invalid', '0611111111', 'fr', 'a_payer_centimes', 'reste_sur_place_centimes'))),
       jsonb_build_array('Serveur', 'refuse une place de plus : complet', 'refus',
-        pg_temp.essai('service_role', null, format('select public.reserver_places(%L, 1, %L, %L, %L, %L, true)', s_a, 'Dernier Arrivé', 'dernier@exemple.invalid', '0611111111', 'fr'))),
+        pg_temp.essai('service_role', null, format('select public.reserver_places(%L, 1, %L, %L, %L, %L, true, true)', s_a, 'Dernier Arrivé', 'dernier@exemple.invalid', '0611111111', 'fr'))),
       jsonb_build_array('Visiteur', 'voit maintenant 0 place restante', '1',
         pg_temp.essai('anon', null, format('select 1 from public.seances_publiques where id = %L and places_restantes = 0', s_a))),
       jsonb_build_array('Serveur', 'refuse de confirmer avec un montant faux', 'refus',
@@ -383,6 +415,102 @@ begin
         pg_temp.essai('service_role', null, format('select 1 from (select public.code_import_utiliser(%L) as a) x where not a', repeat('7', 64))))
     );
 
+    -- ---------- CYCLE DE RÉSERVATION ----------
+    res := res || jsonb_build_array(
+      jsonb_build_array('Serveur', 'réserve avec accord pour les frais (carte gardée)', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.reserver_places(%L, 2, %L, %L, %L, %L, true, true) as r) x where (r->>%L)::boolean and (r->>%L)::int = 2000', s_loin, 'Zoé Test', 'zoe@exemple.invalid', '0612345678', 'fr', 'garder_carte', 'frais_centimes'))),
+      jsonb_build_array('Serveur', 'confirme le paiement (webhook) avec la carte enregistrée', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.confirmer_reservation((select id from public.reservations where email = ''zoe@exemple.invalid''), ''cs_zoe'', ''pi_zoe'', 1000, ''cus_z'', ''pm_z'') as r) x where r->>''statut'' = ''confirmee''')),
+      jsonb_build_array('Contrôle', 'réservation confirmée, carte gardée, lien créé', '1',
+        pg_temp.essai(null, null, 'select 1 from public.reservations r where r.email = ''zoe@exemple.invalid'' and r.statut = ''confirmee'' and r.stripe_payment_method = ''pm_z'' and exists (select 1 from public.reservations_liens l where l.reservation_id = r.id)')),
+      jsonb_build_array('Contrôle', 'emails en file : confirmation (avec lien) et alertes association et guide', '3',
+        pg_temp.essai(null, null, 'select 1 from public.envois e join public.reservations r on r.id = e.reservation_id where r.email = ''zoe@exemple.invalid'' and ((e.type = ''confirmation'' and e.destinataire = r.email and e.donnees ? ''jeton'') or (e.type = ''alerte_inscription'' and e.destinataire in (''mouvementmontmartre@gmail.com'', ''guide-a@exemple.invalid'')))')),
+      jsonb_build_array('Serveur', 'webhook reçu deux fois : rien de plus', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.confirmer_reservation((select id from public.reservations where email = ''zoe@exemple.invalid''), ''cs_zoe'', ''pi_zoe'', 1000, ''cus_z'', ''pm_z'') as r) x where (r->>''deja_traitee'')::boolean')),
+      jsonb_build_array('Contrôle', 'toujours 3 emails, un seul paiement', '1',
+        pg_temp.essai(null, null, 'select 1 where (select count(*) from public.envois e join public.reservations r on r.id = e.reservation_id where r.email = ''zoe@exemple.invalid'') = 3 and (select count(*) from public.paiements where stripe_payment_intent = ''pi_zoe'') = 1')),
+      jsonb_build_array('Serveur', 'écran de confirmation : lien depuis la session Stripe', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.lien_reservation_session(''cs_zoe'') as l) x where length(l->>''jeton'') = 64')),
+      jsonb_build_array('Serveur', 'le lien montre la réservation, sans email ni téléphone', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.reservation_par_jeton(interne.sha256(''jeton-loin'')) as r) x where (r->>''peut_annuler'')::boolean and not (r->>''annulation_tardive'')::boolean and not r ? ''email'' and not r ? ''telephone'' and r->>''point_rdv_precis'' = ''Devant le kiosque''')),
+      jsonb_build_array('Serveur', 'annulation plus de 24 h avant : pas de frais', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.annuler_par_client(interne.sha256(''jeton-loin'')) as r) x where (r->>''frais_centimes'')::int = 0')),
+      jsonb_build_array('Contrôle', 'place libérée, 5 € gardés (pas de remboursement), email client et 2 alertes', '1',
+        pg_temp.essai(null, null, format('select 1 from public.reservations r where r.id = %L and r.statut = %L and r.frais_statut = %L and not exists (select 1 from public.remboursements rb join public.paiements p on p.id = rb.paiement_id where p.reservation_id = r.id) and (select count(*) from public.envois where reservation_id = r.id and type in (%L, %L)) = 3', r_loin, 'annulee', 'aucun', 'annulation_client', 'alerte_annulation'))),
+      jsonb_build_array('Serveur', 'annuler deux fois ne change rien', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.annuler_par_client(interne.sha256(''jeton-loin'')) as r) x where (r->>''deja_annulee'')::boolean')),
+      jsonb_build_array('Serveur', 'annulation moins de 24 h avant : 10 € par personne (2 personnes)', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.annuler_par_client(interne.sha256(''jeton-tot'')) as r) x where (r->>''frais_centimes'')::int = 2000')),
+      jsonb_build_array('Contrôle', 'frais mis en file à prélever', '1',
+        pg_temp.essai(null, null, format('select 1 from public.reservations where id = %L and frais_statut = %L and frais_centimes = 2000', r_tot, 'a_prelever'))),
+      jsonb_build_array('Serveur', 'annulation tardive sans carte enregistrée : pas de frais', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.annuler_par_client(interne.sha256(''jeton-tot-sans'')) as r) x where (r->>''frais_centimes'')::int = 0')),
+      jsonb_build_array('Serveur', 'lien inconnu refusé', 'refus',
+        pg_temp.essai('service_role', null, format('select public.annuler_par_client(%L)', repeat('0', 64)))),
+      jsonb_build_array('Serveur', 'contrôle des minimums 48 h avant', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.verifier_minimums() as r) x where (r->>''annulees'')::int >= 1')),
+      jsonb_build_array('Contrôle', 'séance sous le minimum annulée, inscrite remboursée en file et prévenue', '1',
+        pg_temp.essai(null, null, format('select 1 from public.seances s where s.id = %L and s.statut = %L and exists (select 1 from public.remboursements rb join public.paiements p on p.id = rb.paiement_id where p.reservation_id = %L and rb.statut = %L and rb.montant_centimes = 500) and exists (select 1 from public.envois where reservation_id = %L and type = %L)', s_min, 'annulee', r_min, 'a_faire', r_min, 'seance_annulee'))),
+      jsonb_build_array('Contrôle', 'séance au minimum atteint : maintenue', '1',
+        pg_temp.essai(null, null, format('select 1 from public.seances where id = %L and statut = %L and minimum_verifie_le is not null', s_rappel, 'publiee'))),
+      jsonb_build_array('Serveur', 'rappels 36 h avant', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.preparer_rappels() as n) x where n = 1')),
+      jsonb_build_array('Contrôle', 'rappel en file avec son lien « Je ne peux plus venir »', '1',
+        pg_temp.essai(null, null, format('select 1 from public.envois where reservation_id = %L and type = %L and donnees ? %L', r_rappel, 'rappel', 'jeton'))),
+      jsonb_build_array('Serveur', 'pas de deuxième rappel', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.preparer_rappels() as n) x where n = 0')),
+      jsonb_build_array('Serveur', 'file des remboursements : le remboursement à faire est pris', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.remboursements_a_traiter() as l) x where l @> ''[{"stripe_payment_intent": "pi_mia"}]''')),
+      jsonb_build_array('Serveur', 'note le remboursement fait', '1',
+        pg_temp.essai('service_role', null, format('select public.remboursement_resultat((select rb.id from public.remboursements rb join public.paiements p on p.id = rb.paiement_id where p.reservation_id = %L), true, %L)', r_min, 're_mia'))),
+      jsonb_build_array('Contrôle', 'réservation remboursée, paiement marqué remboursé', '1',
+        pg_temp.essai(null, null, format('select 1 from public.reservations r join public.paiements p on p.reservation_id = r.id where r.id = %L and r.statut = %L and p.statut = %L', r_min, 'remboursee', 'rembourse'))),
+      jsonb_build_array('Serveur', 'file des remboursements vide ensuite (jamais deux fois)', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.remboursements_a_traiter() as l) x where jsonb_array_length(l) = 0')),
+      jsonb_build_array('Serveur', 'file des frais : 20 € à prélever sur la carte de Tom', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.frais_a_traiter() as l) x where l @> ''[{"stripe_payment_method": "pm_t", "montant_centimes": 2000}]''')),
+      jsonb_build_array('Serveur', 'note les frais prélevés', '1',
+        pg_temp.essai('service_role', null, format('select public.frais_resultat(%L, %L, %L)', r_tot, 'preleve', 'pi_frais_tom'))),
+      jsonb_build_array('Contrôle', 'frais prélevés et email de reçu en file', '1',
+        pg_temp.essai(null, null, format('select 1 from public.reservations r where r.id = %L and r.frais_statut = %L and exists (select 1 from public.envois where reservation_id = r.id and type = %L)', r_tot, 'preleve', 'frais_preleves'))),
+      jsonb_build_array('Serveur', 'file des emails : prise des emails à envoyer', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select count(*) as n from public.envois_a_traiter(100)) x where n >= 8')),
+      jsonb_build_array('Serveur', 'note l''envoi de la confirmation', '1',
+        pg_temp.essai('service_role', null, 'select public.envoi_resultat((select id from public.envois where type = ''confirmation'' limit 1), true)')),
+      jsonb_build_array('Contrôle', 'email envoyé : le lien personnel est effacé de la base', '1',
+        pg_temp.essai(null, null, 'select 1 where exists (select 1 from public.envois where type = ''confirmation'' and statut = ''envoye'') and not exists (select 1 from public.envois where statut = ''envoye'' and donnees ? ''jeton'')')),
+      jsonb_build_array('Intervenant A', 'signale l''absence d''un inscrit à sa séance passée (10 € de frais)', '1',
+        pg_temp.essai('authenticated', u_a, format('select 1 from (select public.signaler_absence(%L) as r) x where (r->>%L)::int = 1000', r_passee, 'frais_centimes'))),
+      jsonb_build_array('Intervenant B', 'ne signale pas d''absence sur la séance de A', 'refus',
+        pg_temp.essai('authenticated', u_b, format('select public.signaler_absence(%L)', r_passee))),
+      jsonb_build_array('Intervenant A', 'ne signale pas d''absence avant la séance', 'refus',
+        pg_temp.essai('authenticated', u_a, format('select public.signaler_absence(%L)', r_rappel))),
+      jsonb_build_array('Visiteur', 'ne signale pas d''absence', 'refus',
+        pg_temp.essai('anon', null, format('select public.signaler_absence(%L)', r_passee))),
+      jsonb_build_array('Intervenant A', 'n''annule pas une séance lui-même', 'refus',
+        pg_temp.essai('authenticated', u_a, format('select public.annuler_seance(%L)', s_loin))),
+      jsonb_build_array('Admin', 'annule une séance : l''inscrite est prévenue', '1',
+        pg_temp.essai('authenticated', u_admin, format('select 1 from (select public.annuler_seance(%L, %L) as r) x where (r->>%L)::int = 1', s_loin, 'intervenant_empeche', 'inscrits'))),
+      jsonb_build_array('Intervenant A', 'n''appelle pas la file des emails', 'refus',
+        pg_temp.essai('authenticated', u_a, 'select * from public.envois_a_traiter(1)')),
+      jsonb_build_array('Intervenant A', 'n''annule pas une réservation par lien', 'refus',
+        pg_temp.essai('authenticated', u_a, format('select public.annuler_par_client(%L)', interne.sha256('jeton-tot')))),
+      jsonb_build_array('Visiteur', 'ne lit pas une réservation par lien directement', 'refus',
+        pg_temp.essai('anon', null, format('select 1 where public.reservation_par_jeton(%L) is not null', interne.sha256('jeton-tot')))),
+      jsonb_build_array('Visiteur', 'ne lit ni les emails en file, ni les liens, ni les contacts', 'refus',
+        pg_temp.essai('anon', null, 'select 1 from public.envois union all select 1 from public.reservations_liens union all select 1 from public.intervenants_contacts')),
+      jsonb_build_array('Intervenant A', 'ne lit pas les emails en file ni les liens', 'refus',
+        pg_temp.essai('authenticated', u_a, 'select 1 from public.envois union all select 1 from public.reservations_liens')),
+      jsonb_build_array('Intervenant A', 'lit son contact privé, pas celui de B', '1',
+        pg_temp.essai('authenticated', u_a, 'select 1 from public.intervenants_contacts')),
+      jsonb_build_array('Intervenant A', 'met à jour son email de contact', '1',
+        pg_temp.essai('authenticated', u_a, format('update public.intervenants_contacts set email = %L where intervenant_id = %L', 'nouveau-a@exemple.invalid', i_a))),
+      jsonb_build_array('Intervenant A', 'ne modifie pas le contact de B', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.intervenants_contacts set email = %L where intervenant_id = %L', 'pirate@exemple.invalid', i_b))),
+      jsonb_build_array('Intervenant A', 'ne change pas ses frais d''annulation', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set frais_annulation_tardive_centimes = 0 where id = %L', x_a)))
+    );
+
     raise exception 'FIN_DU_TEST';   -- annule toutes les fausses données
   exception when others then
     if sqlerrm <> 'FIN_DU_TEST' then
@@ -407,7 +535,7 @@ begin
 
   select count(*)::text into v from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and has_function_privilege('authenticated', p.oid, 'execute')
-     and p.proname not in ('valider_proposition', 'refuser_proposition', 'code_import_creer', 'ajouter_adhesion_manuelle');
+     and p.proname not in ('valider_proposition', 'refuser_proposition', 'code_import_creer', 'ajouter_adhesion_manuelle', 'annuler_seance', 'signaler_absence');
   res := res || jsonb_build_array(jsonb_build_array('Structure', 'fonctions serveur appelables par un compte connecté', '0', v));
 
   begin
