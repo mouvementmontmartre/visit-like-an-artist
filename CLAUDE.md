@@ -40,8 +40,17 @@ Le brief de passation (règles métier, écrans, données, paiement, AR) est fou
    - `CONFIG.liens.adhesion` = adhésion annuelle renouvelable ; `sources.membres` retiré.
    - **À faire par la propriétaire au moment de la mise en ligne** : (1) appliquer `maj-02` + test ; (2) Brevo : domaine `montmartre.app` **authentifié le 18/11** (DNS chez Netlify DNS : code Brevo, DKIM brevo1/brevo2, DMARC p=none ; le domaine est acheté chez OVH mais ses serveurs DNS sont ceux de Netlify), envoi depuis `bonjour@montmartre.app` (pas de boîte mail, réponses vers `mouvementmontmartre@gmail.com`), clé API à créer ; (3) Netlify : variables `BREVO_API_KEY`, `STRIPE_WEBHOOK_SECRET` (et vérifier `SUPABASE_SECRET_KEY`, `STRIPE_SECRET_KEY`) ; (4) Stripe : webhook vers `https://montmartre.app/.netlify/functions/stripe-webhook` avec les 6 évènements listés en tête de `stripe-webhook.js`, et lien d'adhésion `plink_1UcTjA…` réglé pour renvoyer vers `https://montmartre.app/?adhesion={CHECKOUT_SESSION_ID}` ; (5) après mise en ligne : `select public.code_import_creer();` puis ouvrir `https://montmartre.app/.netlify/functions/import-adhesions?code=…` une fois.
    - Questions ouvertes : anciens abonnements (12 € et 5 €) à garder ou non ; liens de carte jamais purgés (à prévoir).
-   Puis réservation et paiement (créneaux, blocage 15 min, webhook Stripe, minimum de participants, remboursement automatique, emails).
-6. **À faire** : espace intervenants, administration, demandes privées, « nous rejoindre ».
+   Partie 2, **réservation et paiement** des visites, ateliers et soirées (décisions de la propriétaire, 18/11) :
+   - la source des fiches reste la Sheet tant que l'administration (étape 6) n'existe pas ; la réservation s'affiche sur une fiche dès que l'expérience correspondante (même identifiant que la Sheet = `slug`) est publiée dans Supabase avec ses séances ;
+   - blocage 15 min, 5 € par personne en ligne (soirée : prix entier), confirmation par webhook, paiement tardif sans place = remboursement automatique ;
+   - minimum non atteint 48 h avant : séance annulée, inscrits remboursés, emails (inscrits, guide ou artiste, `mouvementmontmartre@gmail.com`) ;
+   - rappel par email **36 h avant**, avec le bouton « Je ne peux plus venir » ;
+   - « Je ne peux plus venir » : place libérée, email au guide et à l'association ; **plus de 24 h avant : les 5 € sont gardés, pas de frais** ; **moins de 24 h avant : 10 € de frais en plus** (15 € perdus en tout), prélevés sur la carte enregistrée au paiement avec l'accord de la personne (texte dans les CGV) ; si la banque demande une validation, email avec un lien de paiement ;
+   - absence sans prévenir : le guide signale « absent » d'un geste dans « Mes inscrits » (étape 6), mêmes frais ; l'admin aussi ;
+   - emails des intervenants dans une table à part, lisible seulement par l'admin et l'intervenant ;
+   - CGV : rédigées par un expert hors de Code (prompt fourni le 18/11), à ajouter à la page Infos et à la case à cocher quand la propriétaire les envoie.
+   Partie 3 : accès sans date (autoguidé, escape game) par lien d'accès, remplaçant le déblocage local actuel.
+6. **À faire** : espace intervenants et administration **ensemble** (décision du 18/11 : pas d'écran d'administration provisoire), demandes privées, « nous rejoindre ». Administration : créer, compléter et publier les fiches (reprise de la Sheet « Visites », incomplète), dates, prix, emails des intervenants, absences.
 3b. **À faire en dernier** : traductions chinois, arabe, russe (relecture par des personnes natives), flèches « → » à remplacer par « ← » en arabe.
 7. **À faire** : AR (8th Wall), chargé uniquement à l'ouverture d'une étape AR.
 
