@@ -123,7 +123,11 @@ document.addEventListener("click", (e) => {
   const opener = e.target.closest("[data-open]");
   if (opener) { openTarget(opener.dataset.open, opener.dataset.arg); return; }
   const back = e.target.closest("[data-back]");
-  if (back) { goBack(); return; }
+  if (back) {
+    // Depuis le formulaire de réservation, « retour » ramène à la fiche.
+    if ($("#screen-reserver") && $("#screen-reserver").classList.contains("active") && back.closest("#screen-reserver")) { showScreen("visite"); return; }
+    goBack(); return;
+  }
   const tab = e.target.closest("[data-tab]");
   if (tab) {
     showScreen(tab.dataset.tab);
@@ -895,8 +899,9 @@ async function renderVisite(id) {
         '<div><div class="fiche-host-label">' + esc(t("fiche.host")) + '</div><div class="fiche-host-name">' + esc(guide) + '</div></div></div>'
       : '') +
     rows.map(r => '<div class="info-row"><span class="k">' + esc(r[0]) + '</span><span class="v">' + esc(r[1]) + '</span></div>').join("") +
+    '<div id="visite-seances"></div>' +
     (v["Lien réservation"]
-      ? '<a class="cta" style="text-decoration:none;" href="' + esc(v["Lien réservation"]) + '" target="_blank" rel="noopener">' + t("cta.reserve") + (v["Tarif direct"] ? " · " + esc(v["Tarif direct"]) : "") + '</a>'
+      ? '<a class="cta cta-externe" style="text-decoration:none;" href="' + esc(v["Lien réservation"]) + '" target="_blank" rel="noopener">' + t("cta.reserve") + (v["Tarif direct"] ? " · " + esc(v["Tarif direct"]) : "") + '</a>'
       : "") +
     (isVisiteUnlocked(id)
       ? '<div class="member-note" style="text-align:center;">' + t("unlock.done") + '</div>'
@@ -915,6 +920,8 @@ async function renderVisite(id) {
   const btnLibre = $("#btn-libre");
   if (btnLibre) btnLibre.addEventListener("click", () => startCheckout(id, "libre"));
   attachMontantChips("");
+  RESA = null;
+  afficherSeances(id, guide);
 }
 
 /** Points de parcours locaux (secours si le Sheet "points-visites" n'a pas encore
@@ -1355,6 +1362,284 @@ function renderDayDetail() {
 }
 
 /* ============================================================
+   RÉSERVATION (visites, ateliers, soirées)
+   Les dates et les places viennent de Supabase (vue publique
+   seances_publiques, jamais en cache). Le paiement, l'annulation et
+   le lien personnel passent par les fonctions Netlify « reserver »
+   et « reservation ». Les prix affichés ici ne sont qu'indicatifs :
+   le montant payé est toujours recalculé par la base.
+   ============================================================ */
+
+const RESA_TYPES = ["visite_guidee", "atelier", "soiree"];
+const LANGUE_SEANCE = { fr: "français", en: "english", es: "español", zh: "中文", ar: "العربية", ru: "русский" };
+let RESA = null;   // { exp, seances, seance, personnes, guide }
+
+async function supa(chemin) {
+  const res = await fetch(CONFIG.supabase.url + "/rest/v1/" + chemin, {
+    headers: { apikey: CONFIG.supabase.cle }, cache: "no-store",
+  });
+  if (!res.ok) throw new Error("Supabase " + res.status);
+  return res.json();
+}
+function localeResa() {
+  return ({ fr: "fr-FR", en: "en-GB", es: "es-ES", zh: "zh-CN", ar: "ar", ru: "ru-RU" })[getLang()] || "fr-FR";
+}
+function euros(c) {
+  return new Intl.NumberFormat(localeResa(), { style: "currency", currency: "EUR",
+    minimumFractionDigits: (c || 0) % 100 ? 2 : 0 }).format((c || 0) / 100);
+}
+function tx(cle, vars) {
+  let s = t(cle);
+  Object.keys(vars || {}).forEach((k) => { s = s.split("{" + k + "}").join(vars[k]); });
+  return s;
+}
+function heureResa(iso) {
+  return new Date(iso).toLocaleTimeString(localeResa(), { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" });
+}
+function dateLongueResa(iso) {
+  return new Date(iso).toLocaleDateString(localeResa(), { timeZone: "Europe/Paris", weekday: "long", day: "numeric", month: "long" }) +
+    ", " + heureResa(iso);
+}
+const estVisiteResa = (type) => type === "visite_guidee" || type === "atelier";
+const titreResa = (o) => (o && (o[getLang()] || o.fr)) || "";
+
+/** Sur la fiche : les prochaines dates, si l'expérience est réservable dans Supabase. */
+async function afficherSeances(slug, guideNom) {
+  const zone = $("#visite-seances");
+  if (!zone) return;
+  let exp;
+  try {
+    exp = (await supa("experiences?select=id,type,titre,prix_centimes,prereservation_centimes,frais_annulation_tardive_centimes,telephone_obligatoire" +
+      "&slug=eq." + encodeURIComponent(slug) + "&publie=eq.true&actif=eq.true"))[0];
+  } catch (e) { return; }                        // hors ligne ou pas encore dans la base : la fiche reste comme avant
+  if (!exp || !RESA_TYPES.includes(exp.type) || exp.prix_centimes == null) return;
+  let seances = [];
+  try {
+    seances = await supa("seances_publiques?select=*&experience_id=eq." + exp.id + "&statut=eq.publiee&debut=gt." +
+      encodeURIComponent(new Date().toISOString()) + "&order=debut.asc&limit=12");
+  } catch (e) { /* liste vide */ }
+  $$("#visite-body .cta-externe").forEach((el) => el.remove());   // l'ancien lien externe laisse place à la réservation
+  RESA = { exp, seances, seance: seances.find((s) => s.places_restantes > 0) || null, personnes: 1, guide: guideNom || "" };
+  peindreSeances();
+}
+
+function seanceHtml(s, choisie) {
+  const d = new Date(s.debut);
+  const jour = d.toLocaleDateString(localeResa(), { timeZone: "Europe/Paris", weekday: "short" });
+  const num = d.toLocaleDateString(localeResa(), { timeZone: "Europe/Paris", day: "numeric" });
+  const mois = d.toLocaleDateString(localeResa(), { timeZone: "Europe/Paris", month: "short" });
+  const complet = s.places_restantes <= 0;
+  let etat, barre = "";
+  if (complet) etat = t("resa.full");
+  else if (s.confirmee || !estVisiteResa(RESA.exp.type)) {
+    etat = (estVisiteResa(RESA.exp.type) ? t("resa.confirmed") + " · " : "") + tx("resa.left", { n: s.places_restantes, max: s.capacite_max });
+  } else {
+    etat = tx("resa.toGo", { n: s.inscrits, min: s.participants_min });
+    barre = '<span class="seance-barre" aria-hidden="true"><span style="inline-size:' +
+      Math.min(100, Math.round(100 * s.inscrits / s.participants_min)) + '%"></span></span>';
+  }
+  return '<button type="button" class="seance' + (choisie ? " choisie" : "") + '" data-seance="' + esc(s.id) + '"' +
+    (complet ? " disabled" : "") + ' aria-pressed="' + (choisie ? "true" : "false") + '">' +
+    '<span class="seance-jour"><span>' + esc(jour) + '</span><b>' + esc(num) + '</b><span>' + esc(mois) + '</span></span>' +
+    '<span class="seance-info"><span class="seance-heure">' + esc(heureResa(s.debut)) + ' · ' + esc(LANGUE_SEANCE[s.langue] || s.langue) + '</span>' +
+    '<span class="seance-etat">' + esc(etat) + '</span>' + barre + '</span></button>';
+}
+
+function prixHtml() {
+  const e = RESA.exp, n = RESA.personnes;
+  const total = e.prix_centimes * n;
+  if (!estVisiteResa(e.type)) {
+    return '<div class="resa-prix"><div class="resa-ligne"><span>' + esc(n + " × " + euros(e.prix_centimes)) + '</span><b class="resa-gros">' + esc(euros(total)) + '</b></div></div>';
+  }
+  const enLigne = e.prereservation_centimes * n;
+  return '<div class="resa-prix">' +
+    '<div class="resa-ligne"><span>' + esc(t("resa.fullPrice")) + '<br>' + esc(n + " × " + euros(e.prix_centimes)) + '</span><b class="resa-gros">' + esc(euros(total)) + '</b></div>' +
+    '<div class="resa-accent">' + esc(tx("resa.bookFor", { m: euros(enLigne) })) + '</div>' +
+    '<div class="member-note">' + esc(tx("resa.prereserv", { n, u: euros(e.prereservation_centimes) })) + '</div>' +
+    '<p class="resa-reste"><b>' + esc(tx("resa.restOnSite", { m: euros(total - enLigne), g: RESA.guide ? tx("resa.to", { g: RESA.guide }) : "" })) +
+    '</b> ' + esc(t("resa.cash")) + '</p></div>';
+}
+const aPayerResa = () => (estVisiteResa(RESA.exp.type) ? RESA.exp.prereservation_centimes : RESA.exp.prix_centimes) * RESA.personnes;
+
+function stepperHtml(idPrefix) {
+  const max = RESA.seance ? Math.min(RESA.seance.places_restantes, RESA.seance.capacite_max) : 1;
+  return '<div class="mini-label">' + esc(t("resa.people")) + '</div>' +
+    '<div class="resa-stepper"><span>' + esc(RESA.personnes === 1 ? t("resa.person1") : tx("resa.personN", { n: RESA.personnes })) + '</span>' +
+    '<span class="resa-stepper-btns"><button type="button" id="' + idPrefix + '-moins" aria-label="−"' + (RESA.personnes <= 1 ? " disabled" : "") + '>−</button>' +
+    '<b aria-live="polite">' + RESA.personnes + '</b>' +
+    '<button type="button" id="' + idPrefix + '-plus" aria-label="+"' + (RESA.personnes >= max ? " disabled" : "") + '>+</button></span></div>';
+}
+function brancherStepper(idPrefix, repeindre) {
+  const m = $("#" + idPrefix + "-moins"), p = $("#" + idPrefix + "-plus");
+  if (m) m.addEventListener("click", () => { RESA.personnes = Math.max(1, RESA.personnes - 1); repeindre(); });
+  if (p) p.addEventListener("click", () => { RESA.personnes += 1; repeindre(); });
+}
+
+function peindreSeances() {
+  const zone = $("#visite-seances");
+  if (!zone || !RESA) return;
+  if (!RESA.seances.length) {
+    zone.innerHTML = '<div class="mini-label">' + esc(t("resa.chooseDate")) + '</div><div class="member-note">' + esc(t("resa.noDate")) + '</div>';
+    return;
+  }
+  if (RESA.seance) RESA.personnes = Math.min(RESA.personnes, Math.max(1, RESA.seance.places_restantes));
+  zone.innerHTML =
+    '<div class="mini-label">' + esc(t("resa.chooseDate")) + '</div>' +
+    '<div class="seances">' + RESA.seances.map((s) => seanceHtml(s, RESA.seance && s.id === RESA.seance.id)).join("") + '</div>' +
+    (estVisiteResa(RESA.exp.type) ? '<div class="member-note">' + esc(t("resa.minNote")) + '</div>' : '') +
+    (RESA.seance ? stepperHtml("fiche") + prixHtml() +
+      '<button type="button" class="cta fee" id="btn-reserver">' + esc(tx("resa.payNowBtn", { m: euros(aPayerResa()) })) + '</button>' : '');
+  $$("#visite-seances .seance").forEach((b) => b.addEventListener("click", () => {
+    RESA.seance = RESA.seances.find((s) => s.id === b.dataset.seance); peindreSeances();
+  }));
+  brancherStepper("fiche", peindreSeances);
+  const go = $("#btn-reserver");
+  if (go) go.addEventListener("click", ouvrirReservation);
+}
+
+/** Écran E8 : coordonnées, conditions, paiement. */
+function ouvrirReservation() {
+  if (!RESA || !RESA.seance) return;
+  const e = RESA.exp, s = RESA.seance, visite = estVisiteResa(e.type);
+  const champs = (window.__resaChamps = window.__resaChamps || { nom: "", email: "", tel: "" });
+  const peindre = () => {
+    $("#reserver-body").innerHTML =
+      '<div class="resa-resume"><b>' + esc(titreResa(e.titre)) + '</b><span>' + esc(dateLongueResa(s.debut)) + '</span>' +
+        '<span>' + esc((LANGUE_SEANCE[s.langue] || s.langue) + (s.point_rdv ? " · " + s.point_rdv : "")) + '</span></div>' +
+      stepperHtml("form") +
+      '<div class="member-note">' + esc(t("resa.hold")) + '</div>' +
+      '<form id="resa-form" novalidate>' +
+        '<div class="mini-label">' + esc(t("resa.contact")) + '</div>' +
+        '<label class="resa-champ"><span>' + esc(t("resa.name")) + '</span><input class="input-field" id="resa-nom" autocomplete="name" required value="' + esc(champs.nom) + '"></label>' +
+        '<label class="resa-champ"><span>' + esc(t("resa.email")) + '</span><input class="input-field" id="resa-email" type="email" inputmode="email" autocomplete="email" required value="' + esc(champs.email) + '"></label>' +
+        '<label class="resa-champ"><span>' + esc(e.telephone_obligatoire ? t("resa.phone") : t("resa.phoneOpt")) + '</span><input class="input-field" id="resa-tel" type="tel" inputmode="tel" autocomplete="tel"' + (e.telephone_obligatoire ? " required" : "") + ' value="' + esc(champs.tel) + '"></label>' +
+        prixHtml() +
+        '<div class="resa-ligne resa-total"><span>' + esc(t("resa.total")) + '</span><b>' + esc(euros(aPayerResa())) + '</b></div>' +
+        '<div class="member-note">' + esc(t("resa.vat")) + '</div>' +
+        '<label class="resa-case"><input type="checkbox" id="resa-cgv"><span>' + esc(t("resa.cgv")) + ' <a href="#" data-open="infos">' + esc(t("resa.cgvLink")) + '</a></span></label>' +
+        (visite ? '<label class="resa-case"><input type="checkbox" id="resa-frais"><span>' + esc(tx("resa.fees", { m: euros(e.frais_annulation_tardive_centimes) })) + '</span></label>' +
+                  '<div class="member-note">' + esc(t("resa.noRefund")) + '</div>' : '') +
+        '<button type="submit" class="cta fee" id="resa-payer">' + esc(tx("resa.payBtn", { m: euros(aPayerResa()) })) + '</button>' +
+        '<div id="resa-note" class="resa-erreur" role="alert"></div>' +
+        '<div class="member-note resa-centre">' + esc(t("resa.secure")) + '</div>' +
+      '</form>';
+    brancherStepper("form", () => { garder(); peindre(); });
+    $("#resa-form").addEventListener("submit", payer);
+    $$("#resa-form input").forEach((i) => i.addEventListener("input", () => { $("#resa-note").textContent = ""; }));
+  };
+  const garder = () => {
+    champs.nom = ($("#resa-nom") || {}).value || champs.nom;
+    champs.email = ($("#resa-email") || {}).value || champs.email;
+    champs.tel = ($("#resa-tel") || {}).value || champs.tel;
+  };
+  const payer = async (ev) => {
+    ev.preventDefault();
+    garder();
+    const note = $("#resa-note"), btn = $("#resa-payer");
+    const email = champs.email.trim().toLowerCase();
+    if (!champs.nom.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || (e.telephone_obligatoire && champs.tel.trim().length < 6)) {
+      note.textContent = t("resa.err.form"); return;
+    }
+    if (!$("#resa-cgv").checked || (visite && !$("#resa-frais").checked)) { note.textContent = t("resa.err.cgv"); return; }
+    note.textContent = ""; btn.disabled = true;
+    try {
+      const res = await fetch("/.netlify/functions/reserver", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seance_id: s.id, personnes: RESA.personnes, nom: champs.nom.trim(), email,
+          telephone: champs.tel.trim(), langue: getLang(), cgv: true, accord_frais: visite }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.url) { window.location.href = d.url; return; }
+      note.textContent = d.code === "COMPLET" ? t("resa.err.full")
+        : d.code === "SEANCE_INDISPONIBLE" ? t("resa.err.gone")
+        : ["PARAMETRES", "TELEPHONE_REQUIS"].includes(d.code) ? t("resa.err.form")
+        : ["CGV_NON_ACCEPTEES", "ACCORD_FRAIS_REQUIS"].includes(d.code) ? t("resa.err.cgv") : t("resa.err.pay");
+    } catch (err) {
+      note.textContent = t("resa.err.pay");
+    }
+    btn.disabled = false;
+  };
+  peindre();
+  showScreen("reserver");
+}
+
+/** Écran E9 : confirmation, ou page du lien personnel (« Je ne peux plus venir »). */
+function peindreReservation(r, jeton, intro) {
+  const corps = $("#reservation-body");
+  if (!r) { corps.innerHTML = '<div class="member-note">' + esc(intro || t("resa.linkInvalid")) + '</div>' + boutonAccueilResa(); return; }
+  const lignes = [
+    [t("resa.date"), r.debut ? dateLongueResa(r.debut) : ""], [t("resa.people"), String(r.personnes)],
+    [t("resa.host"), r.intervenant], [t("resa.meet"), r.point_rdv_precis || r.point_rdv],
+    [t("resa.paid"), euros(r.paye_en_ligne_centimes)], [t("resa.ref"), r.reference],
+  ].filter((l) => l[1]);
+  let etat = "";
+  if (r.statut === "annulee" || r.statut === "remboursee") {
+    etat = '<div class="resa-etat">' + esc(r.seance_statut === "annulee" ? t("resa.sessionCancelled")
+      : r.frais_centimes > 0 ? tx("resa.cancelledFee", { m: euros(r.frais_centimes) }) : t("resa.cancelled")) + '</div>';
+  }
+  corps.innerHTML =
+    (intro ? '<div class="resa-ok"><span aria-hidden="true">✓</span><h1>' + esc(intro) + '</h1><p>' + esc(t("resa.ok.text")) + '</p></div>' : '') +
+    etat +
+    '<div class="resa-carte"><b class="resa-titre">' + esc(titreResa(r.titre)) + '</b>' +
+      lignes.map((l) => '<div class="info-row"><span class="k">' + esc(l[0]) + '</span><span class="v">' + esc(l[1]) + '</span></div>').join("") +
+      (estVisiteResa(r.type) && r.reste_sur_place_centimes > 0 && r.statut === "confirmee"
+        ? '<p class="resa-reste"><b>' + esc(tx("resa.restOnSite", { m: euros(r.reste_sur_place_centimes), g: r.intervenant ? tx("resa.to", { g: r.intervenant }) : "" })) + '</b> ' + esc(t("resa.cash")) + '</p>' : '') +
+      (r.message_inscrits && r.statut === "confirmee" ? '<p class="member-note">« ' + esc(r.message_inscrits) + ' »</p>' : '') +
+    '</div>' +
+    (r.peut_annuler ? '<button type="button" class="cta ghost" id="resa-annuler">' + esc(t("resa.cancelBtn")) + '</button><div id="resa-annuler-zone"></div>' : '') +
+    boutonAccueilResa();
+  const b = $("#resa-annuler");
+  if (b) b.addEventListener("click", () => {
+    $("#resa-annuler-zone").innerHTML =
+      '<div class="member-note">' + esc(r.frais_si_annulation_centimes > 0 ? tx("resa.cancelFee", { m: euros(r.frais_si_annulation_centimes) }) : t("resa.cancelFree")) + '</div>' +
+      '<button type="button" class="cta fee" id="resa-annuler-ok">' + esc(t("resa.cancelSure")) + '</button><div class="resa-erreur" id="resa-annuler-note" role="alert"></div>';
+    $("#resa-annuler-ok").addEventListener("click", async (ev) => {
+      ev.target.disabled = true;
+      try {
+        const res = await fetch("/.netlify/functions/reservation", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "annuler", jeton }) });
+        const d = await res.json().catch(() => ({}));
+        if (res.ok && d.reservation) { peindreReservation(d.reservation, jeton); return; }
+        $("#resa-annuler-note").textContent = t("resa.err.pay");
+      } catch (e) { $("#resa-annuler-note").textContent = t("resa.err.pay"); }
+      ev.target.disabled = false;
+    });
+  });
+}
+const boutonAccueilResa = () => '<button type="button" class="cta ghost" data-back>' + esc(t("resa.back")) + '</button>';
+
+/** Retour de Stripe (?reservation=cs_…), paiement interrompu, ou lien de l'email (#reservation=…). */
+async function handleReservationRetour() {
+  const params = new URLSearchParams(window.location.search);
+  const session = params.get("reservation");
+  const abandon = params.has("reservation_abandonnee");
+  const m = (window.location.hash || "").match(/^#reservation=([0-9a-f]{64})$/);
+  if (!session && !abandon && !m) return;
+  history.replaceState(null, "", window.location.pathname);    // le jeton ne reste pas dans l'adresse
+  showScreen("reservation");
+  const corps = $("#reservation-body");
+  if (abandon) { corps.innerHTML = '<div class="member-note">' + esc(t("resa.abandoned")) + '</div>' + boutonAccueilResa(); return; }
+  corps.innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>';
+  const appel = (corpsReq) => fetch("/.netlify/functions/reservation", { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpsReq) }).then(async (r) => ({ ok: r.ok, d: await r.json().catch(() => ({})) }));
+  try {
+    if (session && /^cs_(live|test)_[A-Za-z0-9]+$/.test(session)) {
+      const { ok, d } = await appel({ action: "session", session_id: session });
+      if (ok && d.reservation && d.reservation.statut === "confirmee") { peindreReservation(d.reservation, d.jeton, t("resa.ok.title")); return; }
+      if (ok && d.reservation) { peindreReservation(d.reservation, d.jeton); return; }
+      peindreReservation(null, null, t("resa.wait"));
+      return;
+    }
+    if (m) {
+      const { ok, d } = await appel({ action: "voir", jeton: m[1] });
+      peindreReservation(ok ? d.reservation : null, m[1]);
+    }
+  } catch (e) {
+    peindreReservation(null, null, t("resa.err.pay"));
+  }
+}
+
+/* ============================================================
    CARTE DE MEMBRE
    ============================================================ */
 
@@ -1598,6 +1883,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // L'ancienne liste des adhérents (Sheet publique) ne doit plus rester sur les téléphones.
   try { localStorage.removeItem("csv:membres"); } catch (e) { /* rien */ }
   handleCarteRetour();
+  handleReservationRetour();
 
   // Encadré "À propos" + lien adhésion sur l'écran "Ma carte de membre"
   const membreAbout = $("#membre-about");

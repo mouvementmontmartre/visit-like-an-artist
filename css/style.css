@@ -786,3 +786,54 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 #membre-result:not(:empty) { margin-bottom: 18px; }
 #membre-form[hidden] { display: none; }
 #membre-form-note { margin-top: 10px; font-size: 14px; line-height: 1.5; }
+
+/* ---------- Réservation (E4, E8, E9) ---------- */
+.seances { display: flex; flex-direction: column; gap: 10px; }
+.seance {
+  display: flex; align-items: center; gap: 14px; inline-size: 100%;
+  padding: 14px; border-radius: 10px; border: 1px solid var(--line, #3C5A4C);
+  background: transparent; color: inherit; font: inherit; text-align: start; cursor: pointer;
+}
+.seance.choisie { background: var(--fee); color: var(--nuit, #14100E); border-color: var(--fee); }
+.seance:disabled { opacity: 0.5; cursor: default; }
+.seance-jour { display: flex; flex-direction: column; align-items: center; min-inline-size: 48px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.seance-jour b { font-family: var(--display, serif); font-size: 26px; line-height: 1; letter-spacing: 0; }
+.seance-info { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.seance-heure { font-size: 15px; font-weight: 500; }
+.seance-etat { font-size: 12px; opacity: .85; }
+.seance-barre { display: block; block-size: 6px; border-radius: 3px; background: rgba(255,255,255,.12); margin-block-start: 6px; }
+.seance-barre span { display: block; block-size: 6px; border-radius: 3px; background: var(--fee); }
+.seance.choisie .seance-barre { background: rgba(0,0,0,.15); }
+.seance.choisie .seance-barre span { background: var(--nuit, #14100E); }
+.resa-stepper { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border: 1px solid var(--line, #3C5A4C); border-radius: 10px; }
+.resa-stepper-btns { display: flex; align-items: center; gap: 14px; }
+.resa-stepper-btns b { font-family: var(--display, serif); font-size: 22px; min-inline-size: 20px; text-align: center; }
+.resa-stepper-btns button { inline-size: 44px; block-size: 44px; border-radius: 50%; border: 1px solid var(--line, #3C5A4C); background: transparent; color: inherit; font-size: 20px; cursor: pointer; }
+.resa-stepper-btns button:last-child { background: var(--velin); color: var(--nuit, #14100E); border-color: var(--velin); }
+.resa-stepper-btns button:disabled { opacity: .35; cursor: default; }
+.resa-prix { display: flex; flex-direction: column; gap: 10px; padding-block: 16px 4px; }
+.resa-ligne { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 13px; }
+.resa-gros { font-family: var(--display, serif); font-size: 32px; line-height: 1; }
+.resa-accent { border-block-start: 1px solid var(--line, #3C5A4C); padding-block-start: 12px; font-size: 16px; font-weight: 500; color: var(--fee); }
+.resa-reste { font-size: 14px; line-height: 1.5; margin: 0; }
+.resa-reste b { font-weight: 500; }
+.resa-total { border-block: 1px solid var(--line, #3C5A4C); padding-block: 12px; margin-block-start: 14px; font-size: 15px; }
+.resa-total b { font-family: var(--display, serif); font-size: 22px; }
+.resa-resume { display: flex; flex-direction: column; gap: 3px; padding: 14px; border-radius: 10px; background: var(--velin); color: var(--nuit, #14100E); margin-block-end: 18px; }
+.resa-resume b { font-family: var(--display, serif); font-size: 18px; }
+.resa-resume span { font-size: 13px; }
+.resa-champ { display: flex; flex-direction: column; gap: 6px; margin-block-start: 12px; font-size: 12px; color: var(--muted); }
+.resa-case { display: flex; gap: 12px; align-items: flex-start; margin-block-start: 14px; font-size: 13px; line-height: 1.5; cursor: pointer; }
+.resa-case input { inline-size: 22px; block-size: 22px; flex-shrink: 0; accent-color: var(--fee); margin: 0; }
+.resa-case a { color: var(--fee); }
+.resa-erreur { color: #F2B8A8; font-size: 13px; margin-block-start: 10px; min-block-size: 1em; }
+.resa-centre { text-align: center; }
+.resa-ok { padding-block: 20px 10px; }
+.resa-ok span { display: inline-flex; align-items: center; justify-content: center; inline-size: 56px; block-size: 56px; border-radius: 50%; background: var(--fee); color: var(--nuit, #14100E); font-size: 26px; font-weight: 700; }
+.resa-ok h1 { font-family: var(--display, serif); font-weight: 400; font-size: 34px; line-height: 1.08; margin: 20px 0 0; }
+.resa-ok p { font-size: 14px; line-height: 1.6; color: var(--muted); }
+.resa-carte { background: var(--velin); color: var(--nuit, #14100E); border-radius: 10px; padding: 16px; margin-block: 16px; }
+.resa-carte .info-row .k { color: var(--muted-dark, #5A4E40); }
+.resa-carte .member-note { color: var(--muted-dark, #5A4E40); }
+.resa-titre { display: block; font-family: var(--display, serif); font-size: 21px; margin-block-end: 8px; }
+.resa-etat { padding: 14px; border-radius: 10px; border: 1px solid var(--fee); margin-block-start: 16px; font-size: 14px; line-height: 1.5; }
