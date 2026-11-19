@@ -33,7 +33,7 @@ const SEANCES = {
   ],
 };
 const JETON = "ab".repeat(32);
-const RESA = (o) => Object.assign({ reference: "VLAA-2K7F9Q", personnes: 2, paye_en_ligne_centimes: 1000, reste_sur_place_centimes: 9000,
+const RESA = (o) => Object.assign({ reference: "AD-2K7F9Q", personnes: 2, paye_en_ligne_centimes: 1000, reste_sur_place_centimes: 9000,
   type: "visite_guidee", titre: { fr: "Circuit des Peintres" }, debut: futur(20), intervenant: "Sylvain Lesecq",
   point_rdv: "Square", point_rdv_precis: "Devant le kiosque", message_inscrits: "Je porte un chapeau gris",
   statut: "confirmee", seance_statut: "publiee", peut_annuler: true, annulation_tardive: true,
@@ -158,7 +158,7 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
     return [404, {}];
   } }));
   await pg.goto("http://localhost:8767/#reservation=" + JETON);
-  v("lien : la réservation s'affiche", await attendre(pg, "#reservation-body", "VLAA-2K7F9Q"));
+  v("lien : la réservation s'affiche", await attendre(pg, "#reservation-body", "AD-2K7F9Q"));
   v("lien : le jeton disparaît de l'adresse", !pg.url().includes(JETON));
   await pg.click("#resa-annuler");
   v("annulation tardive : les 20 € de frais sont annoncés avant de confirmer", await attendre(pg, "#resa-annuler-zone", "20") && await attendre(pg, "#resa-annuler-zone", "Moins de 24 h"));

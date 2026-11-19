@@ -25,6 +25,15 @@ begin
   end if;
 end $$;
 
+-- Références de réservation au nom d'ArtDive : AD-2K7F9Q (avant : VLAA-…)
+create or replace function interne.nouvelle_reference() returns text
+language sql volatile set search_path = ''
+as $$
+  select 'AD-' || string_agg(
+           substr('23456789ABCDEFGHJKLMNPQRSTUVWXYZ', (get_byte(b, i) % 32) + 1, 1), '')
+  from (select uuid_send(gen_random_uuid()) as b) x, generate_series(0, 5) as i;
+$$;
+
 alter table public.experiences
   add column frais_annulation_tardive_centimes integer not null default 1000 check (frais_annulation_tardive_centimes >= 0),
   add column delai_frais_heures integer not null default 24 check (delai_frais_heures >= 0),

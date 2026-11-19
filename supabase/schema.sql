@@ -128,11 +128,11 @@ as $$
   select intervenant_id from public.profils where user_id = (select auth.uid());
 $$;
 
--- Référence lisible d'une réservation, ex. VLAA-2K7F9Q (sans 0, O, 1, I)
+-- Référence lisible d'une réservation, ex. AD-2K7F9Q (sans 0, O, 1, I)
 create function interne.nouvelle_reference() returns text
 language sql volatile set search_path = ''
 as $$
-  select 'VLAA-' || string_agg(
+  select 'AD-' || string_agg(
            substr('23456789ABCDEFGHJKLMNPQRSTUVWXYZ', (get_byte(b, i) % 32) + 1, 1), '')
   from (select uuid_send(gen_random_uuid()) as b) x, generate_series(0, 5) as i;
 $$;
