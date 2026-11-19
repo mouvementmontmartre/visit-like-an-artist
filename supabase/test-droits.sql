@@ -535,6 +535,14 @@ begin
         pg_temp.essai('authenticated', u_a, format('insert into storage.objects (bucket_id, name) values (%L, %L)', 'photos', 'essai/' || i_a || '/a.jpg'))),
       jsonb_build_array('Intervenant A', 'ne supprime pas une photo', 'refus',
         pg_temp.essai('authenticated', u_a, 'delete from storage.objects where bucket_id = ''photos''')),
+      jsonb_build_array('Admin', 'envoie une vidéo', '1',
+        pg_temp.essai('authenticated', u_admin, format('insert into storage.objects (bucket_id, name) values (%L, %L)', 'videos', 'intervenants/' || i_b || '/v.mp4'))),
+      jsonb_build_array('Intervenant A', 'envoie une vidéo dans son dossier', '1',
+        pg_temp.essai('authenticated', u_a, format('insert into storage.objects (bucket_id, name) values (%L, %L)', 'videos', 'intervenants/' || i_a || '/v.mp4'))),
+      jsonb_build_array('Intervenant A', 'n''envoie pas de vidéo dans le dossier de B', 'refus',
+        pg_temp.essai('authenticated', u_a, format('insert into storage.objects (bucket_id, name) values (%L, %L)', 'videos', 'intervenants/' || i_b || '/v.mp4'))),
+      jsonb_build_array('Visiteur', 'n''envoie pas de vidéo', 'refus',
+        pg_temp.essai('anon', null, format('insert into storage.objects (bucket_id, name) values (%L, %L)', 'videos', 'intervenants/' || i_a || '/v.mp4'))),
       jsonb_build_array('Visiteur', 'n''envoie pas de photo', 'refus',
         pg_temp.essai('anon', null, 'insert into storage.objects (bucket_id, name) values (''photos'', ''essai/v.jpg'')'))
     );

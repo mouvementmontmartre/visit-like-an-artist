@@ -310,6 +310,29 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 #screen-demande .adm-puces .chip { min-height: 44px; padding: 0 16px; font-size: 13px; }
 #screen-demande .espace-titre em { font-style: italic; }
 
+/* ---------- Page d'un intervenant et vidéo (canvas E6.1, E6.1.1) ---------- */
+.fiche-host-lien { width: 100%; text-align: start; color: var(--velin); cursor: pointer; }
+.fiche-host-corps { flex: 1; display: flex; flex-direction: column; }
+.fiche-host-voir { color: var(--lien); font-size: 13px; font-weight: 500; }
+.trad-auto { font-size: 12px; color: var(--muted); font-style: italic; margin: 6px 0 0; }
+.hote-tete { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 20px; }
+.hote-photo { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; border: 2px solid var(--line); }
+.hote-initiales { display: flex; align-items: center; justify-content: center; background: var(--panneau); color: var(--fee); font-family: var(--display); font-size: 34px; }
+.hote-tete .espace-titre { margin: 8px 0 0; }
+.hote-tete .espace-titre em { font-style: italic; }
+.hote-metier { margin: 0; font-size: 15px; color: var(--muted); }
+.hote-video { position: relative; display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: 10px; overflow: hidden; padding: 0; border: 0; background: #000; cursor: pointer; }
+.hote-video video { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.hote-play { position: absolute; inset-inline-start: 50%; top: 50%; transform: translate(-50%, -50%); width: 64px; height: 64px; border-radius: 50%;
+  background: #C42E18; color: #EFE7D9; box-shadow: 0 0 0 3px #EFE7D9; display: flex; align-items: center; justify-content: center; }
+:root[dir="rtl"] .hote-play { transform: translate(50%, -50%); }
+.hote-bio { white-space: pre-line; }
+.video-plein { position: fixed; inset: 0; z-index: 200; background: #000; display: flex; align-items: center; justify-content: center; }
+.video-plein video { width: 100%; height: 100%; object-fit: contain; }
+.video-fermer { position: absolute; top: calc(12px + env(safe-area-inset-top)); inset-inline-end: 12px; width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(20,16,13,.75); color: #EFE7D9; font-size: 18px; border: 1px solid #EFE7D9; }
+.adm-video { width: 100%; max-height: 360px; border-radius: 10px; background: #000; }
+
 /* ---------- Menu des langues (canvas E1.2) ---------- */
 .lang-popover {
   background: var(--panneau); border: 1px solid var(--line); border-radius: 18px;

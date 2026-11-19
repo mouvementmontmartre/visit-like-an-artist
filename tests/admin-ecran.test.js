@@ -98,7 +98,7 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
     circuit.prix_centimes === 5000 && circuit.prereservation_centimes === 500 && circuit.duree_minutes === 120 &&
     circuit.point_rdv.fr === "Square Suzanne Buisson" && circuit.publie === false && circuit.localite_id === "montmartre", JSON.stringify(circuit));
   const sylvain = st.db.intervenants.find((i) => i.nom === "Sylvain Lesecq");
-  v("le guide de la Sheet devient un intervenant (non publié) relié à la fiche", sylvain && sylvain.publie === false && circuit.intervenant_id === sylvain.id);
+  v("le guide de la Sheet devient un intervenant publié relié à la fiche", sylvain && sylvain.publie === true && circuit.intervenant_id === sylvain.id);
   v("soirée reprise en soirée, sans pré-réservation", soiree && soiree.type === "soiree" && soiree.prereservation_centimes === null && soiree.prix_centimes === 2500);
   v("toutes les écritures avec la session de l'admin", st.appels.filter((a) => a.m !== "GET" && a.chemin.startsWith("/rest/")).every((a) => a.auth === "Bearer JETON-ADMIN"));
   v("plus de proposition de reprise une fois faite", (await pg.$("#adm-reprendre")) === null);

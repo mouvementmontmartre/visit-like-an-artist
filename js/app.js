@@ -113,6 +113,7 @@ function openTarget(target, arg) {
     case "carte-visite":    renderCarteVisite(arg); showScreen("carte-visite"); break;
     case "demande":         showScreen("demande"); renderDemande(arg); break;         // js/formulaires.js
     case "rejoindre":       showScreen("demande"); renderRejoindre(); break;
+    case "hote":            showScreen("hote"); renderHote(arg); break;               // js/formulaires.js
   }
 }
 
@@ -433,9 +434,15 @@ function dureeAffichee(min) {
   const h = Math.floor(min / 60), m = min % 60;
   return h ? h + " h" + (m ? " " + String(m).padStart(2, "0") : "") : m + " min";
 }
+/** Texte affiché dans une langue traduite automatiquement et pas encore relue par l'association ? */
+function traductionAuto(v) {
+  const l = getLang();
+  return v && v._source === "supabase" && l !== "fr" && !(v._relues || []).includes(l) && !!v["Nom_" + l.toUpperCase()];
+}
+
 async function loadFichesSupabase() {
   const loc = (currentLocalite() || {}).id || CONFIG.localiteParDefaut;
-  const exps = await supa("experiences?select=slug,type,titre,accroche,description,duree_minutes,photo_url,point_rdv,prix_centimes,prix_libre_min_centimes,intervenant_id" +
+  const exps = await supa("experiences?select=slug,type,titre,accroche,description,duree_minutes,photo_url,point_rdv,prix_centimes,prix_libre_min_centimes,intervenant_id,langues_relues" +
     "&publie=eq.true&actif=eq.true&localite_id=eq." + encodeURIComponent(loc) + "&order=ordre.asc,cree_le.asc");
   if (!exps.length) return [];
   const ids = [...new Set(exps.map(e => e.intervenant_id).filter(Boolean))];
@@ -445,7 +452,8 @@ async function loadFichesSupabase() {
     const o = { id: e.slug, Type: TYPE_LIBELLE_SHEET[e.type] || "Visite", Actif: "Oui",
       Guide: (ints.find(i => i.id === e.intervenant_id) || {}).nom || "",
       "Tarif direct": prixAffiche(e), "Durée": dureeAffichee(e.duree_minutes), Photo: e.photo_url || "",
-      "Rendez-vous": (e.point_rdv && e.point_rdv.fr) || "", _source: "supabase" };
+      "Rendez-vous": (e.point_rdv && e.point_rdv.fr) || "", _source: "supabase", _relues: e.langues_relues || ["fr"],
+      _intervenant: ints.some(i => i.id === e.intervenant_id) ? e.intervenant_id : null };   // page de l'intervenant, s'il est publié
     ligne(e.titre, "Nom", o);
     ligne(Object.keys(e.description || {}).length ? e.description : e.accroche, "Description", o);
     ligne(e.accroche, "Accroche", o);   // phrase courte des cartes d'accueil
@@ -979,8 +987,13 @@ async function renderVisite(id) {
     '<div class="fiche-head">' + offreBadgeHtml(offreTypeOf(v)) +
       '<h1 class="fiche-title">' + esc(trField(v, "Nom")) + '</h1>' +
       (description ? '<p class="fiche-desc">' + esc(description) + '</p>' : '') +
+      (traductionAuto(v) ? '<p class="trad-auto">' + esc(t("trad.auto")) + '</p>' : '') +
     '</div>' +
-    (guide
+    (guide && v._intervenant
+      ? '<button type="button" class="fiche-host fiche-host-lien" data-open="hote" data-arg="' + esc(v._intervenant) + '"><span class="fiche-avatar" aria-hidden="true">' + esc(initiales) + '</span>' +
+        '<span class="fiche-host-corps"><span class="fiche-host-label">' + esc(t("fiche.host")) + '</span><span class="fiche-host-name">' + esc(guide) + '</span></span>' +
+        '<span class="fiche-host-voir">' + esc(t("cta.voir")) + '</span></button>'
+      : guide
       ? '<div class="fiche-host"><div class="fiche-avatar" aria-hidden="true">' + esc(initiales) + '</div>' +
         '<div><div class="fiche-host-label">' + esc(t("fiche.host")) + '</div><div class="fiche-host-name">' + esc(guide) + '</div></div></div>'
       : '') +

@@ -31,7 +31,7 @@ const CSV = "id,Nom,Type,Actif,Guide,Tarif direct\ncircuit,Circuit des Peintres,
   const attendre = (sel, txt) => pg.waitForFunction(([s, t]) => { const e = document.querySelector(s); return e && e.textContent.includes(t); }, [sel, txt], { timeout: 8000 }).then(() => true, () => false);
 
   await pg.goto("http://localhost:8773/"); await pg.waitForTimeout(2600);
-  v("accueil : encart « Une réservation privée ? »", await attendre(".prive-encart", "Une réservation privée ?"));
+  v("accueil : encart « Une réservation privée ? »", await attendre(".prive-encart", "Une réservation privée"));
   await pg.evaluate(() => openTarget("visite", "atelier-p"));
   await pg.click('#visite-body [data-open="demande"]');
   v("depuis la fiche d'un atelier : formulaire avec l'atelier choisi", await attendre("#demande-body", "Une visite rien que") &&

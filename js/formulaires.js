@@ -126,3 +126,69 @@ function renderRejoindre() {
     if (ok) formEnvoye(t("form.envoyeTitre"), t("form.rejoindreEnvoye"));
   });
 }
+
+/* ============================================================
+   PAGE D'UN INTERVENANT (canvas E6.1, étape 6.5)
+   Photo, métier, langues, vidéo FACULTATIVE (aperçu carré, plein écran
+   vertical au toucher), présentation, ses propositions. Chaque bloc
+   n'apparaît que s'il a un contenu : pas de vide sans vidéo ni texte.
+   ============================================================ */
+
+async function renderHote(id) {
+  const corps = $("#hote-body");
+  $("#hote-titre").textContent = "";
+  corps.innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>';
+  let h = null, visites = [];
+  try {
+    h = (await supa("intervenants?select=id,nom,role,bio,photo_url,video_url,sous_titres_url,langues,instagram,langues_relues&publie=eq.true&id=eq." + encodeURIComponent(id || "")))[0];
+    visites = (await loadVisites()).filter((v) => v._intervenant === id);
+  } catch (e) { h = null; }
+  if (!h) { corps.innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>'; return; }
+  $("#hote-titre").textContent = h.nom;
+  const mots = String(h.nom).trim().split(/\s+/), fin = mots.length > 1 ? mots.pop() : "";
+  const metier = parLangue(h.role) || "", bio = parLangue(h.bio) || "";
+  const l = getLang(), auto = l !== "fr" && !(h.langues_relues || []).includes(l) && ((h.bio && h.bio[l]) || (h.role && h.role[l]));
+  const initiales = String(h.nom).split(/\s+/).map((m) => m[0]).join("").slice(0, 2).toUpperCase();
+  const priveesPossibles = visites.filter((v) => ["visite", "atelier"].includes(offreTypeOf(v)));
+  corps.innerHTML =
+    '<div class="hote-tete">' +
+      (h.photo_url ? '<img class="hote-photo" src="' + esc(h.photo_url) + '" alt="">' : '<span class="hote-photo hote-initiales" aria-hidden="true">' + esc(initiales) + '</span>') +
+      '<h1 class="espace-titre">' + esc(mots.join(" ")) + (fin ? ' <em>' + esc(fin) + '</em>' : '') + '</h1>' +
+      (metier ? '<p class="hote-metier">' + esc(metier) + '</p>' : '') +
+      ((h.langues || []).length ? '<div class="adm-puces">' + h.langues.filter((x) => LANG_META[x]).map((x) => '<span class="chip">' + esc(LANG_META[x].nom) + '</span>').join("") + '</div>' : '') +
+    '</div>' +
+    (h.video_url
+      ? '<button type="button" class="hote-video" id="hote-video" aria-label="' + esc(tx("hote.videoOuvrir", { nom: h.nom })) + '">' +
+          '<video src="' + esc(h.video_url) + '#t=0.5" muted playsinline preload="metadata" aria-hidden="true"></video>' +
+          '<span class="hote-play" aria-hidden="true"><svg viewBox="0 0 24 24" width="28" height="28"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></span>' +
+        '</button><p class="member-note">' + esc(t("hote.videoLegende")) + '</p>'
+      : '') +
+    (bio ? '<h2 class="adm-sous-titre">' + esc(t("hote.apropos")) + '</h2><p class="espace-texte hote-bio">' + esc(bio) + '</p>' +
+      (auto ? '<p class="trad-auto">' + esc(t("trad.auto")) + '</p>' : '') : '') +
+    (visites.length ? '<h2 class="adm-sous-titre">' + esc(t("hote.propositions")) + '</h2><div class="adm-liste">' + visites.map((v) =>
+      '<button type="button" class="adm-ligne" data-open="visite" data-arg="' + esc(v["id"]) + '"><span class="adm-ligne-corps">' +
+        '<span class="adm-ligne-titre">' + esc(trField(v, "Nom")) + '</span>' +
+        ((trField(v, "Accroche") || trField(v, "Description")) ? '<span class="adm-ligne-meta">' + esc(trField(v, "Accroche") || trField(v, "Description")) + '</span>' : '') +
+      '</span>' + (v["Tarif direct"] ? '<span class="act-price">' + esc(v["Tarif direct"]) + '</span>' : '') + '</button>').join("") + '</div>' : '') +
+    (priveesPossibles.length ? '<div class="adm-encart prive-encart"><div class="prive-titre">' + esc(t("hote.priveTitre")) + '</div>' +
+      '<p class="member-note">' + esc(tx("hote.priveTexte", { nom: mots[0] })) + '</p>' +
+      '<button type="button" class="cta fee" data-open="demande" data-arg="' + esc(priveesPossibles[0]["id"]) + '">' + esc(t("form.demanderVisite")) + '</button></div>' : '') +
+    (h.instagram ? '<p class="espace-texte"><a href="https://www.instagram.com/' + esc(String(h.instagram).replace(/^@/, "").replace(/[^\w.]/g, "")) + '/" target="_blank" rel="noopener">Instagram ' + esc(h.instagram) + '</a></p>' : '');
+  const v = $("#hote-video");
+  if (v) v.addEventListener("click", () => ouvrirVideo(h.video_url, h.sous_titres_url, h.nom));
+}
+
+/** Vidéo plein écran, verticale (canvas E6.1.1) : fermer en haut à droite, sous-titres s'il y en a. */
+function ouvrirVideo(url, sousTitres, nom) {
+  const fond = document.createElement("div");
+  fond.className = "video-plein"; fond.setAttribute("role", "dialog"); fond.setAttribute("aria-label", nom);
+  fond.innerHTML = '<video src="' + esc(url) + '" controls autoplay playsinline>' +
+      (sousTitres ? '<track kind="subtitles" src="' + esc(sousTitres) + '" srclang="fr" label="Français" default>' : '') + '</video>' +
+    '<button type="button" class="video-fermer" aria-label="' + esc(t("hote.fermer")) + '">✕</button>';
+  document.body.appendChild(fond);
+  const fermer = () => { const x = fond.querySelector("video"); if (x) x.pause(); fond.remove(); document.removeEventListener("keydown", touche); };
+  const touche = (e) => { if (e.key === "Escape") fermer(); };
+  fond.querySelector(".video-fermer").addEventListener("click", fermer);
+  document.addEventListener("keydown", touche);
+  fond.querySelector(".video-fermer").focus();
+}

@@ -104,6 +104,100 @@ async function admEnvoyerPhoto(fichier, dossier) {
   return CONFIG.supabase.url + "/storage/v1/object/public/photos/" + chemin;
 }
 
+/** Envoi d'un fichier dans un dossier du stockage (photos, videos). Rend son adresse publique. */
+async function admEnvoyerFichier(fichier, dossierStockage, chemin) {
+  const s = await sessionValide();
+  if (!s) throw new Error("SESSION");
+  const res = await fetch(CONFIG.supabase.url + "/storage/v1/object/" + dossierStockage + "/" + chemin, { method: "POST",
+    headers: { apikey: CONFIG.supabase.cle, Authorization: "Bearer " + s.access_token, "Content-Type": fichier.type || "application/octet-stream" }, body: fichier });
+  if (!res.ok) { const e = new Error("Fichier " + res.status); e.status = res.status; throw e; }
+  return CONFIG.supabase.url + "/storage/v1/object/public/" + dossierStockage + "/" + chemin;
+}
+const admNomFichier = (ext) => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(36).slice(2)) + ext;
+
+/** Vidéo facultative d'un intervenant (verticale 9:16, 50 Mo au plus) et ses sous-titres (admin). */
+function admVideoHtml(id, url, sousTitres, avecSousTitres) {
+  return '<div class="adm-champ"><span>' + esc(t("adm.video")) + '</span>' +
+    '<div id="' + id + '" data-url="' + esc(url || "") + '" data-st="' + esc(sousTitres || "") + '">' +
+      (url ? '<video class="adm-video" src="' + esc(url) + '" controls playsinline preload="metadata"></video>' : '<span class="member-note">' + esc(t("adm.videoAucune")) + '</span>') + '</div>' +
+    '<label class="cta ghost adm-photo-btn">' + esc(url ? t("adm.videoRemplacer") : t("adm.videoChoisir")) +
+      '<input type="file" accept="video/mp4,video/quicktime,video/webm" id="' + id + '-fichier" hidden></label>' +
+    (url ? '<button type="button" class="lien-bouton" id="' + id + '-retirer">' + esc(t("adm.videoRetirer")) + '</button>' : '') +
+    (avecSousTitres ? '<label class="lien-bouton adm-photo-btn">' + esc(sousTitres ? t("adm.stRemplacer") : t("adm.stAjouter")) +
+      '<input type="file" accept=".vtt,text/vtt" id="' + id + '-st" hidden></label>' : '') +
+    '<small class="member-note">' + esc(t("adm.videoAide")) + '</small>' +
+    '<div class="member-note" id="' + id + '-note" role="status"></div></div>';
+}
+function admBrancherVideo(id, dossier) {
+  const zone = document.getElementById(id), note = document.getElementById(id + "-note");
+  document.getElementById(id + "-fichier").addEventListener("change", async (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    if (f.size > 52428800) { note.textContent = t("adm.videoTropLourde"); return; }
+    if (!/^video\/(mp4|quicktime|webm)$/.test(f.type)) { note.textContent = t("adm.videoFormat"); return; }
+    note.textContent = t("adm.videoEnvoi");
+    try {
+      const url = await admEnvoyerFichier(f, "videos", dossier + "/" + admNomFichier(f.type === "video/webm" ? ".webm" : f.type === "video/quicktime" ? ".mov" : ".mp4"));
+      zone.dataset.url = url;
+      zone.innerHTML = '<video class="adm-video" src="' + esc(url) + '" controls playsinline preload="metadata"></video>';
+      note.textContent = t("adm.videoOk");
+    } catch (e) { note.textContent = e.status === 413 ? t("adm.videoTropLourde") : admErreur(e); }
+  });
+  const retirer = document.getElementById(id + "-retirer");
+  if (retirer) retirer.addEventListener("click", () => {
+    zone.dataset.url = ""; zone.dataset.st = "";
+    zone.innerHTML = '<span class="member-note">' + esc(t("adm.videoRetiree")) + '</span>'; retirer.remove();
+  });
+  const st = document.getElementById(id + "-st");
+  if (st) st.addEventListener("change", async () => {
+    const f = st.files && st.files[0];
+    if (!f) return;
+    note.textContent = t("adm.videoEnvoi");
+    try {
+      zone.dataset.st = await admEnvoyerFichier(new File([f], "st.vtt", { type: "text/vtt" }), "videos", dossier + "/" + admNomFichier(".vtt"));
+      note.textContent = t("adm.stOk");
+    } catch (e) { note.textContent = admErreur(e); }
+  });
+}
+
+/** Traduction automatique (ChatGPT, fonction « traduire ») des champs dont le français est rempli.
+    tout = false : seulement les langues encore vides. Rend true si quelque chose a été traduit. */
+async function admTraduireChamps(bases, tout) {
+  const textes = {};
+  bases.forEach((b) => {
+    const fr = admVal(b + "-fr");
+    if (fr && (tout || ADM_TRAD.some((l) => !admVal(b + "-" + l)))) textes[b.replace(/-/g, "_")] = fr;
+  });
+  if (!Object.keys(textes).length) return false;
+  const s = await sessionValide();
+  if (!s) return false;
+  const res = await fetch("/.netlify/functions/traduire", { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + s.access_token },
+    body: JSON.stringify({ textes, langues: ADM_TRAD }) });
+  if (!res.ok) return false;
+  const d = await res.json();
+  let fait = false;
+  Object.keys(textes).forEach((k) => ADM_TRAD.forEach((l) => {
+    const champ = document.getElementById(k.replace(/_/g, "-") + "-" + l);
+    if (champ && d[l] && d[l][k] && (tout || !champ.value.trim())) { champ.value = d[l][k]; fait = true; }
+  }));
+  return fait;
+}
+function admBoutonTraduire(id) {
+  return '<button type="button" class="cta ghost" id="' + id + '">' + esc(t("adm.traduire")) + '</button>' +
+    '<div class="member-note" id="' + id + '-note" role="status"></div>';
+}
+function admBrancherTraduire(id, bases) {
+  document.getElementById(id).addEventListener("click", async (ev) => {
+    const b = ev.currentTarget, note = document.getElementById(id + "-note");
+    b.disabled = true; note.textContent = t("adm.traductionEnCours");
+    const ok = await admTraduireChamps(bases, true).catch(() => false);
+    note.textContent = ok ? t("adm.traductionFaite") : t("adm.traductionIndispo");
+    $$("details.adm-trad").forEach((d) => { if (ok) d.open = true; });
+    b.disabled = false;
+  });
+}
+
 /** Bloc photo d'un formulaire : aperçu + bouton d'envoi. La valeur est gardée dans data-url. */
 function admPhotoHtml(id, url) {
   return '<div class="adm-champ"><span>' + esc(t("adm.photo")) + '</span>' +
@@ -301,8 +395,10 @@ function peindreFormFiche(corps, e) {
       admCase("f-privat", t("adm.privatisable"), e.privatisable) +
       '<h3 class="adm-sous-titre adm-admin">' + esc(t("adm.visibilite")) + '</h3>' +
       admCase("f-publie", t("adm.publier"), e.publie) +
+      admCase("f-relues", t("adm.relues"), (e.langues_relues || []).includes("en")) +
       (n ? '' : admCase("f-actif", t("adm.actif"), e.actif)) +
       '<div class="member-note adm-admin">' + esc(t("adm.publierAide")) + '</div>' +
+      admBoutonTraduire("f-traduire") +
       '<button type="submit" class="cta fee" id="f-enregistrer">' + esc(t("adm.enregistrer")) + '</button>' +
       '<div class="resa-erreur" id="f-note" role="alert"></div>' +
       '<button type="button" class="cta ghost" id="f-retour">' + esc(t("adm.retourListe")) + '</button>' +
@@ -311,7 +407,7 @@ function peindreFormFiche(corps, e) {
   const inter = ADM.role === "intervenant";
   if (inter) {   // l'association garde le prix, la pré-réservation, la publication et le titre d'une visite en ligne
     $$(".adm-admin").forEach((x) => x.remove());
-    ["f-int", "f-prix", "f-preresa", "f-libre", "f-frais", "f-age", "f-tel", "f-privat", "f-publie", "f-actif"].forEach((id) => {
+    ["f-int", "f-prix", "f-preresa", "f-libre", "f-frais", "f-age", "f-tel", "f-privat", "f-publie", "f-actif", "f-relues"].forEach((id) => {
       const el = document.getElementById(id); if (el) el.closest("label").remove(); });
     $$("#f-type option").forEach((o) => { if (!["visite_guidee", "atelier"].includes(o.value)) o.remove(); });
     if (!n) $("#f-type").disabled = true;
@@ -319,14 +415,17 @@ function peindreFormFiche(corps, e) {
     if (n) $("#f-enregistrer").textContent = t("adm.envoyerProposition");
   }
   admBrancherPhoto("f-photo", inter ? "fiches/" + ADM.moi : "fiches");
+  admBrancherTraduire("f-traduire", ["f-titre", "f-accroche", "f-description", "f-rdv"]);
   const pos = { lat: e.point_rdv_lat, lng: e.point_rdv_lng };
   admCarte("f-carte", pos, () => { $("#f-carte-note").textContent = t("adm.rdvPlace"); });
   $("#f-retour").addEventListener("click", () => peindreAdmin(corps));
   $("#adm-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const note = $("#f-note"), b = $("#f-enregistrer");
+    if (!admVal("f-titre-fr")) { note.textContent = t("adm.titreManquant"); return; }
+    $("#f-enregistrer").disabled = true; note.textContent = t("adm.traductionEnCours");
+    await admTraduireChamps(["f-titre", "f-accroche", "f-description", "f-rdv"], false).catch(() => false);   // une seule fois, à l'enregistrement
     const titre = admTraduit("f-titre");
-    if (!titre.fr) { note.textContent = t("adm.titreManquant"); return; }
     const publie = admCoche("f-publie");
     const donnees = {
       type: admVal("f-type"), titre, accroche: admTraduit("f-accroche"), description: admTraduit("f-description"),
@@ -342,6 +441,7 @@ function peindreFormFiche(corps, e) {
       publie,
     };
     if (!n && !inter) donnees.actif = admCoche("f-actif");
+    if (!inter) donnees.langues_relues = admCoche("f-relues") ? ["fr", "en", "es"] : ["fr"];
     if (publie) donnees.a_valider = false;   // publier une proposition, c'est la valider
     if (inter) {   // seuls les champs que la base laisse à l'intervenant (interne.experiences_garde)
       const libres = ["photo_url", "description", "accroche", "duree_minutes", "langues", "point_rdv", "point_rdv_lat", "point_rdv_lng",
@@ -405,6 +505,7 @@ function peindreFormIntervenant(corps, i) {
       admTexteHtml("i-role", t("adm.metier"), i.role) +
       admTexteHtml("i-bio", t("adm.bio"), i.bio, true) +
       admPhotoHtml("i-photo", i.photo_url) +
+      admVideoHtml("i-video", i.video_url, i.sous_titres_url, ADM.role !== "intervenant") +
       admLanguesHtml("i-langues", i.langues) +
       '<label class="adm-champ"><span>' + esc(t("adm.instagram")) + '</span><input class="input-field" id="i-insta" value="' + esc(i.instagram || "") + '" placeholder="@"></label>' +
       '<h3 class="adm-sous-titre">' + esc(t("adm.contact")) + '</h3>' +
@@ -412,6 +513,7 @@ function peindreFormIntervenant(corps, i) {
         '<input class="input-field" id="i-email" type="email" inputmode="email" autocomplete="off" value="' + esc(email) + '">' +
         '<small class="member-note">' + esc(t("adm.emailAide")) + '</small></label>' +
       admCase("i-publie", t("adm.publierIntervenant"), i.publie) +
+      admBoutonTraduire("i-traduire") +
       '<button type="submit" class="cta fee" id="i-enregistrer">' + esc(t("adm.enregistrer")) + '</button>' +
       '<div class="resa-erreur" id="i-note" role="alert"></div>' +
       (n ? '' :
@@ -433,6 +535,8 @@ function peindreFormIntervenant(corps, i) {
     $("#i-enregistrer").textContent = t("adm.envoyerProposition");
   }
   admBrancherPhoto("i-photo", inter ? "intervenants/" + ADM.moi : "intervenants");
+  admBrancherVideo("i-video", "intervenants/" + (inter ? ADM.moi : (i.id || "nouveau")));
+  admBrancherTraduire("i-traduire", ["i-role", "i-bio"]);
   if (!inter) $("#i-retour").addEventListener("click", () => peindreAdmin(corps));
   if (!n && !inter) $("#i-inviter").addEventListener("click", () => admInviter(i));
   $("#adm-form").addEventListener("submit", async (ev) => {
@@ -441,10 +545,12 @@ function peindreFormIntervenant(corps, i) {
     const nom = admVal("i-nom");
     const mail = admVal("i-email").toLowerCase();
     if (!nom) { note.textContent = t("adm.nomManquant"); return; }
+    await admTraduireChamps(["i-role", "i-bio"], false).catch(() => false);
     if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) { note.textContent = t("member.emailInvalid"); return; }
     const donnees = { type: admVal("i-type"), nom, role: admTraduit("i-role"), bio: admTraduit("i-bio"),
       photo_url: $("#i-photo").dataset.url || null, langues: admLanguesChoisies("i-langues").length ? admLanguesChoisies("i-langues") : ["fr"],
-      instagram: admVal("i-insta") || null, publie: admCoche("i-publie") };
+      instagram: admVal("i-insta") || null, publie: admCoche("i-publie"), video_url: $("#i-video").dataset.url || null };
+    if (!inter) donnees.sous_titres_url = (donnees.video_url && $("#i-video").dataset.st) || null;
     b.disabled = true; note.textContent = t("member.loading");
     if (inter) {
       try {
@@ -547,7 +653,7 @@ async function reprendreSheet(lignes) {
       let it = ints.find((x) => x.nom.toLowerCase() === guide.toLowerCase());
       if (!it) {
         it = (await supaEcrire("POST", "intervenants", { nom: guide, type: type === "atelier" ? "artiste" : "guide",
-          slug: admSlug(guide, ints.map((x) => x.slug)), localite_id: loc, publie: false }))[0];
+          slug: admSlug(guide, ints.map((x) => x.slug)), localite_id: loc, publie: true }))[0];   // publié : son nom reste sur les cartes
         ints.push(it);
       }
       intervenant_id = it.id;
