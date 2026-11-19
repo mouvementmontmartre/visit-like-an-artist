@@ -386,6 +386,7 @@ function peindreFormFiche(corps, e) {
         admNombre("f-prix", t("adm.prix"), admEuros(e.prix_centimes)) +
         admNombre("f-preresa", t("adm.prereservation"), admEuros(e.prereservation_centimes)) +
         admNombre("f-libre", t("adm.prixLibreMin"), admEuros(e.prix_libre_min_centimes)) +
+        admNombre("f-audio", t("adm.optionAudio"), admEuros(e.option_audioguide_centimes)) +
         admNombre("f-frais", t("adm.fraisTardifs"), admEuros(e.frais_annulation_tardive_centimes)) +
         admNombre("f-max", t("adm.placesMax"), e.capacite_max) +
         admNombre("f-min", t("adm.participantsMin"), e.participants_min) +
@@ -398,6 +399,8 @@ function peindreFormFiche(corps, e) {
       admCase("f-relues", t("adm.relues"), (e.langues_relues || []).includes("en")) +
       (n ? '' : admCase("f-actif", t("adm.actif"), e.actif)) +
       '<div class="member-note adm-admin">' + esc(t("adm.publierAide")) + '</div>' +
+      (!n && e.type === "autoguidee" && ADM.role !== "intervenant"
+        ? '<button type="button" class="cta ghost" id="f-etapes">' + esc(tx("adm.etapesBouton", { n: e.nb_etapes || 0 })) + '</button>' : '') +
       admBoutonTraduire("f-traduire") +
       '<button type="submit" class="cta fee" id="f-enregistrer">' + esc(t("adm.enregistrer")) + '</button>' +
       '<div class="resa-erreur" id="f-note" role="alert"></div>' +
@@ -407,7 +410,7 @@ function peindreFormFiche(corps, e) {
   const inter = ADM.role === "intervenant";
   if (inter) {   // l'association garde le prix, la pré-réservation, la publication et le titre d'une visite en ligne
     $$(".adm-admin").forEach((x) => x.remove());
-    ["f-int", "f-prix", "f-preresa", "f-libre", "f-frais", "f-age", "f-tel", "f-privat", "f-publie", "f-actif", "f-relues"].forEach((id) => {
+    ["f-int", "f-prix", "f-preresa", "f-libre", "f-frais", "f-age", "f-tel", "f-privat", "f-publie", "f-actif", "f-relues", "f-audio"].forEach((id) => {
       const el = document.getElementById(id); if (el) el.closest("label").remove(); });
     $$("#f-type option").forEach((o) => { if (!["visite_guidee", "atelier"].includes(o.value)) o.remove(); });
     if (!n) $("#f-type").disabled = true;
@@ -416,6 +419,7 @@ function peindreFormFiche(corps, e) {
   }
   admBrancherPhoto("f-photo", inter ? "fiches/" + ADM.moi : "fiches");
   admBrancherTraduire("f-traduire", ["f-titre", "f-accroche", "f-description", "f-rdv"]);
+  if ($("#f-etapes")) $("#f-etapes").addEventListener("click", () => peindreEtapesAdmin(corps, e));
   const pos = { lat: e.point_rdv_lat, lng: e.point_rdv_lng };
   admCarte("f-carte", pos, () => { $("#f-carte-note").textContent = t("adm.rdvPlace"); });
   $("#f-retour").addEventListener("click", () => peindreAdmin(corps));
@@ -434,7 +438,7 @@ function peindreFormFiche(corps, e) {
       photo_url: $("#f-photo").dataset.url || null, point_rdv: admTraduit("f-rdv"),
       point_rdv_lat: pos.lat == null ? null : pos.lat, point_rdv_lng: pos.lng == null ? null : pos.lng,
       prix_centimes: admCentimes(admVal("f-prix")), prereservation_centimes: admCentimes(admVal("f-preresa")),
-      prix_libre_min_centimes: admCentimes(admVal("f-libre")),
+      prix_libre_min_centimes: admCentimes(admVal("f-libre")), option_audioguide_centimes: admCentimes(admVal("f-audio")),
       frais_annulation_tardive_centimes: admCentimes(admVal("f-frais")) == null ? 1000 : admCentimes(admVal("f-frais")),
       capacite_max: admEntier(admVal("f-max")), participants_min: admEntier(admVal("f-min")) || 1,
       age_minimum: admEntier(admVal("f-age")), telephone_obligatoire: admCoche("f-tel"), privatisable: admCoche("f-privat"),
@@ -987,4 +991,124 @@ function peindreValidations(corps) {
   };
   $$("[data-valider]").forEach((b) => b.addEventListener("click", agir("valider_proposition", b.dataset.valider)));
   $$("[data-refuser]").forEach((b) => b.addEventListener("click", agir("refuser_proposition", b.dataset.refuser)));
+}
+
+/* ============================================================
+   ÉTAPES D'UN PARCOURS AUTOGUIDÉ (partie 3) : liste et formulaire
+   ============================================================ */
+
+async function peindreEtapesAdmin(corps, exp) {
+  admChargement();
+  let etapes = [], codes = [];
+  try {
+    etapes = await supaConnecte("etapes?select=*&experience_id=eq." + exp.id + "&order=ordre.asc");
+    if (etapes.length) codes = await supaConnecte("etapes_codes?select=etape_id,code&etape_id=in.(" + etapes.map((x) => x.id).join(",") + ")");
+  } catch (e) { admZone().innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>'; return; }
+  const code = (id) => (codes.find((c) => c.etape_id === id) || {}).code || "";
+  window.scrollTo(0, 0);
+  admZone().innerHTML =
+    '<h2 class="adm-titre">' + esc(tx("adm.etapesTitre", { titre: (exp.titre && exp.titre.fr) || exp.slug })) + '</h2>' +
+    '<p class="member-note">' + esc(t("adm.etapesAide")) + '</p>' +
+    '<button type="button" class="cta fee" id="et-nouvelle">' + esc(t("adm.nouvelleEtape")) + '</button>' +
+    '<div class="adm-liste">' + etapes.map((x) =>
+      '<button type="button" class="adm-ligne" data-adm-etape="' + esc(x.id) + '"><span class="parc-num ouverte">' + esc(String(x.ordre)) + '</span>' +
+        '<span class="adm-ligne-corps"><span class="adm-ligne-titre">' + esc((x.nom && x.nom.fr) || "") + '</span>' +
+        '<span class="adm-ligne-meta">' + esc([x.type === "depart" ? t("adm.etDepart") : "", x.apercu ? t("adm.etApercu") : "", x.lat == null ? t("adm.etSansPoint") : "",
+          code(x.id) ? t("adm.etAvecCode") : "", x.audio && x.audio.fr ? t("adm.etAvecAudio") : ""].filter(Boolean).join(" · ")) + '</span></span></button>').join("") + '</div>' +
+    '<button type="button" class="cta ghost" id="et-retour">' + esc(t("adm.retourFiche")) + '</button>';
+  $("#et-nouvelle").addEventListener("click", () => peindreEtapeForm(corps, exp, null, etapes, ""));
+  $("#et-retour").addEventListener("click", async () => { await renderAdmin(corps); const f = ADM.exps.find((y) => y.id === exp.id); if (f) peindreFormFiche(corps, f); });
+  $$("[data-adm-etape]").forEach((b) => b.addEventListener("click", () => {
+    const x = etapes.find((y) => y.id === b.dataset.admEtape); peindreEtapeForm(corps, exp, x, etapes, code(x.id)); }));
+}
+
+function admAudioHtml(id, url, libelle) {
+  return '<div class="adm-champ"><span>' + esc(libelle) + '</span><div id="' + id + '" data-url="' + esc(url || "") + '">' +
+    (url ? '<audio controls preload="none" src="' + esc(url) + '" class="parc-audio"></audio>' : '<span class="member-note">' + esc(t("adm.audioAucun")) + '</span>') + '</div>' +
+    '<label class="lien-bouton adm-photo-btn">' + esc(url ? t("adm.audioRemplacer") : t("adm.audioAjouter")) +
+    '<input type="file" accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,.mp3,.m4a" id="' + id + '-fichier" hidden></label>' +
+    '<div class="member-note" id="' + id + '-note" role="status"></div></div>';
+}
+function admBrancherAudio(id, dossier) {
+  const zone = document.getElementById(id), note = document.getElementById(id + "-note");
+  document.getElementById(id + "-fichier").addEventListener("change", async (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    if (f.size > 52428800) { note.textContent = t("adm.videoTropLourde"); return; }
+    const type = /\.m4a$/i.test(f.name) ? "audio/mp4" : (f.type || "audio/mpeg");
+    note.textContent = t("adm.videoEnvoi");
+    try {
+      const url = await admEnvoyerFichier(new File([f], f.name, { type }), "videos", dossier + "/" + admNomFichier(type === "audio/mp4" ? ".m4a" : ".mp3"));
+      zone.dataset.url = url;
+      zone.innerHTML = '<audio controls preload="none" src="' + esc(url) + '" class="parc-audio"></audio>';
+      note.textContent = t("adm.videoOk");
+    } catch (e) { note.textContent = admErreur(e); }
+  });
+}
+
+function peindreEtapeForm(corps, exp, x, etapes, codeActuel) {
+  const n = !x;
+  x = x || { ordre: (etapes.reduce((m, y) => Math.max(m, y.ordre), 0) + 1), type: etapes.length ? "etape" : "depart", apercu: false,
+    nom: {}, resume: {}, texte: {}, a_reperer: {}, audio: {}, rayon_deblocage_m: 30 };
+  window.scrollTo(0, 0);
+  admZone().innerHTML =
+    '<form id="adm-form" class="adm-form" novalidate>' +
+      '<h2 class="adm-titre">' + esc(n ? t("adm.nouvelleEtape") : tx("adm.etapeN", { n: x.ordre })) + '</h2>' +
+      '<div class="adm-grille">' + admNombre("e-ordre", t("adm.etOrdre"), x.ordre) +
+        '<label class="adm-champ"><span>' + esc(t("adm.typeFiche")) + '</span>' + admSelect("e-type", [["depart", t("adm.etDepart")], ["etape", t("adm.etEtape")]], x.type) + '</label></div>' +
+      admTexteHtml("e-nom", t("adm.etNom"), x.nom) +
+      admTexteHtml("e-resume", t("adm.etResume"), x.resume) +
+      admTexteHtml("e-texte", t("adm.etTexte"), x.texte, true) +
+      admTexteHtml("e-areperer", t("adm.etAReperer"), x.a_reperer) +
+      admPhotoHtml("e-photo", x.media_url) +
+      '<label class="adm-champ"><span>' + esc(t("adm.etCredit")) + '</span><input class="input-field" id="e-credit" value="' + esc(x.media_credit || "") + '" placeholder="Photo : …"></label>' +
+      admAudioHtml("e-audio-fr", x.audio && x.audio.fr, t("adm.etAudioFr")) +
+      admAudioHtml("e-audio-en", x.audio && x.audio.en, t("adm.etAudioEn")) +
+      '<div class="adm-champ"><span>' + esc(t("adm.etPoint")) + '</span><div class="adm-carte" id="e-carte"></div>' +
+        '<small class="member-note" id="e-carte-note">' + esc(x.lat != null ? t("adm.rdvPlace") : t("adm.etPointAide")) + '</small></div>' +
+      '<div class="adm-grille">' + admNombre("e-rayon", t("adm.etRayon"), x.rayon_deblocage_m) +
+        '<label class="adm-champ"><span>' + esc(t("adm.etCode")) + '</span><input class="input-field" id="e-code" value="' + esc(codeActuel || "") + '" autocomplete="off"></label></div>' +
+      '<small class="member-note">' + esc(t("adm.etCodeAide")) + '</small>' +
+      admCase("e-apercu", t("adm.etApercuCase"), x.apercu) +
+      admBoutonTraduire("e-traduire") +
+      '<button type="submit" class="cta fee" id="e-enregistrer">' + esc(t("adm.enregistrer")) + '</button>' +
+      '<div class="resa-erreur" id="e-note" role="alert"></div>' +
+      (n ? '' : '<button type="button" class="lien-bouton" id="e-supprimer">' + esc(t("adm.etSupprimer")) + '</button>') +
+      '<button type="button" class="cta ghost" id="e-retour">' + esc(t("adm.retourEtapes")) + '</button>' +
+    '</form>';
+  admBrancherPhoto("e-photo", "fiches");
+  admBrancherAudio("e-audio-fr", "parcours/" + exp.id); admBrancherAudio("e-audio-en", "parcours/" + exp.id);
+  admBrancherTraduire("e-traduire", ["e-nom", "e-resume", "e-texte", "e-areperer"]);
+  const pos = { lat: x.lat, lng: x.lng };
+  admCarte("e-carte", pos, () => { $("#e-carte-note").textContent = t("adm.rdvPlace"); });
+  $("#e-retour").addEventListener("click", () => peindreEtapesAdmin(corps, exp));
+  if (!n) $("#e-supprimer").addEventListener("click", async () => {
+    if (!confirm(t("adm.etSupprimerConfirmer"))) return;
+    try { await supaEcrire("DELETE", "etapes?id=eq." + x.id, undefined, "return=minimal"); peindreEtapesAdmin(corps, exp); }
+    catch (e) { $("#e-note").textContent = admErreur(e); }
+  });
+  $("#adm-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const note = $("#e-note"), b = $("#e-enregistrer");
+    if (!admVal("e-nom-fr")) { note.textContent = t("adm.titreManquant"); return; }
+    b.disabled = true; note.textContent = t("adm.traductionEnCours");
+    await admTraduireChamps(["e-nom", "e-resume", "e-texte", "e-areperer"], false).catch(() => false);
+    const audio = {}; ["fr", "en"].forEach((l) => { const u = $("#e-audio-" + l).dataset.url; if (u) audio[l] = u; });
+    const d = { ordre: admEntier(admVal("e-ordre")) || x.ordre, type: admVal("e-type"), nom: admTraduit("e-nom"), resume: admTraduit("e-resume"),
+      texte: admTraduit("e-texte"), a_reperer: admTraduit("e-areperer"), media_url: $("#e-photo").dataset.url || null, media_credit: admVal("e-credit") || null,
+      audio, lat: pos.lat == null ? null : pos.lat, lng: pos.lng == null ? null : pos.lng, rayon_deblocage_m: admEntier(admVal("e-rayon")) || 30, apercu: admCoche("e-apercu") };
+    try {
+      let id = x.id;
+      if (n) id = (await supaEcrire("POST", "etapes", Object.assign({ experience_id: exp.id }, d)))[0].id;
+      else await supaEcrire("PATCH", "etapes?id=eq." + id, d, "return=minimal");
+      const code = admVal("e-code");
+      if (code) await supaEcrire("POST", "etapes_codes?on_conflict=etape_id", { etape_id: id, code }, "resolution=merge-duplicates,return=minimal");
+      else if (codeActuel) await supaEcrire("DELETE", "etapes_codes?etape_id=eq." + id, undefined, "return=minimal");
+      await peindreEtapesAdmin(corps, exp);
+      admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t("adm.enregistre")) + '</div>');
+    } catch (e) {
+      note.textContent = e.code === "23505" ? t("adm.etOrdrePris") : e.code === "23514" ? t("adm.etCodeLongueur") : admErreur(e);
+      b.disabled = false;
+    }
+  });
 }

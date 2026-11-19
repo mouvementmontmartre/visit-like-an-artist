@@ -50,7 +50,7 @@ global.fetch = async (url, init = {}) => {
     const chemin = new URL(url).pathname.replace("/v1/", "");
     if (init.method === "POST" && chemin === "checkout/sessions") {
       const cle = init.headers["Idempotency-Key"]; if (cle && ST.idem[cle]) return rep(200, ST.idem[cle]);
-      const f = Object.fromEntries(new URLSearchParams(init.body)), id = "cs_test_" + (++n);
+      const f = Object.fromEntries(new URLSearchParams(init.body)), id = "cs_test_p" + Date.now() + (++n);
       const s = { id, url: "https://checkout.stripe.test/" + id, payment_status: "unpaid", created: Math.floor(Date.now() / 1000), metadata: {}, amount_total: Number(f["line_items[0][price_data][unit_amount]"]), params: f };
       for (const k of Object.keys(f)) { const mm = k.match(/^metadata\[(.+)\]$/); if (mm) s.metadata[mm[1]] = f[k]; }
       ST.sessions[id] = s; if (cle) ST.idem[cle] = s; return rep(200, s);

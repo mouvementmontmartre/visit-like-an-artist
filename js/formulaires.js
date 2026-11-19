@@ -52,7 +52,7 @@ async function renderDemande(arg) {
   const corps = $("#demande-body");
   corps.innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>';
   let visites = [];
-  try { visites = (await loadVisites()).filter((v) => ["visite", "atelier"].includes(offreTypeOf(v))); } catch (e) { visites = []; }
+  try { visites = (await loadVisites()).filter((v) => ["visite", "atelier"].includes(offreTypeOf(v)) && !(v._exp && v._exp.type === "autoguidee")); } catch (e) { visites = []; }
   const choisie = visites.find((v) => v["id"] === arg);
   let type = choisie ? offreTypeOf(choisie) : "visite";
   const options = () => [["", t("form.pasDePreference")]].concat(visites.filter((v) => offreTypeOf(v) === type)

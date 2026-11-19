@@ -114,6 +114,7 @@ function openTarget(target, arg) {
     case "demande":         showScreen("demande"); renderDemande(arg); break;         // js/formulaires.js
     case "rejoindre":       showScreen("demande"); renderRejoindre(); break;
     case "hote":            showScreen("hote"); renderHote(arg); break;               // js/formulaires.js
+    case "parcours":        showScreen("parcours"); renderParcours(arg); break;       // js/parcours.js
   }
 }
 
@@ -442,7 +443,7 @@ function traductionAuto(v) {
 
 async function loadFichesSupabase() {
   const loc = (currentLocalite() || {}).id || CONFIG.localiteParDefaut;
-  const exps = await supa("experiences?select=slug,type,titre,accroche,description,duree_minutes,photo_url,point_rdv,prix_centimes,prix_libre_min_centimes,intervenant_id,langues_relues" +
+  const exps = await supa("experiences?select=id,slug,type,titre,accroche,description,duree_minutes,photo_url,point_rdv,prix_centimes,prix_libre_min_centimes,option_audioguide_centimes,nb_etapes,intervenant_id,langues_relues" +
     "&publie=eq.true&actif=eq.true&localite_id=eq." + encodeURIComponent(loc) + "&order=ordre.asc,cree_le.asc");
   if (!exps.length) return [];
   const ids = [...new Set(exps.map(e => e.intervenant_id).filter(Boolean))];
@@ -453,7 +454,8 @@ async function loadFichesSupabase() {
       Guide: (ints.find(i => i.id === e.intervenant_id) || {}).nom || "",
       "Tarif direct": prixAffiche(e), "Durée": dureeAffichee(e.duree_minutes), Photo: e.photo_url || "",
       "Rendez-vous": (e.point_rdv && e.point_rdv.fr) || "", _source: "supabase", _relues: e.langues_relues || ["fr"],
-      _intervenant: ints.some(i => i.id === e.intervenant_id) ? e.intervenant_id : null };   // page de l'intervenant, s'il est publié
+      _intervenant: ints.some(i => i.id === e.intervenant_id) ? e.intervenant_id : null,   // page de l'intervenant, s'il est publié
+      _exp: { id: e.id, type: e.type, prix_libre_min_centimes: e.prix_libre_min_centimes, option_audioguide_centimes: e.option_audioguide_centimes, nb_etapes: e.nb_etapes } };
     ligne(e.titre, "Nom", o);
     ligne(Object.keys(e.description || {}).length ? e.description : e.accroche, "Description", o);
     ligne(e.accroche, "Accroche", o);   // phrase courte des cartes d'accueil
@@ -1002,7 +1004,8 @@ async function renderVisite(id) {
     (v["Lien réservation"]
       ? '<a class="cta cta-externe" style="text-decoration:none;" href="' + esc(v["Lien réservation"]) + '" target="_blank" rel="noopener">' + t("cta.reserve") + (v["Tarif direct"] ? " · " + esc(v["Tarif direct"]) : "") + '</a>'
       : "") +
-    (isVisiteUnlocked(id)
+    (v._exp && v._exp.type === "autoguidee" ? '<div id="parcours-fiche"></div>' : '') +   // parcours payé par lien d'accès (partie 3)
+    (v._source === "supabase" ? '' : isVisiteUnlocked(id)
       ? '<div class="member-note" style="text-align:center;">' + t("unlock.done") + '</div>'
       : '<div class="mini-label" style="margin-top:20px;">' + t("unlock.title") + '</div>' +
         '<div class="member-note" style="margin-top:4px;">' + t("unlock.desc") + '</div>' +
@@ -1011,12 +1014,14 @@ async function renderVisite(id) {
         '<input class="input-field" id="libre-montant" type="number" inputmode="decimal" min="5" step="1" value="5" aria-label="Montant en euros" style="display:none;">' +
         '<button class="cta fee" id="btn-libre" data-visite="' + esc(id) + '">' + t("cta.unlockFull") + '</button>' +
         '<div class="member-note" id="paiement-note" style="display:none;"></div>') +
-    (["visite", "atelier"].includes(offreTypeOf(v)) && !/autoguid|rythme/i.test(v["Type"] || "")
+    (["visite", "atelier"].includes(offreTypeOf(v)) && !/autoguid|rythme/i.test(v["Type"] || "") && !(v._exp && v._exp.type === "autoguidee")
       ? '<button class="cta ghost" data-open="demande" data-arg="' + esc(id) + '">' + esc(offreTypeOf(v) === "atelier" ? t("form.demanderAtelier") : t("form.demanderVisite")) + '</button>' : '') +
+    (v._source === "supabase" ? '' :   // l'ancienne carte des points (Sheet) ne sert qu'aux fiches de la Sheet
     '<button class="cta ghost" data-open="carte-visite" data-arg="' + esc(id) + '">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21 C12 21 5 14 5 9 A7 7 0 0 1 19 9 C19 14 12 21 12 21 Z"/><circle cx="12" cy="9" r="2.5"/></svg>' +
       t("cta.seeRouteOnMap") +
-    '</button>';
+    '</button>');
+  if (v._exp && v._exp.type === "autoguidee" && typeof renderParcoursFiche === "function") renderParcoursFiche(v);   // js/parcours.js
 
   const btnLibre = $("#btn-libre");
   if (btnLibre) btnLibre.addEventListener("click", () => startCheckout(id, "libre"));
@@ -2173,6 +2178,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!handleConnexionRetour()) {
     handleCarteRetour();
     handleReservationRetour();
+    if (typeof handleParcoursRetour === "function") handleParcoursRetour();
   }
 
   // Encadré "À propos" + lien adhésion sur l'écran "Ma carte de membre"

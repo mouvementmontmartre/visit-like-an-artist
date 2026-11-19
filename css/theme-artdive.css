@@ -333,6 +333,39 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
   background: rgba(20,16,13,.75); color: #EFE7D9; font-size: 18px; border: 1px solid #EFE7D9; }
 .adm-video { width: 100%; max-height: 360px; border-radius: 10px; background: #000; }
 
+/* ---------- Parcours autoguidés (canvas E2.1, E2.1.2, E2.1.3, E8.5, E9.5) ---------- */
+#screen-parcours { background: var(--fond-visite); }
+.parc-prix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0 8px; }
+.parc-chip { min-height: 48px; border-radius: 10px; border: 1px solid #667A6F; background: transparent; color: var(--velin);
+  font-family: var(--mono); font-size: 16px; }
+.parc-chip:last-child { font-family: var(--body); font-size: 14px; color: var(--muted); }
+.parc-chip.active { background: var(--velin); color: var(--nuit); border-color: var(--velin); font-weight: 500; }
+.parc-option { display: flex; align-items: center; gap: 14px; padding: 16px; margin: 12px 0; border-radius: 10px;
+  border: 1px solid var(--fee); background: var(--panneau-visite); cursor: pointer; }
+.parc-option input { width: 22px; height: 22px; accent-color: var(--fee); flex-shrink: 0; }
+.parc-option-corps { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.parc-option-corps b { font-family: var(--display); font-size: 19px; font-weight: 600; color: var(--velin); }
+.parc-option-prix { font-family: var(--mono); color: var(--fee); white-space: nowrap; }
+.parc-total { display: flex; justify-content: space-between; align-items: baseline; margin: 6px 0 16px; font-size: 13px; color: var(--muted); }
+.parc-total b { font-family: var(--display); font-size: 30px; font-weight: 600; color: var(--velin); }
+.parc-num { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid var(--bord); font-family: var(--display); font-weight: 600; color: var(--muted); }
+.parc-num.ouverte { background: #C08A2E; border-color: #C08A2E; color: #14100D; }
+.parc-media { margin: 0 0 16px; }
+.parc-media img { width: 100%; border-radius: 10px; aspect-ratio: 3 / 2; object-fit: cover; }
+.parc-media figcaption { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 6px; }
+.parc-texte { white-space: pre-line; font-size: 16px; color: var(--velin); }
+.parc-audio { width: 100%; margin: 6px 0 16px; }
+.parc-verrou { margin: 16px 0; padding: 16px; border-radius: 10px; border: 1px dashed var(--bord); }
+.parc-verrou b { font-family: var(--display); font-size: 20px; }
+.parc-verrou p { color: var(--muted); font-size: 14px; line-height: 1.5; }
+.parc-distance { font-family: var(--mono); color: var(--fee); }
+.parc-code { display: flex; gap: 8px; }
+.parc-code .input-field { flex: 1; text-transform: uppercase; }
+.parc-code .cta { width: auto; padding: 0 18px; margin: 0; }
+.parc-nav { display: flex; gap: 10px; margin-top: 16px; }
+.parc-nav .cta { flex: 1; }
+
 /* ---------- Menu des langues (canvas E1.2) ---------- */
 .lang-popover {
   background: var(--panneau); border: 1px solid var(--line); border-radius: 18px;

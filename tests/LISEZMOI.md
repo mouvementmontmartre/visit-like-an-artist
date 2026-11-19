@@ -21,3 +21,4 @@ Données de test uniquement (adresses en `@exemple.invalid`), jamais de vraies d
 La base locale imite aussi le stockage de Supabase (`storage.buckets`, `storage.objects`) pour les essais de droits des photos.
 7. Formulaires publics : `node tests/demande-fonction.test.js <dépôt>` et `node tests/demande-ecran.test.js <dépôt> [captures]`.
 8. Page d'un intervenant, vidéo, traductions : `node tests/hote-ecran.test.js <dépôt> [captures]` et `node tests/traduire-fonction.test.js <dépôt>`.
+9. Parcours autoguidés : `NODE_PATH=<dossier avec pg> node tests/parcours-fonctions.test.js <dépôt> <base>` (vraie base locale) et `node tests/parcours-ecran.test.js <dépôt> [captures]`.
