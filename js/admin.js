@@ -190,6 +190,7 @@ function admEtatFiche(e) {
 
 function peindreAdmin(corps) {
   const aValider = ADM.exps.filter((e) => e.a_valider).length;
+  const ongletSimple = (k, libelle) => '<button type="button" class="chip' + (ADM.onglet === k ? " active" : "") + '" data-adm-onglet="' + k + '">' + esc(libelle) + '</button>';
   const onglet = (k, libelle, n) => '<button type="button" class="chip' + (ADM.onglet === k ? " active" : "") + '" data-adm-onglet="' + k + '">' +
     esc(libelle) + ' · ' + n + '</button>';
   corps.innerHTML =
@@ -197,13 +198,16 @@ function peindreAdmin(corps) {
     '<div class="adm-sous">' + esc(t("adm.sous")) + '</div>' +
     (aValider ? '<div class="resa-etat">' + esc(tx("adm.aValiderNote", { n: aValider })) + '</div>' : '') +
     '<div class="filter-chips adm-onglets" role="tablist">' +
-      onglet("fiches", t("adm.fiches"), ADM.exps.length) + onglet("intervenants", t("adm.intervenants"), ADM.ints.length) +
+      onglet("fiches", t("adm.fiches"), ADM.exps.length) + ongletSimple("seances", t("adm.seances")) +
+      onglet("intervenants", t("adm.intervenants"), ADM.ints.length) + ongletSimple("adhesions", t("adm.adhesions")) +
+      ongletSimple("demandes", t("adm.demandes")) +
     '</div>' +
     '<div id="adm-zone"></div>' +
     '<button type="button" class="cta ghost" id="espace-deconnexion">' + esc(t("espace.deconnexion")) + '</button>';
   $$("[data-adm-onglet]").forEach((b) => b.addEventListener("click", () => { ADM.onglet = b.dataset.admOnglet; peindreAdmin(corps); }));
   $("#espace-deconnexion").addEventListener("click", deconnecter);
-  if (ADM.onglet === "fiches") peindreListeFiches(corps); else peindreListeIntervenants(corps);
+  ({ fiches: peindreListeFiches, seances: peindreListeSeances, intervenants: peindreListeIntervenants,
+     adhesions: peindreAdhesions, demandes: peindreDemandes }[ADM.onglet] || peindreListeFiches)(corps);
 }
 
 function peindreListeFiches(corps) {
@@ -521,4 +525,239 @@ async function reprendreSheet(lignes) {
   }
   ints.length !== ADM.ints.length && (ADM.ints = ints);
   return faites;
+}
+
+/* ============================================================
+   ÉTAPE 6.2b : séances, inscrits et absences, adhésions, demandes
+   ============================================================ */
+
+const admTitreExp = (id) => { const e = ADM.exps.find((x) => x.id === id); return e ? ((e.titre && e.titre.fr) || e.slug) : ""; };
+const admDate = (iso, o) => new Date(iso).toLocaleDateString(localeResa(), Object.assign({ timeZone: "Europe/Paris" }, o));
+const admHeure = (iso) => new Date(iso).toLocaleTimeString(localeResa(), { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" });
+const admZone = () => $("#adm-zone");
+const admChargement = () => { admZone().innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>'; };
+
+/** Date et heure saisies à l'heure de Paris → instant ISO (juste aussi depuis un téléphone réglé ailleurs). */
+function admParisVersIso(jour, heure) {
+  const [a, mo, j] = jour.split("-").map(Number), [h, mi] = heure.split(":").map(Number);
+  let t0 = Date.UTC(a, mo - 1, j, h, mi);
+  for (let i = 0; i < 2; i++) {
+    const p = {}; new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(t0)).forEach((x) => { p[x.type] = x.value; });
+    const vu = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+    t0 += Date.UTC(a, mo - 1, j, h, mi) - vu;
+  }
+  return new Date(t0).toISOString();
+}
+const admJourParis = (iso) => new Date(iso).toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" });
+const admHeureParis = (iso) => new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+/* ---------- Séances ---------- */
+
+async function peindreListeSeances(corps) {
+  admChargement();
+  let seances = [], resas = [];
+  try {
+    seances = await supaConnecte("seances?select=*&debut=gt." + encodeURIComponent(new Date(Date.now() - 8 * 864e5).toISOString()) + "&order=debut.asc");
+    if (seances.length) resas = await supaConnecte("reservations?select=seance_id,personnes,statut&statut=eq.confirmee&seance_id=in.(" + seances.map((x) => x.id).join(",") + ")");
+  } catch (e) { admZone().innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>'; return; }
+  const inscrits = (id) => resas.filter((r) => r.seance_id === id).reduce((n, r) => n + r.personnes, 0);
+  const etat = (x) => x.statut === "annulee" ? ["suspendue", t("adm.sAnnulee")] : x.statut === "publiee" ? ["enligne", t("adm.sEnLigne")]
+    : x.statut === "en_attente" ? ["avalider", t("adm.etatAValider")] : ["brouillon", t("adm.etatBrouillon")];
+  admZone().innerHTML =
+    '<button type="button" class="cta fee" id="adm-nouvelle-seance">' + esc(t("adm.nouvelleSeance")) + '</button>' +
+    (seances.length ? '' : '<div class="member-note">' + esc(t("adm.aucuneSeance")) + '</div>') +
+    '<div class="adm-liste">' + seances.map((x) => {
+      const e = etat(x), n = inscrits(x.id);
+      return '<button type="button" class="adm-ligne" data-adm-seance="' + esc(x.id) + '">' +
+        '<span class="adm-jour"><span>' + esc(admDate(x.debut, { weekday: "short" })) + '</span><b>' + esc(admDate(x.debut, { day: "numeric" })) + '</b><span>' + esc(admDate(x.debut, { month: "short" })) + '</span></span>' +
+        '<span class="adm-ligne-corps"><span class="adm-ligne-titre">' + esc(admTitreExp(x.experience_id)) + '</span>' +
+          '<span class="adm-ligne-meta">' + esc(admHeure(x.debut) + " · " + (LANGUE_SEANCE[x.langue] || x.langue) + " · " +
+            tx("adm.inscritsSur", { n, min: x.participants_min, max: x.capacite_max })) + '</span></span>' +
+        '<span class="adm-etat adm-etat-' + e[0] + '">' + esc(e[1]) + '</span></button>';
+    }).join("") + '</div>';
+  $("#adm-nouvelle-seance").addEventListener("click", () => peindreFormSeance(corps, null));
+  $$("[data-adm-seance]").forEach((b) => b.addEventListener("click", () => peindreFormSeance(corps, seances.find((x) => x.id === b.dataset.admSeance))));
+}
+
+async function peindreFormSeance(corps, x) {
+  const n = !x;
+  let resas = [];
+  if (!n) { admChargement(); try { resas = await supaConnecte("reservations?select=id,reference,nom,email,telephone,personnes,statut,annulee_par,absent_le,frais_centimes,frais_statut,reste_sur_place_centimes,paye_en_ligne_centimes&seance_id=eq." + x.id + "&order=cree_le.asc"); } catch (e) { resas = []; } }
+  const confirmees = resas.filter((r) => r.statut === "confirmee");
+  const bloque = confirmees.length > 0;   // inscrits : la date et le lieu ne bougent plus (annuler puis recréer)
+  x = x || { langue: "fr", statut: "brouillon" };
+  const annulee = x.statut === "annulee";
+  const commencee = !n && new Date(x.debut) <= new Date(), finAbsences = !n && Date.now() < new Date(x.debut).getTime() + 7 * 864e5;
+  window.scrollTo(0, 0);
+  admZone().innerHTML =
+    '<form id="adm-form" class="adm-form" novalidate>' +
+      '<h2 class="adm-titre">' + esc(n ? t("adm.nouvelleSeance") : admTitreExp(x.experience_id) + " · " + admDate(x.debut, { weekday: "long", day: "numeric", month: "long" })) + '</h2>' +
+      (annulee ? '<div class="resa-etat">' + esc(t("adm.sAnnuleeNote")) + '</div>' : '') +
+      '<label class="adm-champ"><span>' + esc(t("adm.fiche")) + '</span>' +
+        admSelect("s-exp", [["", t("adm.choisir")]].concat(ADM.exps.filter((e) => ["visite_guidee", "atelier", "soiree"].includes(e.type)).map((e) => [e.id, (e.titre && e.titre.fr) || e.slug])), x.experience_id || "") + '</label>' +
+      '<div class="adm-grille">' +
+        '<label class="adm-champ"><span>' + esc(t("adm.jour")) + '</span><input class="input-field" type="date" id="s-jour" value="' + esc(x.debut ? admJourParis(x.debut) : "") + '"></label>' +
+        '<label class="adm-champ"><span>' + esc(t("adm.heure")) + '</span><input class="input-field" type="time" id="s-heure" value="' + esc(x.debut ? admHeureParis(x.debut) : "10:00") + '"></label>' +
+        admNombre("s-duree", t("adm.duree"), x.fin && x.debut ? Math.round((new Date(x.fin) - new Date(x.debut)) / 6e4) : "") +
+        '<label class="adm-champ"><span>' + esc(t("adm.langue")) + '</span>' + admSelect("s-langue", ADM_LANGUES.map((l) => [l, LANG_META[l].nom]), x.langue) + '</label>' +
+        admNombre("s-max", t("adm.placesMax"), x.capacite_max) + admNombre("s-min", t("adm.participantsMin"), x.participants_min) +
+      '</div>' +
+      (bloque ? '<div class="member-note">' + esc(t("adm.sBloquee")) + '</div>' : '') +
+      '<label class="adm-champ"><span>' + esc(t("adm.rdv")) + '</span><input class="input-field" id="s-rdv" value="' + esc(x.point_rdv || "") + '"></label>' +
+      '<label class="adm-champ"><span>' + esc(t("adm.rdvPrecis")) + '</span><input class="input-field" id="s-precis" value="' + esc(x.point_rdv_precis || "") + '"><small class="member-note">' + esc(t("adm.rdvPrecisAide")) + '</small></label>' +
+      '<label class="adm-champ"><span>' + esc(t("adm.message")) + '</span><input class="input-field" id="s-message" value="' + esc(x.message_inscrits || "") + '"></label>' +
+      (annulee ? '' : admCase("s-publiee", t("adm.sPublier"), x.statut === "publiee")) +
+      (annulee ? '' : '<button type="submit" class="cta fee" id="s-enregistrer">' + esc(t("adm.enregistrer")) + '</button>') +
+      '<div class="resa-erreur" id="s-note" role="alert"></div>' +
+      (n ? '' :
+        '<h3 class="adm-sous-titre">' + esc(tx("adm.inscritsTitre", { n: confirmees.reduce((k, r) => k + r.personnes, 0) })) + '</h3>' +
+        (resas.length ? '<div class="adm-liste adm-inscrits">' + resas.map((r) => {
+          const absent = r.absent_le ? t("adm.absentSignale") : "";
+          const etatR = r.statut === "confirmee" ? (absent || t("adm.rConfirmee")) : t("adm.r." + r.statut);
+          return '<div class="adm-ligne"><span class="adm-ligne-corps"><span class="adm-ligne-titre">' + esc(r.nom) + ' · ' + esc(tx("adm.pers", { n: r.personnes })) + '</span>' +
+            '<span class="adm-ligne-meta">' + esc([r.reference, r.telephone, r.email, etatR].filter(Boolean).join(" · ")) + '</span>' +
+            (r.frais_centimes ? '<span class="adm-ligne-meta">' + esc(tx("adm.frais", { m: euros(r.frais_centimes), s: t("adm.f." + r.frais_statut) })) + '</span>' : '') + '</span>' +
+            (r.statut === "confirmee" && !r.absent_le && commencee && finAbsences ? '<button type="button" class="chip" data-adm-absent="' + esc(r.id) + '">' + esc(t("adm.absent")) + '</button>' : '') +
+          '</div>';
+        }).join("") + '</div>' : '<div class="member-note">' + esc(t("adm.aucunInscrit")) + '</div>') +
+        '<div class="member-note" id="s-absent-note" role="status"></div>' +
+        (annulee ? '' :
+          '<div class="adm-encart"><b>' + esc(t("adm.annulerSeance")) + '</b><p class="member-note">' + esc(t("adm.annulerAide")) + '</p>' +
+            admSelect("s-motif", [["annulation_organisation", t("adm.motifOrga")], ["intervenant_empeche", t("adm.motifIntervenant")]], "annulation_organisation") +
+            '<button type="button" class="cta ghost" id="s-annuler">' + esc(t("adm.annulerSeance")) + '</button>' +
+            '<div class="resa-erreur" id="s-annuler-note" role="alert"></div></div>')) +
+      '<button type="button" class="cta ghost" id="s-retour">' + esc(t("adm.retourListe")) + '</button>' +
+    '</form>';
+  if (bloque) ["s-exp", "s-jour", "s-heure", "s-langue", "s-rdv"].forEach((id) => { $("#" + id).disabled = true; });
+  $("#s-retour").addEventListener("click", () => peindreAdmin(corps));
+  $("#s-exp").addEventListener("change", () => {   // une nouvelle séance reprend les places et le rendez-vous de la fiche
+    const e = ADM.exps.find((y) => y.id === admVal("s-exp"));
+    if (!e || !n) return;
+    if (!admVal("s-max") && e.capacite_max) $("#s-max").value = e.capacite_max;
+    if (!admVal("s-min") && e.participants_min) $("#s-min").value = e.participants_min;
+    if (!admVal("s-duree") && e.duree_minutes) $("#s-duree").value = e.duree_minutes;
+    if (!admVal("s-rdv") && e.point_rdv && e.point_rdv.fr) $("#s-rdv").value = e.point_rdv.fr;
+  });
+  $$("[data-adm-absent]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm(t("adm.absentConfirmer"))) return;
+    b.disabled = true;
+    try {
+      const r = await supaEcrire("POST", "rpc/signaler_absence", { p_reservation_id: b.dataset.admAbsent });
+      $("#s-absent-note").textContent = r && r.frais_centimes ? tx("adm.absentFrais", { m: euros(r.frais_centimes) }) : t("adm.absentSansFrais");
+      b.remove();
+    } catch (e) { $("#s-absent-note").textContent = admErreur(e); b.disabled = false; }
+  }));
+  if (!n && !annulee) $("#s-annuler").addEventListener("click", async () => {
+    if (!confirm(tx("adm.annulerConfirmer", { n: confirmees.length }))) return;
+    const note = $("#s-annuler-note");
+    try {
+      const r = await supaEcrire("POST", "rpc/annuler_seance", { p_seance_id: x.id, p_motif: admVal("s-motif") });
+      await peindreFormSeance(corps, Object.assign({}, x, { statut: "annulee" }));
+      $("#s-note").textContent = tx("adm.annuleeFaite", { n: (r && r.inscrits) || 0 });
+    } catch (e) { note.textContent = admErreur(e); }
+  });
+  if (annulee) return;
+  $("#adm-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const note = $("#s-note"), b = $("#s-enregistrer");
+    const jour = admVal("s-jour"), heure = admVal("s-heure"), max = admEntier(admVal("s-max")), min = admEntier(admVal("s-min")) || 1;
+    if (!admVal("s-exp") || !/^\d{4}-\d{2}-\d{2}$/.test(jour) || !/^\d{2}:\d{2}$/.test(heure) || !max) { note.textContent = t("adm.sIncomplete"); return; }
+    const debut = admParisVersIso(jour, heure), duree = admEntier(admVal("s-duree"));
+    if (n && new Date(debut) < new Date()) { note.textContent = t("adm.sPassee"); return; }
+    const d = { capacite_max: max, participants_min: min, point_rdv_precis: admVal("s-precis") || null, message_inscrits: admVal("s-message") || null,
+      statut: admCoche("s-publiee") ? "publiee" : "brouillon" };
+    if (!bloque) Object.assign(d, { experience_id: admVal("s-exp"), debut, fin: duree ? new Date(new Date(debut).getTime() + duree * 6e4).toISOString() : null,
+      langue: admVal("s-langue"), point_rdv: admVal("s-rdv") || null });
+    if (bloque && d.statut !== "publiee") { note.textContent = t("adm.sDepublierInscrits"); return; }
+    b.disabled = true; note.textContent = t("member.loading");
+    try {
+      if (n) await supaEcrire("POST", "seances", d, "return=minimal");
+      else await supaEcrire("PATCH", "seances?id=eq." + x.id, d, "return=minimal");
+      await peindreListeSeances(corps);
+      admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t("adm.enregistre")) + '</div>');
+    } catch (e) { note.textContent = /participants_min|check/.test(e.message) ? t("adm.erreurMinMax") : admErreur(e); b.disabled = false; }
+  });
+}
+
+/* ---------- Adhésions ---------- */
+
+async function peindreAdhesions(corps) {
+  admChargement();
+  let liste = [];
+  try { liste = await supaConnecte("adhesions?select=nom,email,formule,source,valide_jusqua,statut&order=valide_jusqua.desc"); }
+  catch (e) { admZone().innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>'; return; }
+  const valide = (a) => a.statut === "active" && new Date(a.valide_jusqua) > new Date();
+  const dessiner = (filtre) => {
+    const f = filtre.trim().toLowerCase();
+    const vues = liste.filter((a) => !f || (a.nom || "").toLowerCase().includes(f) || a.email.includes(f));
+    $("#adm-adh-liste").innerHTML = vues.length ? vues.map((a) =>
+      '<div class="adm-ligne"><span class="adm-ligne-corps"><span class="adm-ligne-titre">' + esc(a.nom || a.email) + '</span>' +
+        '<span class="adm-ligne-meta">' + esc([a.nom ? a.email : "", t("adm.formule." + a.formule), t("adm.source." + a.source)].filter(Boolean).join(" · ")) + '</span>' +
+        '<span class="adm-ligne-meta">' + esc(tx(valide(a) ? "adm.valideJusqua" : "adm.expireeLe", { d: admDate(a.valide_jusqua, { day: "numeric", month: "long", year: "numeric" }) })) + '</span></span>' +
+        '<span class="adm-etat adm-etat-' + (valide(a) ? "enligne" : "brouillon") + '">' + esc(valide(a) ? t("adm.aJour") : t("adm.expiree")) + '</span></div>').join("")
+      : '<div class="member-note">' + esc(t("adm.aucuneAdhesion")) + '</div>';
+  };
+  admZone().innerHTML =
+    '<div class="resa-etat">' + esc(tx("adm.adhesionsBilan", { n: liste.filter(valide).length, total: liste.length })) + '</div>' +
+    '<input class="input-field" id="adm-adh-filtre" type="search" placeholder="' + esc(t("adm.chercher")) + '">' +
+    '<div class="adm-liste" id="adm-adh-liste"></div>' +
+    '<details class="adm-encart"><summary><b>' + esc(t("adm.adhManuelle")) + '</b></summary>' +
+      '<p class="member-note">' + esc(t("adm.adhManuelleAide")) + '</p>' +
+      '<label class="adm-champ"><span>' + esc(t("adm.emailContact")) + '</span><input class="input-field" id="m-email" type="email"></label>' +
+      '<label class="adm-champ"><span>' + esc(t("adm.nom")) + '</span><input class="input-field" id="m-nom"></label>' +
+      '<label class="adm-champ"><span>' + esc(t("adm.jusquau")) + '</span><input class="input-field" id="m-fin" type="date" value="' +
+        esc(new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10)) + '"></label>' +
+      '<button type="button" class="cta ghost" id="m-ajouter">' + esc(t("adm.ajouter")) + '</button><div class="member-note" id="m-note" role="status"></div>' +
+    '</details>';
+  dessiner("");
+  $("#adm-adh-filtre").addEventListener("input", (ev) => dessiner(ev.target.value));
+  $("#m-ajouter").addEventListener("click", async () => {
+    const email = admVal("m-email").toLowerCase(), note = $("#m-note");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !admVal("m-fin")) { note.textContent = t("member.emailInvalid"); return; }
+    try {
+      await supaEcrire("POST", "rpc/ajouter_adhesion_manuelle", { p_email: email, p_nom: admVal("m-nom") || null, p_valide_jusqua: admVal("m-fin") });
+      await peindreAdhesions(corps);
+      admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t("adm.enregistre")) + '</div>');
+    } catch (e) { note.textContent = admErreur(e); }
+  });
+}
+
+/* ---------- Demandes (visites privées, candidatures) ---------- */
+
+async function peindreDemandes(corps) {
+  admChargement();
+  let groupes = [], cands = [];
+  try {
+    [groupes, cands] = await Promise.all([
+      supaConnecte("demandes_groupes?select=*&order=cree_le.desc&limit=100"),
+      supaConnecte("candidatures?select=*&order=cree_le.desc&limit=100"),
+    ]);
+  } catch (e) { admZone().innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>'; return; }
+  const STATUTS_G = ["nouvelle", "en_cours", "devis_envoye", "confirmee", "refusee", "close"], STATUTS_C = ["nouvelle", "acceptee", "refusee"];
+  const carte = (d, table, statuts, lignes) =>
+    '<div class="adm-ligne adm-demande"><span class="adm-ligne-corps">' +
+      '<span class="adm-ligne-titre">' + esc(d.nom) + '</span>' +
+      lignes.filter(Boolean).map((l) => '<span class="adm-ligne-meta">' + esc(l) + '</span>').join("") +
+      (d.message ? '<span class="adm-message">' + esc(d.message) + '</span>' : '') +
+      '<span class="adm-actions"><a href="mailto:' + esc(d.email) + '">' + esc(d.email) + '</a>' + (d.telephone ? ' · <a href="tel:' + esc(d.telephone) + '">' + esc(d.telephone) + '</a>' : '') + '</span>' +
+      admSelect("d-" + d.id, statuts.map((k) => [k, t("adm.d." + k)]), d.statut).replace("<select ", '<select data-table="' + table + '" data-id="' + esc(d.id) + '" ') +
+    '</span></div>';
+  admZone().innerHTML =
+    '<h3 class="adm-sous-titre">' + esc(tx("adm.demandesPrivees", { n: groupes.filter((g) => g.statut === "nouvelle").length })) + '</h3>' +
+    (groupes.length ? '<div class="adm-liste">' + groupes.map((g) => carte(g, "demandes_groupes", STATUTS_G, [
+      admDate(g.cree_le, { day: "numeric", month: "short" }) + " · " + t("adm.typeDemande." + g.type) + (g.experience_id ? " · " + admTitreExp(g.experience_id) : ""),
+      [g.personnes ? tx("adm.pers", { n: g.personnes }) : "", g.periode_souhaitee, g.occasion].filter(Boolean).join(" · ")])).join("") + '</div>'
+      : '<div class="member-note">' + esc(t("adm.aucuneDemande")) + '</div>') +
+    '<h3 class="adm-sous-titre">' + esc(tx("adm.candidatures", { n: cands.filter((c) => c.statut === "nouvelle").length })) + '</h3>' +
+    (cands.length ? '<div class="adm-liste">' + cands.map((c) => carte(c, "candidatures", STATUTS_C, [
+      admDate(c.cree_le, { day: "numeric", month: "short" }) + " · " + t("adm.typeInt." + c.type)])).join("") + '</div>'
+      : '<div class="member-note">' + esc(t("adm.aucuneCandidature")) + '</div>') +
+    '<div class="member-note" id="d-note" role="status"></div>';
+  $$("select[data-table]").forEach((sel) => sel.addEventListener("change", async () => {
+    try {
+      await supaEcrire("PATCH", sel.dataset.table + "?id=eq." + sel.dataset.id, { statut: sel.value }, "return=minimal");
+      $("#d-note").textContent = t("adm.enregistre");
+    } catch (e) { $("#d-note").textContent = admErreur(e); }
+  }));
 }

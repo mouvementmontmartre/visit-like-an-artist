@@ -24,7 +24,8 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
 (async () => {
   const b = await chromium.launch();
   async function page(o) {
-    const base = { experiences: [], intervenants: [], intervenants_contacts: [], profils: [{ user_id: "u-admin", role: "admin", intervenant_id: null }] };
+    const base = { experiences: [], intervenants: [], intervenants_contacts: [], profils: [{ user_id: "u-admin", role: "admin", intervenant_id: null }],
+      seances: [], reservations: [], adhesions: [], demandes_groupes: [], candidatures: [] };
     const db = Object.assign(base, o.db || {});
     const st = { appels: [], erreurs: [], db, refusPublier: false, photos: [] };
     const ctx = await b.newContext({ serviceWorkers: "block", viewport: { width: 390, height: 844 } });
@@ -43,6 +44,8 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
         if (u.pathname === "/auth/v1/user") return rep(200, { id: o.user || "u-admin", email: "admin@exemple.invalid" });
         if (u.pathname.startsWith("/storage/v1/object/photos/")) { st.photos.push({ chemin: u.pathname, type: r.request().headers()["content-type"], auth: appel.auth }); return rep(200, { Key: "photos/x" }); }
         const tab = u.pathname.replace("/rest/v1/", "");
+        if (tab.startsWith("rpc/")) { st.rpc = st.rpc || []; st.rpc.push({ nom: tab.slice(4), args: JSON.parse(corps || "{}"), auth: appel.auth });
+          return rep(200, tab === "rpc/annuler_seance" ? { inscrits: 1 } : tab === "rpc/signaler_absence" ? { frais_centimes: 1000 } : {}); }
         if (!db[tab]) return rep(200, []);
         const filtres = [...u.searchParams.entries()].filter(([k]) => !["select", "order", "on_conflict", "limit"].includes(k));
         const garde = (l) => filtres.every(([k, f]) => {
@@ -153,6 +156,57 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   await attendre(pg, "#adm-form", "Enregistré.");
   v("nouvel intervenant créé", st.db.intervenants.some((i) => i.nom === "Mayamore" && i.type === "artiste" && i.slug === "mayamore"));
   v("pas d'erreur JavaScript (intervenants)", st.erreurs.length === 0, st.erreurs.join(" | "));
+  // 5 bis. Séances, inscrits, absence, annulation (6.2b)
+  await pg.click("#i-retour");
+  await pg.click('[data-adm-onglet="seances"]');
+  v("onglet Séances : vide", await attendre(pg, "#adm-zone", "Aucune séance à venir"));
+  await pg.click("#adm-nouvelle-seance");
+  await pg.selectOption("#s-exp", circuit.id);
+  v("la séance reprend les places de la fiche", (await pg.inputValue("#s-max")) === "10" && (await pg.inputValue("#s-min")) === "4" && (await pg.inputValue("#s-rdv")) === "Square Suzanne Buisson");
+  const demain = new Date(Date.now() + 3 * 864e5).toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" });
+  await pg.fill("#s-jour", demain); await pg.fill("#s-heure", "10:00"); await pg.check("#s-publiee");
+  await pg.click("#s-enregistrer");
+  await attendre(pg, "#adm-zone", "Enregistré.");
+  const sea = st.db.seances[0];
+  const hParis = sea && new Date(sea.debut).toLocaleTimeString("en-GB", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" });
+  v("séance créée en ligne, à 10 h heure de Paris", sea && sea.statut === "publiee" && sea.experience_id === circuit.id && hParis === "10:00" && sea.capacite_max === 10, JSON.stringify(sea));
+  // une séance commencée hier avec deux inscrits
+  st.db.seances.push({ id: "sea-hier", experience_id: circuit.id, debut: new Date(Date.now() - 864e5).toISOString(), langue: "fr", capacite_max: 10, participants_min: 2, statut: "publiee" });
+  st.db.reservations.push({ id: "r1", seance_id: "sea-hier", reference: "AD-AAAAAA", nom: "Camille D.", email: "c@exemple.invalid", personnes: 2, statut: "confirmee", frais_centimes: 0, frais_statut: "aucun" },
+    { id: "r2", seance_id: "sea-hier", reference: "AD-BBBBBB", nom: "Léo M.", email: "l@exemple.invalid", personnes: 1, statut: "annulee", frais_centimes: 1000, frais_statut: "preleve" });
+  await pg.click('[data-adm-onglet="seances"]');
+  await pg.click('[data-adm-seance="sea-hier"]');
+  v("inscrits de la séance, avec les frais", await attendre(pg, "#adm-form", "Inscrits : 2 personne(s)") && await attendre(pg, "#adm-form", "AD-BBBBBB") && await attendre(pg, "#adm-form", "prélevés"));
+  v("date figée quand il y a des inscrits", await pg.$eval("#s-jour", (x) => x.disabled));
+  pg.once("dialog", (d) => d.accept());
+  await pg.click('[data-adm-absent="r1"]');
+  v("absence signalée par la fonction de la base, frais annoncés", await attendre(pg, "#s-absent-note", "Frais de 10") && st.rpc.some((r) => r.nom === "signaler_absence" && r.args.p_reservation_id === "r1" && r.auth === "Bearer JETON-ADMIN"));
+  pg.once("dialog", (d) => d.accept());
+  await pg.selectOption("#s-motif", "intervenant_empeche");
+  await pg.click("#s-annuler");
+  v("annulation : fonction de la base avec le motif, message de remboursement", await attendre(pg, "#s-note", "1 inscrit(s) prévenu(s) et remboursé(s)") &&
+    st.rpc.some((r) => r.nom === "annuler_seance" && r.args.p_seance_id === "sea-hier" && r.args.p_motif === "intervenant_empeche"));
+  await pg.click("#s-retour");
+
+  // 5 ter. Adhésions et demandes
+  st.db.adhesions.push({ nom: "Camille Durand", email: "camille@exemple.invalid", formule: "adhesion", source: "stripe_abonnement", valide_jusqua: new Date(Date.now() + 1e10).toISOString(), statut: "active" },
+    { nom: null, email: "ancien@exemple.invalid", formule: "bienfaiteur", source: "manuelle", valide_jusqua: "2024-01-01T00:00:00Z", statut: "active" });
+  await pg.click('[data-adm-onglet="adhesions"]');
+  v("adhésions : bilan et liste", await attendre(pg, "#adm-zone", "1 adhésion(s) à jour sur 2") && await attendre(pg, "#adm-adh-liste", "Expirée le"));
+  await pg.fill("#adm-adh-filtre", "camille");
+  v("recherche dans les adhésions", (await pg.$$eval("#adm-adh-liste .adm-ligne", (l) => l.length)) === 1);
+  await pg.click("details.adm-encart summary");
+  await pg.fill("#m-email", "Nouveau@Exemple.invalid"); await pg.fill("#m-nom", "Nina"); await pg.click("#m-ajouter");
+  await attendre(pg, "#adm-zone", "Enregistré.");
+  v("adhésion hors ligne ajoutée par la fonction de la base", st.rpc.some((r) => r.nom === "ajouter_adhesion_manuelle" && r.args.p_email === "nouveau@exemple.invalid" && r.args.p_nom === "Nina" && /^\d{4}-\d{2}-\d{2}$/.test(r.args.p_valide_jusqua)));
+  st.db.demandes_groupes.push({ id: "dg1", nom: "Paul", email: "paul@exemple.invalid", type: "visite", personnes: 12, message: "Anniversaire", statut: "nouvelle", cree_le: new Date().toISOString() });
+  await pg.click('[data-adm-onglet="demandes"]');
+  v("demandes : la demande privée s'affiche", await attendre(pg, "#adm-zone", "Visites et ateliers privés · 1 nouvelle(s)") && await attendre(pg, "#adm-zone", "Anniversaire"));
+  await pg.selectOption('select[data-id="dg1"]', "en_cours");
+  v("statut d'une demande changé", await attendre(pg, "#d-note", "Enregistré.") && st.db.demandes_groupes[0].statut === "en_cours");
+  v("pas d'erreur JavaScript (séances, adhésions, demandes)", st.erreurs.length === 0, st.erreurs.join(" | "));
+  if (OUT) await pg.screenshot({ path: OUT + "/admin-demandes.png" });
+
   const dbFinal = st.db;
   await ctx.close();
 
