@@ -64,25 +64,31 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   v("retour de paiement : serveur en retard → message d'attente", await attendre(pg, "#membre-result", "Paiement reçu"));
   await ctx.close();
 
-  // 3. Demande de lien
+  // 3. Carte affichée à partir de l'email (plus de lien par email, 19/11)
   appels = [];
-  ({ pg, ctx, erreurs } = await page((c) => c.action === "lien" ? [200, { ok: true }] : [404, {}]));
+  ({ pg, ctx, erreurs } = await page((c) => c.action === "email" ? [200, { jeton: "J".repeat(43), carte: carte() }] : c.action === "voir" ? [200, { carte: carte() }] : [404, {}]));
   await pg.goto("http://localhost:8765/");
   await pg.waitForTimeout(2500);
   await pg.evaluate(() => openTarget("membre"));
+  v("formulaire placé avant « Pourquoi adhérer »", await pg.evaluate(() => !!(document.querySelector("#membre-form").compareDocumentPosition(document.querySelector("#membre-about")) & Node.DOCUMENT_POSITION_FOLLOWING)));
   await pg.fill("#membre-email", "pas-un-email");
   await pg.click("#membre-check");
   v("demande : email invalide signalé", await attendre(pg, "#membre-form-note", "adresse email valide"));
   await pg.fill("#membre-email", " Camille@Exemple.invalid ");
   await pg.click("#membre-check");
-  v("demande : message neutre après envoi", await attendre(pg, "#membre-form-note", "Si cette adresse correspond"));
-  v("demande : email envoyé en minuscules avec la langue", appels.some((a) => a.action === "lien" && a.email === "camille@exemple.invalid" && a.langue === "fr"), JSON.stringify(appels));
+  v("demande : carte affichée directement", await pg.waitForSelector("#membre-oublier", { timeout: 4000 }).then(() => true, () => false));
+  v("demande : email envoyé en minuscules", appels.some((a) => a.action === "email" && a.email === "camille@exemple.invalid"), JSON.stringify(appels));
   await pg.screenshot({ path: OUT + "/demande.png" });
   await ctx.close();
-  ({ pg, ctx } = await page(() => [503, {}]));
+  ({ pg, ctx } = await page(() => [404, {}]));
   await pg.goto("http://localhost:8765/"); await pg.waitForTimeout(2500);
   await pg.evaluate(() => openTarget("membre")); await pg.fill("#membre-email", "a@exemple.invalid"); await pg.click("#membre-check");
-  v("demande : envoi pas encore configuré → message d'attente", await attendre(pg, "#membre-form-note", "revient très bientôt"));
+  v("demande : pas d'adhésion → message clair", await attendre(pg, "#membre-form-note", "Aucune adhésion en cours"));
+  await ctx.close();
+  ({ pg, ctx } = await page(() => [429, {}]));
+  await pg.goto("http://localhost:8765/"); await pg.waitForTimeout(2500);
+  await pg.evaluate(() => openTarget("membre")); await pg.fill("#membre-email", "a@exemple.invalid"); await pg.click("#membre-check");
+  v("demande : trop d'essais signalé", await attendre(pg, "#membre-form-note", "Trop d'essais"));
   await ctx.close();
 
   // 4. Carte expirée, en anglais

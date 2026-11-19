@@ -37,7 +37,8 @@
 
   <!-- ================= SPLASH (tracé du logo) ================= -->
   <div class="splash" id="splash" aria-hidden="true">
-    <img src="icons/artdive-monogram-cream.svg" alt="">
+    <img class="splash-mm" src="icons/logo-splash.png" alt="">
+    <img class="splash-ad" src="icons/artdive-wordmark-cream.svg" alt="">
   </div>
 
   <!-- ================= ONGLET ACCUEIL ================= -->
@@ -378,6 +379,14 @@
     </header>
     <div class="screen-inner">
       <div id="membre-result"></div>
+      <form id="membre-form" novalidate>
+        <div class="mini-label" data-i18n="member.findCard">Retrouver ma carte</div>
+        <p class="member-note" data-i18n="member.linkHelp">Entrez l'adresse email de votre adhésion pour afficher votre carte.</p>
+        <label class="visually-hidden" for="membre-email" data-i18n="member.emailPlaceholder">Votre adresse email d'adhésion</label>
+        <input class="input-field" id="membre-email" type="email" inputmode="email" autocomplete="email" placeholder="Votre adresse email d'adhésion" data-i18n-placeholder="member.emailPlaceholder">
+        <button class="cta fee" id="membre-check" type="submit" data-i18n="member.sendLink">Afficher ma carte</button>
+        <div id="membre-form-note" role="status" aria-live="polite"></div>
+      </form>
       <div id="membre-about"></div>
 
       <div class="mini-label" data-i18n="member.benefitsTitle">Pourquoi adhérer ?</div>
@@ -395,14 +404,6 @@
         </div>
       </div>
 
-      <form id="membre-form" novalidate>
-        <div class="mini-label" data-i18n="member.findCard">Retrouver ma carte</div>
-        <p class="member-note" data-i18n="member.linkHelp">Entrez l'adresse email de votre adhésion : nous vous envoyons un lien vers votre carte.</p>
-        <label class="visually-hidden" for="membre-email" data-i18n="member.emailPlaceholder">Votre adresse email d'adhésion</label>
-        <input class="input-field" id="membre-email" type="email" inputmode="email" autocomplete="email" placeholder="Votre adresse email d'adhésion" data-i18n-placeholder="member.emailPlaceholder">
-        <button class="cta fee" id="membre-check" type="submit" data-i18n="member.sendLink">Recevoir le lien de ma carte</button>
-        <div id="membre-form-note" role="status" aria-live="polite"></div>
-      </form>
       <a class="cta gaz" style="text-decoration:none; margin-top:10px;" href="" id="membre-adherer" target="_blank" rel="noopener" data-i18n="cta.join">Adhérer</a>
       <a class="cta ghost" style="text-decoration:none; margin-top:10px;" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener" data-i18n="cta.donate">Faire un don</a>
     </div>

@@ -281,4 +281,34 @@ function redigerAcces({ langue, titre, etapes, lien, reference, montant, audiogu
   return { sujet: t.sujet, html, texte: versTexte(html) };
 }
 
-module.exports = { rediger, redigerInvitation, redigerAcces, ics, esc };
+/** Demande privée ou candidature acceptée : coordonnées de l'association pour la suite (décision du 19/11). */
+const CONTACT_ACCEPTATION = { nom: "Lucie", tel: "07 69 99 57 64", email: "mouvementmontmartre@gmail.com" };
+function redigerAcceptation({ langue, nom, quoi }) {
+  const l = ["fr", "en", "es"].includes(langue) ? langue : "fr";
+  const c = CONTACT_ACCEPTATION;
+  const t = {
+    fr: { sujet: quoi === "candidature" ? "Votre candidature ArtDive est acceptée" : "Votre demande privée est acceptée",
+      bonjour: "Bonjour " + nom + ",",
+      intro: quoi === "candidature" ? "Bonne nouvelle : votre candidature pour rejoindre ArtDive est acceptée."
+        : "Bonne nouvelle : votre demande de visite ou d'atelier privé est acceptée.",
+      suite: quoi === "candidature" ? "Pour la suite, contactez " + c.nom + " :" : "Pour fixer ensemble la date, le programme et le tarif, contactez " + c.nom + " :",
+      repondre: "Vous pouvez aussi simplement répondre à cet email.", fin: "À très vite sur la Butte," },
+    en: { sujet: quoi === "candidature" ? "Your ArtDive application is accepted" : "Your private request is accepted",
+      bonjour: "Hello " + nom + ",",
+      intro: quoi === "candidature" ? "Good news: your application to join ArtDive is accepted." : "Good news: your request for a private tour or workshop is accepted.",
+      suite: quoi === "candidature" ? "For the next steps, please contact " + c.nom + ":" : "To agree on the date, programme and price, please contact " + c.nom + ":",
+      repondre: "You can also simply reply to this email.", fin: "See you soon on the Butte," },
+    es: { sujet: quoi === "candidature" ? "Tu candidatura a ArtDive está aceptada" : "Tu solicitud privada está aceptada",
+      bonjour: "Hola " + nom + ",",
+      intro: quoi === "candidature" ? "Buenas noticias: tu candidatura para unirte a ArtDive está aceptada." : "Buenas noticias: tu solicitud de visita o taller privado está aceptada.",
+      suite: quoi === "candidature" ? "Para los siguientes pasos, contacta con " + c.nom + ":" : "Para fijar juntos la fecha, el programa y el precio, contacta con " + c.nom + ":",
+      repondre: "También puedes responder a este email.", fin: "¡Hasta pronto en la Butte!" },
+  }[l];
+  const corps = "<p>" + esc(t.bonjour) + "</p><p>" + esc(t.intro) + "</p><p>" + esc(t.suite) + "<br><strong>" + esc(c.nom) + "</strong><br>" +
+    '<a href="tel:+33' + c.tel.replace(/\s/g, "").slice(1) + '">' + esc(c.tel) + '</a><br><a href="mailto:' + c.email + '">' + esc(c.email) + "</a></p>" +
+    "<p>" + esc(t.repondre) + "</p><p>" + esc(t.fin) + "<br>Mouvement Montmartre</p>";
+  const html = cadre(corps);
+  return { sujet: t.sujet, html, texte: versTexte(html) };
+}
+
+module.exports = { rediger, redigerInvitation, redigerAcces, redigerAcceptation, ics, esc };

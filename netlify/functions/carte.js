@@ -107,6 +107,19 @@ exports.handler = async (event) => {
       return json(200, { jeton, carte });
     }
 
+    // Carte affichée directement à partir de l'email (décision du 19/11 : plus de lien par email).
+    // Limite : 3 essais par adresse et par heure (carte_creer_lien).
+    if (p.action === "email") {
+      const email = String(p.email || "").trim().toLowerCase();
+      if (!emailValide(email)) return json(400, { error: "Email invalide" });
+      const jeton = nouveauJeton();
+      const etat = await rpc("carte_creer_lien", { p_email: email, p_jeton_hash: sha256hex(jeton), p_origine: "email" });
+      if (etat === "trop_de_demandes") return json(429, { error: "Trop de demandes" });
+      if (etat !== "cree") return json(404, { error: "Aucune adhésion" });
+      const carte = await rpc("carte_par_jeton", { p_jeton_hash: sha256hex(jeton) });
+      return carte ? json(200, { jeton, carte }) : json(404, { error: "Aucune adhésion" });
+    }
+
     if (p.action === "lien") {
       if (!process.env.BREVO_API_KEY) return json(503, { error: "Envoi des emails pas encore configuré." });
       const email = String(p.email || "").trim().toLowerCase();

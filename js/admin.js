@@ -198,6 +198,16 @@ function admBrancherTraduire(id, bases) {
   });
 }
 
+/* Ouvrir « Traduire en anglais et espagnol » lance la traduction des langues encore vides. */
+document.addEventListener("toggle", (ev) => {
+  const d = ev.target;
+  if (!d.matches || !d.matches("details.adm-trad[data-base]") || !d.open || d.dataset.traduit) return;
+  d.dataset.traduit = "1";
+  const s = d.querySelector("summary"), libelle = s.textContent;
+  s.textContent = t("adm.traductionEnCours");
+  admTraduireChamps([d.dataset.base], false).catch(() => false).finally(() => { s.textContent = libelle; });
+}, true);
+
 /** Bloc photo d'un formulaire : aperçu + bouton d'envoi. La valeur est gardée dans data-url. */
 function admPhotoHtml(id, url) {
   return '<div class="adm-champ"><span>' + esc(t("adm.photo")) + '</span>' +
@@ -232,7 +242,7 @@ function admTexteHtml(base, libelle, valeur, long) {
     ? '<textarea class="input-field adm-texte" id="' + base + '-' + l + '" rows="5">' + esc(v[l] || "") + '</textarea>'
     : '<input class="input-field" id="' + base + '-' + l + '" value="' + esc(v[l] || "") + '">';
   return '<label class="adm-champ"><span>' + esc(libelle) + '</span>' + champ("fr") + '</label>' +
-    '<details class="adm-trad"><summary>' + esc(t("adm.traductions")) + '</summary>' +
+    '<details class="adm-trad" data-base="' + base + '"><summary>' + esc(t("adm.traductions")) + '</summary>' +
       ADM_TRAD.map((l) => '<label class="adm-champ"><span>' + esc(LANG_META[l].nom) + '</span>' + champ(l) + '</label>').join("") +
     '</details>';
 }
@@ -911,6 +921,7 @@ async function peindreDemandes(corps) {
       (d.message ? '<span class="adm-message">' + esc(d.message) + '</span>' : '') +
       '<span class="adm-actions"><a href="mailto:' + esc(d.email) + '">' + esc(d.email) + '</a>' + (d.telephone ? ' · <a href="tel:' + esc(d.telephone) + '">' + esc(d.telephone) + '</a>' : '') + '</span>' +
       admSelect("d-" + d.id, statuts.map((k) => [k, t("adm.d." + k)]), d.statut).replace("<select ", '<select data-table="' + table + '" data-id="' + esc(d.id) + '" ') +
+      (d.statut === "nouvelle" ? '<button type="button" class="cta gaz adm-accepter" data-accepter="' + table + '" data-id="' + esc(d.id) + '">' + esc(t("adm.accepterPrevenir")) + '</button>' : '') +
     '</span></div>';
   admZone().innerHTML =
     '<h3 class="adm-sous-titre">' + esc(tx("adm.demandesPrivees", { n: groupes.filter((g) => g.statut === "nouvelle").length })) + '</h3>' +
@@ -928,6 +939,21 @@ async function peindreDemandes(corps) {
       await supaEcrire("PATCH", sel.dataset.table + "?id=eq." + sel.dataset.id, { statut: sel.value }, "return=minimal");
       $("#d-note").textContent = t("adm.enregistre");
     } catch (e) { $("#d-note").textContent = admErreur(e); }
+  }));
+  $$("[data-accepter]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm(t("adm.accepterConfirmer"))) return;
+    b.disabled = true;
+    const note = $("#d-note");
+    note.textContent = t("member.loading");
+    try {
+      const s = await sessionValide();
+      const res = await fetch("/.netlify/functions/accepter", { method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + (s && s.access_token) },
+        body: JSON.stringify({ table: b.dataset.accepter, id: b.dataset.id }) });
+      if (!res.ok) throw new Error(String(res.status));
+      note.textContent = t("adm.accepterOk");
+      peindreDemandes(corps);
+    } catch (e) { note.textContent = t("adm.accepterErreur"); b.disabled = false; }
   }));
 }
 

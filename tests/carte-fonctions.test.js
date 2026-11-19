@@ -245,6 +245,22 @@ function verifier(nom, cond, detail) {
   r = await post(carte, { action: "lien", email: "pas-un-email" });
   verifier("lien : email invalide refusé", r.statusCode === 400);
 
+  // Carte affichée directement (action « email », 19/11)
+  await db.query("delete from public.cartes_liens where email = 'camille@exemple.invalid'");
+  const avantEmail = brevo.length;
+  r = await post(carte, { action: "email", email: " Camille@Exemple.invalid " });
+  verifier("email : adhérente → carte et jeton rendus, aucun email", r.statusCode === 200 && lire(r).carte.valide === true && /^[A-Za-z0-9_-]{43}$/.test(lire(r).jeton) && brevo.length === avantEmail);
+  r = await post(carte, { action: "voir", jeton: lire(r).jeton });
+  verifier("email : le jeton rendu rouvre la carte", r.statusCode === 200);
+  r = await post(carte, { action: "email", email: "inconnu@exemple.invalid" });
+  verifier("email : non adhérent → 404", r.statusCode === 404);
+  await post(carte, { action: "email", email: "camille@exemple.invalid" });
+  await post(carte, { action: "email", email: "camille@exemple.invalid" });
+  r = await post(carte, { action: "email", email: "camille@exemple.invalid" });
+  verifier("email : au-delà de 3 par heure → 429", r.statusCode === 429);
+  r = await post(carte, { action: "email", email: "pas-un-email" });
+  verifier("email : email invalide refusé", r.statusCode === 400);
+
   // Import
   r = await importer({ httpMethod: "GET", queryStringParameters: {}, headers: {} });
   verifier("import : sans code refusé", r.statusCode === 400);

@@ -174,7 +174,7 @@ function verifier(nom, cond, detail) {
   const m1 = conf && conf.htmlContent.match(/https:\/\/artdive\.app\/#reservation=([0-9a-f]{64})/);
   verifier("confirmation : bouton « Je ne peux plus venir » avec lien personnel", !!m1);
   verifier("confirmation : fichier calendrier joint", conf && conf.attachment && /BEGIN:VEVENT/.test(Buffer.from(conf.attachment[0].content, "base64").toString()));
-  verifier("confirmation : rappel « pas de droit de rétractation » et lien vers les CGV datées", conf && /L221-28/.test(conf.textContent) && conf.htmlContent.includes("https://artdive.app/cgv.html") && /2026-11-18/.test(conf.htmlContent));
+  verifier("confirmation : rappel « pas de droit de rétractation » et lien vers les CGV datées", conf && /L221-28/.test(conf.textContent) && conf.htmlContent.includes("https://artdive.app/cgv.html") && conf.htmlContent.includes(require(path.join(DEPOT, "netlify/lib/commun.js")).CGV_VERSION));
   verifier("cases cochées et version des CGV gardées", (await ligne("select consentements ?& array['cgv','non_remboursable','sans_retractation','prelevement'] as ok, cgv_version from public.reservations where id = $1", [resa1])).ok === true);
   verifier("pas de long tiret dans les emails", !brevo.some((m) => /—/.test(m.subject + m.htmlContent)));
   verifier("alertes : association et guide prévenus", mails("alerte_inscription").map((m) => m.to[0].email).sort().join() === "guide@exemple.invalid,mouvementmontmartre@gmail.com");

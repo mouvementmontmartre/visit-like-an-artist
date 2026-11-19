@@ -2021,9 +2021,16 @@ $("#membre-form").addEventListener("submit", async (e) => {
   out.textContent = t("member.loading");
   bouton.disabled = true;
   try {
-    const r = await appelCarte({ action: "lien", email, langue: getLang() });
-    out.textContent = r.status === 200 ? t("member.linkSent")
-      : r.status === 503 ? t("member.unavailable")
+    const r = await appelCarte({ action: "email", email });
+    if (r.status === 200 && r.data.jeton && r.data.carte) {
+      carteEcrite({ jeton: r.data.jeton, carte: r.data.carte, maj: Date.now() });
+      $("#membre-email").value = "";
+      out.textContent = "";
+      renderMembre();
+      return;
+    }
+    out.textContent = r.status === 404 ? t("member.notFound")
+      : r.status === 429 ? t("member.tooMany")
       : r.status === 400 ? t("member.emailInvalid")
       : t("member.error");
   } catch (err) {

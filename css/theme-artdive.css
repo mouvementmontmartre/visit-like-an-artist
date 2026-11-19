@@ -116,7 +116,8 @@ a { color: var(--lien); }
 .hero-sous { margin: 14px 0 0; font-size: 14px; line-height: 1.55; color: var(--muted); }
 .offre-chips { margin: 22px 0 14px; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
 .offre-chips::-webkit-scrollbar { display: none; }
-.offre-chips .chip { flex-shrink: 0; min-height: 44px; padding: 0 16px; font-size: 13px; }
+.offre-chips { gap: 6px; flex-wrap: nowrap; }
+.offre-chips .chip { flex: 1 0 auto; min-height: 36px; padding: 0 10px; font-size: 12px; }
 
 .act-card {
   --c: var(--type-visite);
@@ -283,7 +284,10 @@ a { color: var(--lien); }
 .adm-texte { min-height: 110px; padding: 12px 14px; line-height: 1.45; resize: vertical; font: inherit; color: var(--velin); }
 select.input-field { appearance: auto; padding: 0 12px; }
 .adm-trad { margin-top: -6px; }
-.adm-trad summary { cursor: pointer; font-size: 13px; color: var(--lien); min-height: 32px; display: flex; align-items: center; }
+.adm-trad summary { cursor: pointer; list-style: none; align-self: flex-start; display: inline-flex; align-items: center; min-height: 32px;
+  padding: 0 12px; border: 1px solid var(--bord); border-radius: 999px; font-size: 12px; color: var(--velin); background: rgba(239,231,217,0.06); }
+.adm-trad summary::-webkit-details-marker { display: none; }
+.adm-trad { display: flex; flex-direction: column; }
 .adm-trad[open] { display: flex; flex-direction: column; gap: 10px; }
 .adm-puces { display: flex; flex-wrap: wrap; gap: 8px; }
 .adm-puce { min-width: 52px; min-height: 44px; justify-content: center; display: inline-flex; align-items: center; cursor: pointer; }
@@ -400,7 +404,8 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .point-sheet.open { visibility: visible; transform: translateY(0); transition: transform .25s ease, visibility 0s; }
 
 /* ---------- Écran d'ouverture : monogramme ArtDive ---------- */
-.splash img { width: 150px; height: auto; }
+.splash img.splash-mm { width: 170px; height: 170px; }
+.splash img.splash-ad { width: 120px; height: auto; animation-delay: 0.4s; }
 
 /* ---------- Langues : polices et sens de lecture ---------- */
 /* Fraunces et DM Sans n'ont ni chinois, ni arabe, ni cyrillique : polices de repli chargées à la demande (i18n.js). */
@@ -419,3 +424,16 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 
 @media (prefers-reduced-motion: reduce) { .act-card, .cta { transition: none; } }
 .lien-bouton { background: none; border: 0; padding: 0; color: var(--lien); font: inherit; text-decoration: underline; cursor: pointer; min-height: 44px; }
+
+/* Retours du 19/11 : filtres de la carte sur une ligne (défilement latéral), carte sombre sans quadrillage, partenaires en colonnes. */
+#eco-filters { flex-wrap: nowrap; overflow-x: auto; gap: 6px; scrollbar-width: none; padding-block-end: 2px; }
+#eco-filters::-webkit-scrollbar { display: none; }
+#eco-filters .chip { flex-shrink: 0; font-size: 11px; padding: 6px 10px; }
+.leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.4); }
+.leaflet-container img.leaflet-tile { width: 256.5px !important; height: 256.5px !important; }
+#sponsors-list, #sponsors-festival { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+#sponsors-list .bandeau + .bandeau, #sponsors-festival .bandeau + .bandeau { margin-top: 0; }
+#sponsors-list .bandeau-sponsor, #sponsors-festival .bandeau-sponsor { height: 78px; border-radius: 12px; }
+#sponsors-list .bandeau-sponsor .content, #sponsors-festival .bandeau-sponsor .content { bottom: 6px; padding-inline: 6px; }
+#sponsors-list .bandeau-sponsor .e-name, #sponsors-festival .bandeau-sponsor .e-name { font-size: 10.5px; line-height: 1.15; }
+.adm-accepter { margin-top: 8px; }
