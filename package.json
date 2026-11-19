@@ -1,0 +1,8 @@
+{
+  "name": "artdive",
+  "private": true,
+  "description": "ArtDive : dépendances des fonctions Netlify (le site lui-même n'en a aucune).",
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.5.0"
+  }
+}

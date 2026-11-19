@@ -3,21 +3,22 @@
    POST { textes: { cle: "texte en français", … }, langues: ["en", "es"] }
    avec la session de l'admin ou d'un intervenant (Authorization: Bearer).
    Traduit une seule fois, au moment de l'enregistrement d'une fiche
-   (décision : pas de traduction à chaque visite). Réponse :
-   { en: { cle: "…" }, es: { … } }. Les textes traduits restent marqués
-   « traduction automatique » tant que l'association ne les a pas relus
-   (colonne langues_relues).
-   Variables Netlify : OPENAI_API_KEY (secrète), OPENAI_MODEL (facultative).
+   (décision : pas de traduction à chaque visite), avec Claude (API
+   Anthropic, décision du 19/11). Réponse : { en: { cle: "…" }, es: { … } }.
+   Les textes traduits restent marqués « traduction automatique » tant
+   que l'association ne les a pas relus (colonne langues_relues).
+   Variables Netlify : ANTHROPIC_API_KEY (secrète), CLAUDE_MODEL (facultative).
    ============================================================ */
 
+const Anthropic = require("@anthropic-ai/sdk");
 const { json, appelant } = require("../lib/commun");
 
-const MODELE = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const MODELE = process.env.CLAUDE_MODEL || "claude-opus-5-5";
 const NOMS = { en: "English (British spelling)", es: "Spanish (Spain, informal tú)", zh: "Simplified Chinese", ar: "Modern Standard Arabic", ru: "Russian" };
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { error: "POST attendu" });
-  if (!process.env.OPENAI_API_KEY) return json(503, { error: "INDISPONIBLE" });
+  if (!process.env.ANTHROPIC_API_KEY) return json(503, { error: "INDISPONIBLE" });
   let p;
   try { p = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { error: "Corps invalide" }); }
   try {
@@ -30,19 +31,28 @@ exports.handler = async (event) => {
     if (!Object.keys(textes).length || !langues.length) return json(400, { error: "VIDE" });
     if (taille > 12000 || Object.keys(textes).length > 20) return json(400, { error: "TROP_LONG" });
 
-    const consigne = "You translate texts of ArtDive, an app of guided tours, artists' workshops and evenings in Montmartre (Paris), " +
-      "from French into: " + langues.map((l) => l + " = " + NOMS[l]).join("; ") + ". Keep the tone warm, short and precise. " +
-      "Keep proper names, place names and street names as they are (Lapin Agile, Sacré-Cœur, place du Tertre). " +
-      "Never use long dashes. Reply with JSON only: an object whose keys are the language codes, each holding an object " +
-      "with exactly the same keys as the input.";
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: MODELE, temperature: 0.2, response_format: { type: "json_object" },
-        messages: [{ role: "system", content: consigne }, { role: "user", content: JSON.stringify(textes) }] }),
+    // Réponse forcée au bon format : un objet par langue, avec exactement les clés reçues.
+    const parLangue = { type: "object", additionalProperties: false, required: Object.keys(textes),
+      properties: Object.fromEntries(Object.keys(textes).map((k) => [k, { type: "string" }])) };
+    const schema = { type: "object", additionalProperties: false, required: langues,
+      properties: Object.fromEntries(langues.map((l) => [l, parLangue])) };
+
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const r = await client.beta.messages.create({
+      model: MODELE,
+      max_tokens: 16000,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",   // si le modèle refuse, l'API essaie un autre modèle d'elle-même
+      output_config: { effort: "low", format: { type: "json_schema", schema } },
+      system: "You translate texts of ArtDive, an app of guided tours, artists' workshops and evenings in Montmartre (Paris), " +
+        "from French into: " + langues.map((l) => l + " = " + NOMS[l]).join("; ") + ". Keep the tone warm, short and precise. " +
+        "Keep proper names, place names and street names as they are (Lapin Agile, Sacré-Cœur, place du Tertre). " +
+        "Never use long dashes. Return, for each language code, an object with exactly the same keys as the input.",
+      messages: [{ role: "user", content: JSON.stringify(textes) }],
     });
-    if (!res.ok) { console.error("OpenAI", res.status, (await res.text()).slice(0, 200)); return json(502, { error: "SERVICE" }); }
-    const brut = JSON.parse(((await res.json()).choices || [{}])[0].message.content || "{}");
+    if (r.stop_reason === "refusal" || r.stop_reason === "max_tokens") return json(502, { error: "SERVICE" });
+    const bloc = (r.content || []).find((b) => b.type === "text");
+    const brut = JSON.parse((bloc && bloc.text) || "{}");
     const sortie = {};
     langues.forEach((l) => {   // on ne garde que les clés demandées, en texte, sans longs tirets
       sortie[l] = {};
@@ -53,7 +63,7 @@ exports.handler = async (event) => {
     });
     return json(200, sortie);
   } catch (e) {
-    console.error("traduire :", e.message);
-    return json(500, { error: "ERREUR" });
+    console.error("traduire :", e.status || "", e.message);
+    return json(e instanceof Anthropic.APIError ? 502 : 500, { error: e instanceof Anthropic.APIError ? "SERVICE" : "ERREUR" });
   }
 };

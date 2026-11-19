@@ -15,7 +15,7 @@ const ADM = { onglet: "fiches", exps: [], ints: [], contacts: {}, comptes: {}, n
 const ADM_TYPES_EXP = ["visite_guidee", "autoguidee", "atelier", "soiree", "escape_game"];
 const ADM_TYPES_INT = ["guide", "artiste", "lieu", "autre"];
 const ADM_LANGUES = ["fr", "en", "es", "zh", "ar", "ru"];
-const ADM_TRAD = ["en", "es"];   // traductions saisies à la main en attendant ChatGPT (6.5)
+const ADM_TRAD = ["en", "es"];   // traductions : automatiques par Claude (fonction « traduire »), modifiables à la main
 
 /** Écriture dans la base au nom de la personne connectée. */
 async function supaEcrire(methode, chemin, corps, prefer) {
@@ -160,7 +160,7 @@ function admBrancherVideo(id, dossier) {
   });
 }
 
-/** Traduction automatique (ChatGPT, fonction « traduire ») des champs dont le français est rempli.
+/** Traduction automatique (Claude, fonction « traduire ») des champs dont le français est rempli.
     tout = false : seulement les langues encore vides. Rend true si quelque chose a été traduit. */
 async function admTraduireChamps(bases, tout) {
   const textes = {};
