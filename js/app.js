@@ -274,7 +274,7 @@ function parseTypes(raw) {
 }
 
 function mapPinDivIcon(type, num) {
-  /* Étape numérotée : toujours crème (famille "reperes"), comme dans le design. */
+  /* Étape numérotée : pastille ocre (famille "reperes") avec un chiffre en Fraunces. */
   const color = (num != null) ? "reperes" : (PIN_COLORS[type] || "reperes");
   const inner = (num != null)
     ? '<span class="pin-num">' + esc(String(num)) + '</span>'
@@ -328,42 +328,43 @@ function renderMap(mapEl, points, eyebrowLabel) {
   // Le conteneur peut avoir été masqué (autre onglet actif) lors de l'init : on force le recalcul de taille.
   setTimeout(() => map.invalidateSize(), 60);
 }
-/* Pins de la carte : 29 icônes pleines (design « Pins système », planches E26 à E29).
-   Pastille ronde de 30 px, glyphe plein de 19 px en noir chaud, trois familles de couleur
-   (voir .map-pin.culture / .sortir / .reperes dans style.css). La clé est la valeur de la
-   colonne Type des Sheets ; un type inconnu retombe sur "info". */
+/* Pins de la carte ArtDive : 29 glyphes pleins (design system ArtDive, planches E26 à E29).
+   Pastille ronde de 30 px, anneau crème, glyphe de 19 px. Trois familles de couleur :
+   culture et création (outremer, glyphe crème), sortir (vermillon, glyphe crème),
+   repères (ocre, glyphe brun nuit) ; voir .map-pin.culture / .sortir / .reperes dans le thème.
+   La clé est la valeur de la colonne Type des Sheets ; un type inconnu retombe sur "info". */
 const PIN_ICONS = {
-  "info": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#14100E"/><rect x="10.8" y="10.4" width="2.4" height="6.4" rx="1.2" fill="#EFE8D8"/><circle cx="12" cy="7.5" r="1.5" fill="#EFE8D8"/></svg>',
-  "depart": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M5.2 3h2v18h-2z"/><path fill="#14100E" d="M7.2 4.2h11.6l-3.2 4.3 3.2 4.3H7.2z"/></svg>',
-  "arrivee": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5.2" y="3" width="2" height="18" fill="#14100E"/><rect x="7.2" y="4" width="12.4" height="9" fill="#14100E"/><rect x="7.20" y="4" width="2.48" height="3" fill="#EFE8D8"/><rect x="7.20" y="10" width="2.48" height="3" fill="#EFE8D8"/><rect x="9.68" y="7" width="2.48" height="3" fill="#EFE8D8"/><rect x="12.16" y="4" width="2.48" height="3" fill="#EFE8D8"/><rect x="12.16" y="10" width="2.48" height="3" fill="#EFE8D8"/><rect x="14.64" y="7" width="2.48" height="3" fill="#EFE8D8"/><rect x="17.12" y="4" width="2.48" height="3" fill="#EFE8D8"/><rect x="17.12" y="10" width="2.48" height="3" fill="#EFE8D8"/></svg>',
-  "musee": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M12 2.6 2.4 8.4v1.9h19.2V8.4z"/><rect x="4.4" y="11.6" width="2.8" height="6.6" fill="#14100E"/><rect x="8.8" y="11.6" width="2.8" height="6.6" fill="#14100E"/><rect x="12.4" y="11.6" width="2.8" height="6.6" fill="#14100E"/><rect x="16.8" y="11.6" width="2.8" height="6.6" fill="#14100E"/><rect x="2.4" y="19.2" width="19.2" height="2.2" rx=".6" fill="#14100E"/></svg>',
-  "espace-art": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5.4" y="3.2" width="13.2" height="9.6" rx="1.2" fill="#14100E"/><path d="M8.2 10.6c1.4-3 2.8-3 4-1.2s2.2 1 3.4-1.4" stroke="#EFE8D8" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M8.6 13.6 6 21M15.4 13.6 18 21M12 13.6V21" stroke="#14100E" stroke-width="1.9" stroke-linecap="round"/></svg>',
-  "boutique": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M4.2 4.4h15.6l1.3 5a2.7 2.7 0 0 1-5.3 1 2.7 2.7 0 0 1-4.6 0 2.7 2.7 0 0 1-4.6 0 2.7 2.7 0 0 1-5.3-1z"/><path fill="#14100E" d="M5.4 12.4h13.2V20.6H5.4z"/><rect x="10" y="15.4" width="4" height="5.2" fill="#EFE8D8"/></svg>',
-  "toilettes": '<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="#14100E"><circle cx="6.5" cy="3.6" r="1.8"/><rect x="4.9" y="5.6" width="3.2" height="5.6" rx="1.6"/><rect x="4.9" y="11" width="1.5" height="8.5" rx=".75"/><rect x="7" y="11" width="1.5" height="8.5" rx=".75"/><circle cx="17.5" cy="3.6" r="1.8"/><path d="M16.1 5.6h2.8l2.4 8.3c0 .4-.3.7-.7.7h-6.2c-.4 0-.7-.3-.7-.7z"/><rect x="16" y="14" width="1.4" height="5.5" rx=".7"/><rect x="18.1" y="14" width="1.4" height="5.5" rx=".7"/></g></svg>',
-  "metro": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#14100E"/><path d="M8 16.4V8l4 4.4L16 8v8.4" stroke="#EFE8D8" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round"/></svg>',
-  "librairie": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M12 6C10.4 4.6 7.4 4.2 4.2 4.8v13.8c3.2-.6 6.2-.1 7.8 1.2 1.6-1.3 4.6-1.8 7.8-1.2V4.8C16.6 4.2 13.6 4.6 12 6z"/><path d="M12 6.4v13" stroke="#EFE8D8" stroke-width="1.5"/></svg>',
-  "ecole": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M1.8 8.6 12 3.4l10.2 5.2L12 13.8z"/><path fill="#14100E" d="M5.6 11.8v4.6c0 2 3 3.6 6.4 3.6s6.4-1.6 6.4-3.6v-4.6L12 15.1z"/><rect x="20.4" y="9.4" width="1.7" height="6.4" rx=".85" fill="#14100E"/></svg>',
-  "presse": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.2" y="4.8" width="14.6" height="14.8" rx="1.4" fill="#14100E"/><path d="M17.8 8.6h3.2v8.8a2.2 2.2 0 0 1-2.2 2.2h-1z" fill="#14100E"/><path d="M6.4 8.6h8.2M6.4 11.8h8.2M6.4 15h5" stroke="#EFE8D8" stroke-width="1.6" stroke-linecap="round"/></svg>',
-  "vue": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M1.8 12c3.2-5.8 6.8-7.8 10.2-7.8s7 2 10.2 7.8c-3.2 5.8-6.8 7.8-10.2 7.8S5 17.8 1.8 12z"/><circle cx="12" cy="12" r="4" fill="#EFE8D8"/><circle cx="12" cy="12" r="2" fill="#14100E"/></svg>',
-  "atelier-artiste": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M12 3C6.8 3 2.8 6.9 2.8 11.8c0 3.3 2.4 4.4 4.3 3.9 1-.3 1.8.6 1.2 1.5-.7 1.1-.1 2.5 1.6 2.7 5.8.6 11.3-3 11.3-8.4C21.2 6.5 17.2 3 12 3z"/><circle cx="7.6" cy="10" r="1.4" fill="#D9B96A"/><circle cx="11.6" cy="7.4" r="1.4" fill="#D9B96A"/><circle cx="16.2" cy="9.4" r="1.4" fill="#D9B96A"/></svg>',
-  "espace-membre": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M12 3.2 2.6 11.2h2.9V20.5h5v-5.6h3v5.6h5V11.2h2.9z"/></svg>',
-  "cinema": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.4" y="10.2" width="17.2" height="10.4" rx="1.6" fill="#14100E"/><path fill="#14100E" d="M3.5 8.8 4.5 4.3l15.4 3.2-.8 3.6z"/><path d="M8.6 5.2 7.7 9.6M12.8 6.1l-.9 4.3M17 7l-.9 4.3" stroke="#D9B96A" stroke-width="1.5" fill="none"/></svg>',
-  "concert": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M8.6 4.4l11-1.9v12.7a3.4 3.4 0 1 1-2-3.1V6l-7 1.2v10.4a3.4 3.4 0 1 1-2-3.1z"/></svg>',
-  "exposition": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.2" y="4.2" width="17.6" height="14" rx="1.8" fill="#14100E"/><circle cx="8.6" cy="9" r="1.6" fill="#D9B96A"/><path fill="#D9B96A" d="M5.2 16.2l4-4.2 3.4 3.2 2.8-2.4 3.4 3.4z"/><rect x="8" y="19.6" width="8" height="1.8" rx=".9" fill="#14100E"/></svg>',
-  "galerie": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.8" y="4.8" width="11.4" height="12.4" rx="1.6" fill="#14100E"/><circle cx="6.6" cy="9.2" r="1.4" fill="#D9B96A"/><path fill="#D9B96A" d="M4 15.4l3.4-3.6 2.8 2.7 1.5-1.4 1.6 2.3z"/><rect x="15.8" y="8.2" width="5.4" height="8.8" rx="1.3" fill="#14100E"/><rect x="2.8" y="19.2" width="18.4" height="1.8" rx=".9" fill="#14100E"/></svg>',
-  "studio": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8.8" y="2.8" width="6.4" height="11.4" rx="3.2" fill="#14100E"/><path d="M5.8 11.2a6.2 6.2 0 0 0 12.4 0" stroke="#14100E" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M12 17.6V21M8.8 21h6.4" stroke="#14100E" stroke-width="2" stroke-linecap="round"/></svg>',
-  "theatre": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M4.6 4.4c2.7 1.2 12.1 1.2 14.8 0V12c0 5-3.6 8.6-7.4 8.6S4.6 17 4.6 12z"/><circle cx="9" cy="10" r="1.3" fill="#D9B96A"/><circle cx="15" cy="10" r="1.3" fill="#D9B96A"/><path d="M8.2 14.2c1 2.2 6.6 2.2 7.6 0" stroke="#D9B96A" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>',
-  "disquaire": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#14100E"/><circle cx="12" cy="12" r="6" fill="none" stroke="#D9B96A" stroke-width=".9"/><circle cx="12" cy="12" r="3" fill="#D9B96A"/><circle cx="12" cy="12" r=".9" fill="#14100E"/></svg>',
-  "createur": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.8" cy="6.4" r="3" fill="#14100E"/><circle cx="6.8" cy="6.4" r="1.2" fill="#D9B96A"/><circle cx="6.8" cy="17.6" r="3" fill="#14100E"/><circle cx="6.8" cy="17.6" r="1.2" fill="#D9B96A"/><path d="M9 8l11.4 10.4M9 16 20.4 5.6" stroke="#14100E" stroke-width="2.4" stroke-linecap="round"/></svg>',
-  "media": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M3.3 8a2.2 2.2 0 0 1 2.2-2.2h2l1.3-2h6.4l1.3 2h2A2.2 2.2 0 0 1 20.7 8v10a2.2 2.2 0 0 1-2.2 2.2h-13A2.2 2.2 0 0 1 3.3 18z"/><circle cx="12" cy="12.9" r="4" fill="#C98A5A"/><circle cx="12" cy="12.9" r="2.2" fill="#14100E"/></svg>',
-  "ar": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M12 2.4l8.6 5v9.2l-8.6 5-8.6-5V7.4z"/><path d="M12 12v9.4M12 12l8.3-4.8M12 12 3.7 7.2" stroke="#C98A5A" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>',
-  "bar": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M3.2 3.8h17.6L13 13.4V19h4.3v2.2H6.7V19H11v-5.6z"/><circle cx="17.6" cy="5.8" r="0" fill="#C98A5A"/></svg>',
-  "cafe": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M3.8 8.2h12.6v6.3a4.6 4.6 0 0 1-4.6 4.6H8.4a4.6 4.6 0 0 1-4.6-4.6z"/><path d="M16.4 9.6h1.3a2.6 2.6 0 0 1 0 5.2h-1.3" stroke="#14100E" stroke-width="2" fill="none"/><path d="M7.6 3.2c-.9.9-.9 1.9 0 2.8M11.6 3.2c-.9.9-.9 1.9 0 2.8" stroke="#14100E" stroke-width="1.7" fill="none" stroke-linecap="round"/><rect x="5" y="20" width="10" height="1.6" rx=".8" fill="#14100E"/></svg>',
-  "restaurant": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M4.8 3h1.6v5.4h.8V3h1.6v5.4h.8V3h1.6v6.1a3.2 3.2 0 0 1-2.5 3.1V21H7.3v-8.8a3.2 3.2 0 0 1-2.5-3.1z"/><path fill="#14100E" d="M17.6 3c-2.3 1.6-3 5-2.6 8 .2 1.5 1.3 2.1 2.6 2.1V21h1.8V3z"/></svg>',
-  "cabaret": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100E" d="M7.2 3.4h9.6l-.9 9.4H8.1z"/><rect x="3" y="12.4" width="18" height="3.6" rx="1.8" fill="#14100E"/><rect x="7.7" y="9.2" width="8.6" height="1.9" fill="#C98A5A"/></svg>',
-  "standup": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#14100E"/><circle cx="8.9" cy="10" r="1.3" fill="#C98A5A"/><circle cx="15.1" cy="10" r="1.3" fill="#C98A5A"/><path fill="#C98A5A" d="M7.2 13.2h9.6c0 3-2.2 5-4.8 5s-4.8-2-4.8-5z"/></svg>',
+  "info": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#14100D"/><rect x="10.8" y="10.4" width="2.4" height="6.4" rx="1.2" fill="#C08A2E"/><circle cx="12" cy="7.5" r="1.5" fill="#C08A2E"/></svg>',
+  "depart": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100D" d="M5.2 3h2v18h-2z"/><path fill="#14100D" d="M7.2 4.2h11.6l-3.2 4.3 3.2 4.3H7.2z"/></svg>',
+  "arrivee": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5.2" y="3" width="2" height="18" fill="#14100D"/><rect x="7.2" y="4" width="12.4" height="9" fill="#14100D"/><rect x="7.20" y="4" width="2.48" height="3" fill="#C08A2E"/><rect x="7.20" y="10" width="2.48" height="3" fill="#C08A2E"/><rect x="9.68" y="7" width="2.48" height="3" fill="#C08A2E"/><rect x="12.16" y="4" width="2.48" height="3" fill="#C08A2E"/><rect x="12.16" y="10" width="2.48" height="3" fill="#C08A2E"/><rect x="14.64" y="7" width="2.48" height="3" fill="#C08A2E"/><rect x="17.12" y="4" width="2.48" height="3" fill="#C08A2E"/><rect x="17.12" y="10" width="2.48" height="3" fill="#C08A2E"/></svg>',
+  "musee": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100D" d="M12 2.6 2.4 8.4v1.9h19.2V8.4z"/><rect x="4.4" y="11.6" width="2.8" height="6.6" fill="#14100D"/><rect x="8.8" y="11.6" width="2.8" height="6.6" fill="#14100D"/><rect x="12.4" y="11.6" width="2.8" height="6.6" fill="#14100D"/><rect x="16.8" y="11.6" width="2.8" height="6.6" fill="#14100D"/><rect x="2.4" y="19.2" width="19.2" height="2.2" rx=".6" fill="#14100D"/></svg>',
+  "espace-art": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5.4" y="3.2" width="13.2" height="9.6" rx="1.2" fill="#14100D"/><path d="M8.2 10.6c1.4-3 2.8-3 4-1.2s2.2 1 3.4-1.4" stroke="#C08A2E" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M8.6 13.6 6 21M15.4 13.6 18 21M12 13.6V21" stroke="#14100D" stroke-width="1.9" stroke-linecap="round"/></svg>',
+  "boutique": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100D" d="M4.2 4.4h15.6l1.3 5a2.7 2.7 0 0 1-5.3 1 2.7 2.7 0 0 1-4.6 0 2.7 2.7 0 0 1-4.6 0 2.7 2.7 0 0 1-5.3-1z"/><path fill="#14100D" d="M5.4 12.4h13.2V20.6H5.4z"/><rect x="10" y="15.4" width="4" height="5.2" fill="#C08A2E"/></svg>',
+  "toilettes": '<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="#14100D"><circle cx="6.5" cy="3.6" r="1.8"/><rect x="4.9" y="5.6" width="3.2" height="5.6" rx="1.6"/><rect x="4.9" y="11" width="1.5" height="8.5" rx=".75"/><rect x="7" y="11" width="1.5" height="8.5" rx=".75"/><circle cx="17.5" cy="3.6" r="1.8"/><path d="M16.1 5.6h2.8l2.4 8.3c0 .4-.3.7-.7.7h-6.2c-.4 0-.7-.3-.7-.7z"/><rect x="16" y="14" width="1.4" height="5.5" rx=".7"/><rect x="18.1" y="14" width="1.4" height="5.5" rx=".7"/></g></svg>',
+  "metro": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#14100D"/><path d="M8 16.4V8l4 4.4L16 8v8.4" stroke="#C08A2E" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round"/></svg>',
+  "librairie": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100D" d="M12 6C10.4 4.6 7.4 4.2 4.2 4.8v13.8c3.2-.6 6.2-.1 7.8 1.2 1.6-1.3 4.6-1.8 7.8-1.2V4.8C16.6 4.2 13.6 4.6 12 6z"/><path d="M12 6.4v13" stroke="#C08A2E" stroke-width="1.5"/></svg>',
+  "ecole": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100D" d="M1.8 8.6 12 3.4l10.2 5.2L12 13.8z"/><path fill="#14100D" d="M5.6 11.8v4.6c0 2 3 3.6 6.4 3.6s6.4-1.6 6.4-3.6v-4.6L12 15.1z"/><rect x="20.4" y="9.4" width="1.7" height="6.4" rx=".85" fill="#14100D"/></svg>',
+  "presse": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.2" y="4.8" width="14.6" height="14.8" rx="1.4" fill="#14100D"/><path d="M17.8 8.6h3.2v8.8a2.2 2.2 0 0 1-2.2 2.2h-1z" fill="#14100D"/><path d="M6.4 8.6h8.2M6.4 11.8h8.2M6.4 15h5" stroke="#C08A2E" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  "vue": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#14100D" d="M1.8 12c3.2-5.8 6.8-7.8 10.2-7.8s7 2 10.2 7.8c-3.2 5.8-6.8 7.8-10.2 7.8S5 17.8 1.8 12z"/><circle cx="12" cy="12" r="4" fill="#C08A2E"/><circle cx="12" cy="12" r="2" fill="#14100D"/></svg>',
+  "atelier-artiste": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#EFE7D9" d="M12 3C6.8 3 2.8 6.9 2.8 11.8c0 3.3 2.4 4.4 4.3 3.9 1-.3 1.8.6 1.2 1.5-.7 1.1-.1 2.5 1.6 2.7 5.8.6 11.3-3 11.3-8.4C21.2 6.5 17.2 3 12 3z"/><circle cx="7.6" cy="10" r="1.4" fill="#2B3E8F"/><circle cx="11.6" cy="7.4" r="1.4" fill="#2B3E8F"/><circle cx="16.2" cy="9.4" r="1.4" fill="#2B3E8F"/></svg>',
+  "espace-membre": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#EFE7D9" d="M12 3.2 2.6 11.2h2.9V20.5h5v-5.6h3v5.6h5V11.2h2.9z"/></svg>',
+  "cinema": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.4" y="10.2" width="17.2" height="10.4" rx="1.6" fill="#EFE7D9"/><path fill="#EFE7D9" d="M3.5 8.8 4.5 4.3l15.4 3.2-.8 3.6z"/><path d="M8.6 5.2 7.7 9.6M12.8 6.1l-.9 4.3M17 7l-.9 4.3" stroke="#2B3E8F" stroke-width="1.5" fill="none"/></svg>',
+  "concert": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#EFE7D9" d="M8.6 4.4l11-1.9v12.7a3.4 3.4 0 1 1-2-3.1V6l-7 1.2v10.4a3.4 3.4 0 1 1-2-3.1z"/></svg>',
+  "exposition": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.2" y="4.2" width="17.6" height="14" rx="1.8" fill="#EFE7D9"/><circle cx="8.6" cy="9" r="1.6" fill="#2B3E8F"/><path fill="#2B3E8F" d="M5.2 16.2l4-4.2 3.4 3.2 2.8-2.4 3.4 3.4z"/><rect x="8" y="19.6" width="8" height="1.8" rx=".9" fill="#EFE7D9"/></svg>',
+  "galerie": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.8" y="4.8" width="11.4" height="12.4" rx="1.6" fill="#EFE7D9"/><circle cx="6.6" cy="9.2" r="1.4" fill="#2B3E8F"/><path fill="#2B3E8F" d="M4 15.4l3.4-3.6 2.8 2.7 1.5-1.4 1.6 2.3z"/><rect x="15.8" y="8.2" width="5.4" height="8.8" rx="1.3" fill="#EFE7D9"/><rect x="2.8" y="19.2" width="18.4" height="1.8" rx=".9" fill="#EFE7D9"/></svg>',
+  "studio": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8.8" y="2.8" width="6.4" height="11.4" rx="3.2" fill="#EFE7D9"/><path d="M5.8 11.2a6.2 6.2 0 0 0 12.4 0" stroke="#EFE7D9" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M12 17.6V21M8.8 21h6.4" stroke="#EFE7D9" stroke-width="2" stroke-linecap="round"/></svg>',
+  "theatre": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#EFE7D9" d="M4.6 4.4c2.7 1.2 12.1 1.2 14.8 0V12c0 5-3.6 8.6-7.4 8.6S4.6 17 4.6 12z"/><circle cx="9" cy="10" r="1.3" fill="#2B3E8F"/><circle cx="15" cy="10" r="1.3" fill="#2B3E8F"/><path d="M8.2 14.2c1 2.2 6.6 2.2 7.6 0" stroke="#2B3E8F" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>',
+  "disquaire": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#EFE7D9"/><circle cx="12" cy="12" r="6" fill="none" stroke="#2B3E8F" stroke-width=".9"/><circle cx="12" cy="12" r="3" fill="#2B3E8F"/><circle cx="12" cy="12" r=".9" fill="#EFE7D9"/></svg>',
+  "createur": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.8" cy="6.4" r="3" fill="#EFE7D9"/><circle cx="6.8" cy="6.4" r="1.2" fill="#2B3E8F"/><circle cx="6.8" cy="17.6" r="3" fill="#EFE7D9"/><circle cx="6.8" cy="17.6" r="1.2" fill="#2B3E8F"/><path d="M9 8l11.4 10.4M9 16 20.4 5.6" stroke="#EFE7D9" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  "media": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#EFE7D9" d="M3.3 8a2.2 2.2 0 0 1 2.2-2.2h2l1.3-2h6.4l1.3 2h2A2.2 2.2 0 0 1 20.7 8v10a2.2 2.2 0 0 1-2.2 2.2h-13A2.2 2.2 0 0 1 3.3 18z"/><circle cx="12" cy="12.9" r="4" fill="#C42E18"/><circle cx="12" cy="12.9" r="2.2" fill="#EFE7D9"/></svg>',
+  "ar": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#EFE7D9" d="M12 2.4l8.6 5v9.2l-8.6 5-8.6-5V7.4z"/><path d="M12 12v9.4M12 12l8.3-4.8M12 12 3.7 7.2" stroke="#C42E18" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>',
+  "bar": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#EFE7D9" d="M3.2 3.8h17.6L13 13.4V19h4.3v2.2H6.7V19H11v-5.6z"/><circle cx="17.6" cy="5.8" r="0" fill="#C42E18"/></svg>',
+  "cafe": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#EFE7D9" d="M3.8 8.2h12.6v6.3a4.6 4.6 0 0 1-4.6 4.6H8.4a4.6 4.6 0 0 1-4.6-4.6z"/><path d="M16.4 9.6h1.3a2.6 2.6 0 0 1 0 5.2h-1.3" stroke="#EFE7D9" stroke-width="2" fill="none"/><path d="M7.6 3.2c-.9.9-.9 1.9 0 2.8M11.6 3.2c-.9.9-.9 1.9 0 2.8" stroke="#EFE7D9" stroke-width="1.7" fill="none" stroke-linecap="round"/><rect x="5" y="20" width="10" height="1.6" rx=".8" fill="#EFE7D9"/></svg>',
+  "restaurant": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#EFE7D9" d="M4.8 3h1.6v5.4h.8V3h1.6v5.4h.8V3h1.6v6.1a3.2 3.2 0 0 1-2.5 3.1V21H7.3v-8.8a3.2 3.2 0 0 1-2.5-3.1z"/><path fill="#EFE7D9" d="M17.6 3c-2.3 1.6-3 5-2.6 8 .2 1.5 1.3 2.1 2.6 2.1V21h1.8V3z"/></svg>',
+  "cabaret": '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#EFE7D9" stroke="#EFE7D9" stroke-width="1.6" stroke-linejoin="round" d="M12.00 2.60 L14.53 9.12 L21.51 9.51 L16.09 13.93 L17.88 20.69 L12.00 16.90 L6.12 20.69 L7.91 13.93 L2.49 9.51 L9.47 9.12z"/></svg>',
+  "standup": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="#EFE7D9"/><circle cx="8.9" cy="10" r="1.3" fill="#C42E18"/><circle cx="15.1" cy="10" r="1.3" fill="#C42E18"/><path fill="#C42E18" d="M7.2 13.2h9.6c0 3-2.2 5-4.8 5s-4.8-2-4.8-5z"/></svg>',
 };
-/* Famille de couleur de chaque pin : culture et création (laiton), sortir (terracotta), repères (crème). */
+/* Famille de couleur de chaque pin : culture et création (outremer), sortir (vermillon), repères (ocre). */
 const PIN_COLORS = {
   "info": "reperes",
   "depart": "reperes",
@@ -461,7 +462,7 @@ function offreBadgeHtml(type) {
     (BADGE_ICONS[type] || BADGE_ICONS.visite) + '</svg>' + esc(t("badge." + key)) + '</span>';
 }
 
-let offreActive = "visite";
+let offreActive = "tout";
 
 async function renderAccueil() {
   if (!CONFIG.festivalActif) {
@@ -485,6 +486,7 @@ async function renderAccueil() {
     const acc = parLangue(loc.accroche) || [t("hero.title")];
     $("#hero-h1").innerHTML = esc(acc[0] || "") + (acc[1] ? " <em>" + esc(acc[1]) + "</em>" : "");
   }
+  if ($("#hero-sous")) $("#hero-sous").textContent = tx("hero.sous", { localite: loc.nom || "" });
 
   const list = $("#visites-list");
   const visites = await loadVisites();
@@ -492,33 +494,26 @@ async function renderAccueil() {
     list.innerHTML = '<div class="load-error">' + t("errors.visitesIndispo") + '</div>';
     return;
   }
+  /* Carte d'expérience (canvas E1.1) : photo en fond sous un voile sombre, badge du type en haut,
+     titre et prix dans la couleur du type. Sans photo : panneau sombre uni. */
   const card = (v) => {
     const bannerSrc = visiteBannerSrc(v);
     const guide = trField(v, "Guide");
     const prix = v["Tarif direct"] || "";
     const nom = trField(v, "Nom");
     const desc = trField(v, "Description");
-    const badge = offreBadgeHtml(offreTypeOf(v));
-    const corps =
-      '<div class="act-name">' + esc(nom) + '</div>' +
-      (desc ? '<div class="act-desc">' + esc(desc) + '</div>' : '') +
-      (guide ? '<div class="act-by">' + esc(t("card.with")) + ' <b>' + esc(guide) + '</b></div>' : '') +
-      (v["Durée"] ? '<div class="act-meta">' + esc(v["Durée"]) + '</div>' : '');
-    if (!bannerSrc) {
-      /* Sans visuel (ex. parcours autoguidé) : carte sobre à contour */
-      return (
-        '<button class="act-card act-card-plain" data-open="visite" data-arg="' + esc(v["id"]) + '">' +
-          '<div class="act-body">' + badge + corps + '</div>' +
-          (prix ? '<span class="act-price act-price-soft">' + esc(prix) + '</span>' : '') +
-        '</button>'
-      );
-    }
+    const type = offreTypeOf(v);
     return (
-      '<button class="act-card" data-open="visite" data-arg="' + esc(v["id"]) + '">' +
-        '<div class="act-media"><img class="act-thumb" src="' + esc(bannerSrc) + '" alt="" loading="lazy">' + badge + '</div>' +
-        '<div class="act-body">' + corps +
-          (prix ? '<div class="act-foot"><span class="act-price">' + esc(prix) + '</span></div>' : '') +
-        '</div>' +
+      '<button class="act-card' + (bannerSrc ? '' : ' act-card-plain') + '" data-type="' + type + '" data-open="visite" data-arg="' + esc(v["id"]) + '">' +
+        (bannerSrc ? '<img class="act-fond" src="' + esc(bannerSrc) + '" alt="" loading="lazy"><span class="act-voile"></span>' : '') +
+        offreBadgeHtml(type) +
+        '<span class="act-corps">' +
+          '<span class="act-name">' + esc(nom) + '</span>' +
+          (desc ? '<span class="act-desc">' + esc(desc) + '</span>' : '') +
+          (guide ? '<span class="act-by">' + esc(t("card.with")) + ' <b>' + esc(guide) + '</b></span>' : '') +
+          (v["Durée"] ? '<span class="act-meta">' + esc(v["Durée"]) + '</span>' : '') +
+          (prix ? '<span class="act-foot"><span class="act-price">' + esc(prix) + '</span></span>' : '') +
+        '</span>' +
       '</button>'
     );
   };
@@ -526,19 +521,20 @@ async function renderAccueil() {
      La colonne optionnelle "Type" du Sheet les distingue ; vide = visite (voir offreTypeOf). */
   const typeOf = offreTypeOf;
   const cats = [
+    { k: "tout", label: t("chip.tout"), always: true },
     { k: "visite", label: t("chip.visites"), always: true },
     { k: "atelier", label: t("chip.ateliers"), always: true },
     { k: "escape", label: t("chip.escape"), always: true },
     { k: "diner", label: t("chip.soirees"), always: false }, // visible seulement s'il y en a de programmées
   ].filter(c => c.always || visites.some(v => typeOf(v) === c.k));
-  if (!cats.some(c => c.k === offreActive)) offreActive = "visite";
+  if (!cats.some(c => c.k === offreActive)) offreActive = "tout";
 
   const paint = () => {
     $("#offre-chips").innerHTML = cats.map(c =>
       '<button class="chip' + (c.k === offreActive ? ' active' : '') + '" role="tab" data-offre="' + c.k + '">' + esc(c.label) + '</button>'
     ).join("");
     $$("#offre-chips .chip").forEach(ch => ch.addEventListener("click", () => { offreActive = ch.dataset.offre; paint(); }));
-    const items = visites.filter(v => typeOf(v) === offreActive);
+    const items = offreActive === "tout" ? visites : visites.filter(v => typeOf(v) === offreActive);
     list.innerHTML = items.length
       ? items.map(card).join("")
       : '<div class="act-empty">' + t("empty.bientot") + '</div>';
@@ -1531,9 +1527,16 @@ function mentionResa() {
 }
 
 /** Écran E8 : coordonnées, conditions, paiement. */
+/** Type d'affichage (couleurs du thème) d'une expérience Supabase : visite, atelier, diner (soirée) ou escape. */
+function offreDeResa(type) {
+  const k = String(type || "");
+  return /atelier/.test(k) ? "atelier" : /soiree/.test(k) ? "diner" : /escape/.test(k) ? "escape" : "visite";
+}
+
 function ouvrirReservation() {
   if (!RESA || !RESA.seance) return;
   const e = RESA.exp, s = RESA.seance, visite = estVisiteResa(e.type);
+  if ($("#screen-reserver")) $("#screen-reserver").dataset.offre = offreDeResa(e.type);
   const champs = (window.__resaChamps = window.__resaChamps || { nom: "", email: "", tel: "" });
   const peindre = () => {
     $("#reserver-body").innerHTML =
@@ -1600,6 +1603,7 @@ function ouvrirReservation() {
 /** Écran E9 : confirmation, ou page du lien personnel (« Je ne peux plus venir »). */
 function peindreReservation(r, jeton, intro) {
   const corps = $("#reservation-body");
+  if ($("#screen-reservation")) $("#screen-reservation").dataset.offre = offreDeResa(r && r.type);
   if (!r) { corps.innerHTML = '<div class="member-note">' + esc(intro || t("resa.linkInvalid")) + '</div>' + boutonAccueilResa(); return; }
   const lignes = [
     [t("resa.date"), r.debut ? dateLongueResa(r.debut) : ""], [t("resa.people"), String(r.personnes)],

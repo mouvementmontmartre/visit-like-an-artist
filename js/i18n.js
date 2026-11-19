@@ -66,10 +66,13 @@ appliquerLangue();
 
 const I18N = {
   fr: {
+    "hero.sous": "Visites, ateliers et soirées exclusives pour découvrir {localite} autrement.",
+    "header.sous": "Mouvement Montmartre, Paris",
     "nav.discover": "{slogan}",
     "hero.eyebrow": "Visites, ateliers et dîners",
     "hero.title": "Visite {localite} comme un Artiste",
     "hero.sub": "Des parcours, ateliers et dîners partenaires pour vivre la Butte avec les artistes",
+    "chip.tout": "Tout",
     "chip.visites": "Visites guidées",
     "chip.ateliers": "Ateliers",
     "chip.escape": "Escape game",
@@ -299,10 +302,13 @@ const I18N = {
   },
 
   en: {
+    "hero.sous": "Tours, workshops and exclusive evenings to see {localite} differently.",
+    "header.sous": "Mouvement Montmartre, Paris",
     "nav.discover": "{slogan}",
     "hero.eyebrow": "Tours, workshops and dinners",
     "hero.title": "Visit {localite} Like an Artist",
     "hero.sub": "Walks, workshops and partner dinners to experience the Butte with artists",
+    "chip.tout": "All",
     "chip.visites": "Guided tours",
     "chip.ateliers": "Workshops",
     "chip.escape": "Escape game",
@@ -532,10 +538,13 @@ const I18N = {
   },
 
   es: {
+    "hero.sous": "Visitas, talleres y veladas exclusivas para descubrir {localite} de otra manera.",
+    "header.sous": "Mouvement Montmartre, París",
     "nav.discover": "{slogan}",
     "hero.eyebrow": "Visitas, talleres y cenas",
     "hero.title": "Visita {localite} como un Artista",
     "hero.sub": "Recorridos, talleres y cenas con socios para vivir la Butte con artistas",
+    "chip.tout": "Todo",
     "chip.visites": "Visitas guiadas",
     "chip.ateliers": "Talleres",
     "chip.escape": "Escape game",

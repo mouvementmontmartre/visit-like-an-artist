@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#14100E">
+  <meta name="theme-color" content="#14100D">
   <meta name="description" content="Visites guidées, carte du quartier et agenda culturel de Montmartre par le Mouvement Montmartre.">
   <title>ArtDive</title>
 
@@ -11,41 +11,41 @@
   <meta property="og:site_name" content="ArtDive">
   <meta property="og:title" content="ArtDive">
   <meta property="og:description" content="Visites guidées, carte du quartier et agenda culturel de Montmartre par le Mouvement Montmartre.">
-  <meta property="og:image" content="https://mouvement-montmartre-app.netlify.app/icons/icon-512.png">
-  <meta property="og:url" content="https://mouvement-montmartre-app.netlify.app/">
+  <meta property="og:image" content="https://artdive.app/icons/icon-512.png">
+  <meta property="og:url" content="https://artdive.app/">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="ArtDive">
   <meta name="twitter:description" content="Visites guidées, carte du quartier et agenda culturel de Montmartre par le Mouvement Montmartre.">
-  <meta name="twitter:image" content="https://mouvement-montmartre-app.netlify.app/icons/icon-512.png">
+  <meta name="twitter:image" content="https://artdive.app/icons/icon-512.png">
 
   <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icons/artdive-favicon.svg">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;900&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Zen+Kaku+Gothic+New:wght@700;900&display=swap" rel="stylesheet">
+  <!-- Polices servies par l'app (design system ArtDive) : rien n'est demandé à Google -->
+  <link rel="preload" href="fonts/Fraunces-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/DMSans-Variable.woff2" as="font" type="font/woff2" crossorigin>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/theme-fumoir.css">
+  <link rel="stylesheet" href="css/theme-artdive.css">
 </head>
 <body>
 
   <!-- ================= SPLASH (tracé du logo) ================= -->
   <div class="splash" id="splash" aria-hidden="true">
-    <img src="icons/logo-splash.png" alt="">
+    <img src="icons/artdive-monogram-cream.svg" alt="">
   </div>
 
   <!-- ================= ONGLET ACCUEIL ================= -->
   <section class="screen active" id="screen-accueil">
     <header class="app-header">
-      <img class="logo" src="icons/logo-light.png" alt="Logo Mouvement Montmartre">
-      <div>
-        <div class="brand-word">Mouvement Montmartre</div>
-        <div class="screen-label" data-i18n="nav.discover">Explore Montmartre comme un artiste</div>
+      <div class="brand">
+        <img class="brand-logo" src="icons/artdive-wordmark-cream.svg" alt="ArtDive">
+        <div class="screen-label" data-i18n="header.sous">Mouvement Montmartre, Paris</div>
       </div>
       <button class="header-lang-btn lang-btn" aria-label="Changer de langue">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 9 H21 M3 15 H21"/></svg>
@@ -61,6 +61,7 @@
       <div class="hero-texte">
         <div class="hero-loc" id="hero-loc"></div>
         <h1 class="hero-h1" id="hero-h1"></h1>
+        <p class="hero-sous" id="hero-sous"></p>
       </div>
 
       <button class="bandeau bandeau-hero" id="hero-festival" data-open="festival">
@@ -116,9 +117,8 @@
   <!-- ================= ONGLET CARTE (écosystème) ================= -->
   <section class="screen" id="screen-carte">
     <header class="app-header">
-      <img class="logo" src="icons/logo-light.png" alt="">
-      <div>
-        <div class="brand-word">Mouvement Montmartre</div>
+      <div class="brand">
+        <img class="brand-logo" src="icons/artdive-wordmark-cream.svg" alt="ArtDive">
         <div class="screen-label" data-i18n="nav.mapNeighborhood">Carte de l'écosystème</div>
       </div>
       <button class="header-lang-btn lang-btn" aria-label="Changer de langue">
@@ -162,9 +162,8 @@
   <!-- ================= ONGLET AGENDA ================= -->
   <section class="screen" id="screen-agenda">
     <header class="app-header">
-      <img class="logo" src="icons/logo-light.png" alt="">
-      <div>
-        <div class="brand-word">Mouvement Montmartre</div>
+      <div class="brand">
+        <img class="brand-logo" src="icons/artdive-wordmark-cream.svg" alt="ArtDive">
         <div class="screen-label" data-i18n="nav.agenda">Agenda culturel local</div>
       </div>
       <button class="header-lang-btn lang-btn" aria-label="Changer de langue">

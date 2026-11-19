@@ -9,13 +9,18 @@
    une modification du code : incrémenter CACHE_VERSION.
    ============================================================ */
 
-const CACHE_VERSION = "mm-v89";
+const CACHE_VERSION = "mm-v90";
 
 const SHELL = [
   "./",
   "./index.html",
   "./css/style.css",
-  "./css/theme-fumoir.css",
+  "./css/theme-artdive.css",
+  "./fonts/Fraunces-Variable.woff2",
+  "./fonts/Fraunces-Italic-Variable.woff2",
+  "./fonts/DMSans-Variable.woff2",
+  "./fonts/JetBrainsMono-Regular.woff2",
+  "./fonts/JetBrainsMono-Medium.woff2",
   "./js/config.js",
   "./js/csv.js",
   "./js/data-lieux.js",
@@ -23,8 +28,9 @@ const SHELL = [
   "./js/app.js",
   "./manifest.json",
   "./icons/logo.png",
-  "./icons/logo-light.png",
-  "./icons/logo-splash.png",
+  "./icons/artdive-wordmark-cream.svg",
+  "./icons/artdive-monogram-cream.svg",
+  "./icons/artdive-favicon.svg",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",

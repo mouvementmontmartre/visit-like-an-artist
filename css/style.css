@@ -14,7 +14,7 @@
   --muted-dark: #5c5645;
   --accent-edition: var(--fee); /* surchargé par config.js si un thème d'édition est défini */
 
-  --display: 'Hiragino Sans Std W8', 'Hiragino Kaku Gothic Std W8', 'Zen Kaku Gothic New', 'DM Sans', sans-serif;
+  --display: 'Fraunces', Georgia, serif;
   --body: 'Avenir Next', 'DM Sans', sans-serif;
 }
 

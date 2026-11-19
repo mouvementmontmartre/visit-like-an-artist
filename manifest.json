@@ -1,16 +1,18 @@
 {
   "name": "ArtDive",
   "short_name": "ArtDive",
-  "description": "Programme, carte du quartier, visites guidées et agenda culturel du Mouvement Montmartre.",
+  "description": "Visites, ateliers et soirées à Montmartre avec les artistes du quartier. Mouvement Montmartre.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#14100E",
-  "theme_color": "#14100E",
+  "background_color": "#14100D",
+  "theme_color": "#14100D",
   "lang": "fr",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/artdive-favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }
