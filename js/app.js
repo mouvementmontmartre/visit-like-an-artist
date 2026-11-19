@@ -1898,7 +1898,7 @@ async function renderEspace(note) {
     return;
   }
   const role = profil ? profil.role : null;
-  if (role === "admin" && typeof renderAdmin === "function") { renderAdmin(corps, nom); return; }   // js/admin.js
+  if ((role === "admin" || role === "intervenant") && typeof renderAdmin === "function") { renderAdmin(corps, nom, role, profil.intervenant_id); return; }   // js/admin.js
   corps.innerHTML =
     '<h1 class="espace-titre">' + esc(tx("espace.bonjour", { nom })) + '</h1>' +
     '<p class="espace-texte">' + esc(role === "admin" ? t("espace.admin") : role === "intervenant" ? t("espace.intervenant") : t("espace.sansRole")) + '</p>' +

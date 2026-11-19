@@ -25,7 +25,7 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   const b = await chromium.launch();
   async function page(o) {
     const base = { experiences: [], intervenants: [], intervenants_contacts: [], profils: [{ user_id: "u-admin", role: "admin", intervenant_id: null }],
-      seances: [], reservations: [], adhesions: [], demandes_groupes: [], candidatures: [] };
+      seances: [], reservations: [], adhesions: [], demandes_groupes: [], candidatures: [], propositions: [], mes_inscrits: [] };
     const db = Object.assign(base, o.db || {});
     const st = { appels: [], erreurs: [], db, refusPublier: false, photos: [] };
     const ctx = await b.newContext({ serviceWorkers: "block", viewport: { width: 390, height: 844 } });
@@ -45,7 +45,7 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
         if (u.pathname.startsWith("/storage/v1/object/photos/")) { st.photos.push({ chemin: u.pathname, type: r.request().headers()["content-type"], auth: appel.auth }); return rep(200, { Key: "photos/x" }); }
         const tab = u.pathname.replace("/rest/v1/", "");
         if (tab.startsWith("rpc/")) { st.rpc = st.rpc || []; st.rpc.push({ nom: tab.slice(4), args: JSON.parse(corps || "{}"), auth: appel.auth });
-          return rep(200, tab === "rpc/annuler_seance" ? { inscrits: 1 } : tab === "rpc/signaler_absence" ? { frais_centimes: 1000 } : {}); }
+          return rep(200, tab === "rpc/annuler_seance" ? { inscrits: 1 } : tab === "rpc/signaler_absence" ? { frais_centimes: 1000 } : tab === "rpc/valider_proposition" ? { inscrits_a_prevenir: 0 } : {}); }
         if (!db[tab]) return rep(200, []);
         const filtres = [...u.searchParams.entries()].filter(([k]) => !["select", "order", "on_conflict", "limit"].includes(k));
         const garde = (l) => filtres.every(([k, f]) => {
@@ -64,7 +64,7 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
           const cle = u.searchParams.get("on_conflict");
           const ex = cle ? db[tab].find((l) => l[cle] === d[cle]) : null;
           if (ex) { Object.assign(ex, d); return rep(201, [ex]); }
-          const ligne = Object.assign({ id: uid(), actif: true, a_valider: false, publie: false, titre: {}, langues: ["fr"] }, d);
+          const ligne = Object.assign({ id: uid(), actif: true, a_valider: false, publie: false, titre: {}, langues: ["fr"] }, tab === "propositions" ? { statut: "en_attente", cree_le: new Date().toISOString() } : {}, d);
           db[tab].push(ligne); return rep(201, [ligne]);
         }
         if (m === "PATCH") {
@@ -210,10 +210,64 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   const dbFinal = st.db;
   await ctx.close();
 
-  // 6. Un intervenant connecté ne voit pas l'administration
-  ({ pg, ctx, st } = await page({ user: "u-g", db: { profils: [{ user_id: "u-g", role: "intervenant", intervenant_id: "i-1" }], intervenants: [{ id: "i-1", nom: "Sylvain Lesecq" }] } }));
+  // 6. Espace intervenant (6.3) : mêmes écrans, droits réduits
+  const futur = new Date(Date.now() + 5 * 864e5).toISOString(), passe = new Date(Date.now() - 3600e3).toISOString();
+  ({ pg, ctx, st } = await page({ user: "u-g", db: {
+    profils: [{ user_id: "u-g", role: "intervenant", intervenant_id: "i-1" }],
+    intervenants: [{ id: "i-1", nom: "Sylvain Lesecq", type: "guide", role: { fr: "guide" }, bio: {}, langues: ["fr"] }],
+    intervenants_contacts: [{ intervenant_id: "i-1", email: "s@exemple.invalid" }],
+    experiences: [{ id: "x-1", slug: "circuit", type: "visite_guidee", titre: { fr: "Circuit des Peintres" }, accroche: {}, description: {}, point_rdv: {},
+      langues: ["fr"], publie: true, actif: true, intervenant_id: "i-1", prix_centimes: 5000, capacite_max: 10, participants_min: 4 }],
+    seances: [{ id: "s-1", experience_id: "x-1", debut: futur, langue: "fr", capacite_max: 10, participants_min: 4, statut: "publiee" }],
+    mes_inscrits: [{ id: "r-9", seance_id: "s-0", experience_id: "x-1", debut: passe, nom: "Camille D.", personnes: 2, telephone: "0600000000", reste_sur_place_centimes: 9000 }],
+  } }));
   await ouvrirEspace(pg);
-  v("intervenant : pas d'administration", await attendre(pg, "#espace-body", "espace intervenant") && (await pg.$(".adm-onglets")) === null);
+  v("intervenant : ses quatre onglets, pas d'administration", await attendre(pg, ".adm-onglets", "Mes séances") && await attendre(pg, ".adm-onglets", "Mes inscrits") &&
+    await attendre(pg, ".adm-onglets", "Ma fiche") && !(await pg.textContent(".adm-onglets")).includes("Adhésions"));
+  await pg.click('[data-adm-seance="s-1"]');
+  await pg.waitForSelector("#s-max"); await pg.fill("#s-max", "8"); await pg.click("#s-enregistrer");
+  await attendre(pg, "#adm-zone", "Envoyé.");
+  const propS = st.db.propositions.find((x) => x.type === "seance");
+  v("séance en ligne : changement envoyé en proposition, séance intacte", propS && propS.cible_id === "s-1" && propS.donnees.capacite_max === 8 && propS.intervenant_id === "i-1" &&
+    st.db.seances[0].capacite_max === 10 && !("statut" in propS.donnees), JSON.stringify(propS));
+  v("note « modification en attente »", await attendre(pg, "#espace-body", "1 modification(s) en attente"));
+  await pg.click("#adm-nouvelle-seance");
+  await pg.selectOption("#s-exp", "x-1"); await pg.fill("#s-jour", new Date(Date.now() + 9 * 864e5).toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" }));
+  await pg.check("#s-publiee"); await pg.click("#s-enregistrer");
+  await attendre(pg, "#adm-zone", "Enregistré.");
+  v("nouvelle séance : envoyée à l'association (en attente), pas mise en ligne", st.db.seances.some((x) => x.id !== "s-1" && x.statut === "en_attente"));
+  await pg.click('[data-adm-onglet="inscrits"]');
+  v("mes inscrits : prénom, téléphone, reste à encaisser", await attendre(pg, "#adm-zone", "Camille D.") && await attendre(pg, "#adm-zone", "à encaisser sur place"));
+  pg.once("dialog", (d) => d.accept());
+  await pg.click('[data-adm-absent="r-9"]');
+  v("l'intervenant signale un absent", await attendre(pg, "#s-absent-note", "Frais de 10") && st.rpc.some((r) => r.nom === "signaler_absence" && r.args.p_reservation_id === "r-9"));
+  await pg.click('[data-adm-onglet="intervenants"]');
+  v("ma fiche : ni type, ni publication, ni invitation", await attendre(pg, "#adm-form", "publiés après validation") && (await pg.$("#i-publie")) === null && (await pg.$("#i-inviter")) === null);
+  await pg.fill("#i-role-fr", "historien de l'art"); await pg.click("#i-enregistrer");
+  await attendre(pg, "#adm-zone", "Envoyé.");
+  const propF = st.db.propositions.find((x) => x.type === "fiche");
+  v("ma fiche : proposition envoyée, fiche intacte", propF && propF.donnees.role.fr === "historien de l'art" && !("publie" in propF.donnees) &&
+    st.db.intervenants[0].role.fr === "guide" && !st.appels.some((a) => a.m === "PATCH" && a.chemin.startsWith("/rest/v1/intervenants?")), JSON.stringify(propF));
+  await pg.click('[data-adm-onglet="fiches"]');
+  await pg.click('[data-adm-fiche="x-1"]');
+  v("ma visite : pas de prix ni de publication, titre figé (en ligne)", (await pg.$("#f-prix")) === null && (await pg.$("#f-publie")) === null && await pg.$eval("#f-titre-fr", (x) => x.disabled));
+  await pg.fill("#f-duree", "150"); await pg.click("#f-enregistrer");
+  await attendre(pg, "#adm-zone", "Enregistré.");
+  const patch = st.appels.filter((a) => a.m === "PATCH" && a.chemin.startsWith("/rest/v1/experiences")).pop();
+  const cles = patch ? Object.keys(JSON.parse(patch.corps)) : [];
+  v("ma visite : seuls les champs permis sont envoyés", cles.includes("duree_minutes") && !cles.some((k) => ["prix_centimes", "publie", "titre", "type", "actif", "intervenant_id"].includes(k)), cles.join(","));
+  v("pas d'erreur JavaScript (espace intervenant)", st.erreurs.length === 0, st.erreurs.join(" | "));
+  const props = st.db.propositions;
+  await ctx.close();
+
+  // 6 bis. L'administration valide les propositions
+  ({ pg, ctx, st } = await page({ db: { propositions: props, intervenants: [{ id: "i-1", nom: "Sylvain Lesecq" }] } }));
+  await ouvrirEspace(pg);
+  v("admin : onglet « À valider · 2 » en premier", await attendre(pg, ".adm-onglets", "À valider · 2"));
+  await pg.click('[data-adm-onglet="valider"]');
+  v("propositions détaillées", await attendre(pg, "#adm-zone", "Changement d'une séance en ligne") && await attendre(pg, "#adm-zone", "historien de l'art"));
+  await pg.click('[data-valider="' + props[0].id + '"]');
+  v("valider passe par la fonction de la base", await attendre(pg, "#adm-zone", "Enregistré.") && st.rpc.some((r) => r.nom === "valider_proposition" && r.args.p_id === props[0].id));
   await ctx.close();
 
   // 7. L'app publique lit les fiches publiées dans Supabase

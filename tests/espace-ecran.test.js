@@ -77,10 +77,11 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
     if (u.pathname === "/auth/v1/user") return [200, { id: "u-g", email: "guide@exemple.invalid" }];
     if (u.pathname === "/rest/v1/profils") return [200, [{ role: "intervenant", intervenant_id: "11111111-1111-1111-1111-111111111111" }]];
     if (u.pathname === "/rest/v1/intervenants") return [200, [{ nom: "Sylvain Lesecq" }]];
+    if (u.pathname.startsWith("/rest/v1/")) return [200, []];
     return [404, {}];
   } }));
   await pg.goto("http://localhost:8768/#access_token=GGG&expires_in=3600&refresh_token=G2&type=magiclink");
-  v("guide : « Bonjour Sylvain Lesecq », espace intervenant", await attendre(pg, "#espace-body", "Bonjour Sylvain Lesecq") && await attendre(pg, "#espace-body", "espace intervenant"));
+  v("guide : « Bonjour Sylvain Lesecq », espace intervenant", await attendre(pg, "#espace-body", "Bonjour Sylvain Lesecq") && await attendre(pg, "#espace-body", "Mes séances"));
   await ctx.close();
 
   // 4. Session expirée : renouvelée

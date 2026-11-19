@@ -2059,6 +2059,12 @@ create policy "artdive photos : admin remplace" on storage.objects for update to
   with check (bucket_id = 'photos' and (select interne.est_admin()));
 create policy "artdive photos : admin supprime" on storage.objects for delete to authenticated
   using (bucket_id = 'photos' and (select interne.est_admin()));
+-- Les intervenants envoient leurs photos (fiche, visites) dans LEUR dossier seulement :
+-- photos/fiches/<leur id>/… et photos/intervenants/<leur id>/… (étape 6.3).
+create policy "artdive photos : intervenant envoie dans son dossier" on storage.objects for insert to authenticated
+  with check (bucket_id = 'photos'
+              and split_part(name, '/', 1) in ('fiches', 'intervenants')
+              and split_part(name, '/', 2) = (select interne.mon_intervenant_id())::text);
 
 commit;
 
