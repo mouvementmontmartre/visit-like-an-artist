@@ -9,7 +9,7 @@
    une modification du code : incrémenter CACHE_VERSION.
    ============================================================ */
 
-const CACHE_VERSION = "mm-v95";
+const CACHE_VERSION = "mm-v96";
 
 const SHELL = [
   "./",
@@ -27,6 +27,7 @@ const SHELL = [
   "./js/i18n.js",
   "./js/app.js",
   "./js/admin.js",
+  "./js/formulaires.js",
   "./manifest.json",
   "./icons/logo.png",
   "./icons/artdive-wordmark-cream.svg",

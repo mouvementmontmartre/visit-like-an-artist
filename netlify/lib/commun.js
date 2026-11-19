@@ -113,14 +113,14 @@ async function appelant(event) {
 }
 
 /** Envoi d'un email par Brevo. m = { sujet, html, texte }. */
-async function envoyerBrevo(destinataire, m, tags) {
+async function envoyerBrevo(destinataire, m, tags, repondreA) {
   if (!process.env.BREVO_API_KEY) throw new Error("BREVO_API_KEY absente");
   const res = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: { "api-key": process.env.BREVO_API_KEY, "Content-Type": "application/json", accept: "application/json" },
     body: JSON.stringify({
       sender: { name: NOM_EXPEDITEUR, email: EMAIL_EXPEDITEUR },
-      replyTo: { name: NOM_EXPEDITEUR, email: EMAIL_REPONSE },
+      replyTo: repondreA || { name: NOM_EXPEDITEUR, email: EMAIL_REPONSE },
       to: [{ email: destinataire }],
       subject: m.sujet, htmlContent: m.html, textContent: m.texte, tags: tags || [],
     }),

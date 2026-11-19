@@ -19,3 +19,4 @@ Données de test uniquement (adresses en `@exemple.invalid`), jamais de vraies d
    Supabase simulé en mémoire : `node tests/admin-ecran.test.js <chemin du dépôt> [dossier des captures]`.
 6. Fonction d'invitation, Supabase et Brevo simulés : `node tests/inviter-fonction.test.js <chemin du dépôt>`.
 La base locale imite aussi le stockage de Supabase (`storage.buckets`, `storage.objects`) pour les essais de droits des photos.
+7. Formulaires publics : `node tests/demande-fonction.test.js <dépôt>` et `node tests/demande-ecran.test.js <dépôt> [captures]`.

@@ -304,6 +304,12 @@ details.adm-encart summary { cursor: pointer; min-height: 32px; }
 details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .adm-invitation { border-top: 1px solid var(--line); padding-top: 6px; display: flex; flex-direction: column; gap: 8px; }
 
+/* ---------- Formulaires publics (canvas E7, E14) ---------- */
+.prive-encart { background: var(--panneau); border: 1px solid var(--bord); border-style: solid; margin: 4px 0 22px; }
+.prive-titre { font-family: var(--display); font-size: 24px; line-height: 1.15; }
+#screen-demande .adm-puces .chip { min-height: 44px; padding: 0 16px; font-size: 13px; }
+#screen-demande .espace-titre em { font-style: italic; }
+
 /* ---------- Menu des langues (canvas E1.2) ---------- */
 .lang-popover {
   background: var(--panneau); border: 1px solid var(--line); border-radius: 18px;
@@ -352,3 +358,4 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .act-name, .act-desc, .act-by, .act-meta, .fiche-title, .fiche-desc, .fiche-host-name, .info-row .v { unicode-bidi: plaintext; }
 
 @media (prefers-reduced-motion: reduce) { .act-card, .cta { transition: none; } }
+.lien-bouton { background: none; border: 0; padding: 0; color: var(--lien); font: inherit; text-decoration: underline; cursor: pointer; min-height: 44px; }

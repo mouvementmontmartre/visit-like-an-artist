@@ -111,6 +111,8 @@ function openTarget(target, arg) {
     case "infos-festival":  renderInfosFestival(); showScreen("infos-festival"); break;
     case "visite":          renderVisite(arg); showScreen("visite"); break;
     case "carte-visite":    renderCarteVisite(arg); showScreen("carte-visite"); break;
+    case "demande":         showScreen("demande"); renderDemande(arg); break;         // js/formulaires.js
+    case "rejoindre":       showScreen("demande"); renderRejoindre(); break;
   }
 }
 
@@ -996,6 +998,8 @@ async function renderVisite(id) {
         '<input class="input-field" id="libre-montant" type="number" inputmode="decimal" min="5" step="1" value="5" aria-label="Montant en euros" style="display:none;">' +
         '<button class="cta fee" id="btn-libre" data-visite="' + esc(id) + '">' + t("cta.unlockFull") + '</button>' +
         '<div class="member-note" id="paiement-note" style="display:none;"></div>') +
+    (["visite", "atelier"].includes(offreTypeOf(v)) && !/autoguid|rythme/i.test(v["Type"] || "")
+      ? '<button class="cta ghost" data-open="demande" data-arg="' + esc(id) + '">' + esc(offreTypeOf(v) === "atelier" ? t("form.demanderAtelier") : t("form.demanderVisite")) + '</button>' : '') +
     '<button class="cta ghost" data-open="carte-visite" data-arg="' + esc(id) + '">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21 C12 21 5 14 5 9 A7 7 0 0 1 19 9 C19 14 12 21 12 21 Z"/><circle cx="12" cy="9" r="2.5"/></svg>' +
       t("cta.seeRouteOnMap") +
@@ -1869,7 +1873,7 @@ async function renderEspace(note) {
         '<div id="espace-note" class="member-note" role="status" aria-live="polite"></div>' +
       '</form>' +
       '<div class="member-note">' + esc(t("espace.duree")) + '</div>' +
-      '<p class="espace-texte">' + esc(t("espace.pasEncore")) + ' <a href="mailto:' + esc(CONFIG.contacts.general) + '">' + esc(t("espace.nousEcrire")) + '</a></p>';
+      '<p class="espace-texte">' + esc(t("espace.pasEncore")) + ' <button type="button" class="lien-bouton" data-open="rejoindre">' + esc(t("form.nousRejoindre")) + ' →</button></p>';
     $("#espace-form").addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const email = ($("#espace-email").value || "").trim().toLowerCase();
@@ -2106,6 +2110,7 @@ function renderInfos() {
     '<a class="cta gaz" style="text-decoration:none; margin-top:10px;" href="https://tally.so/r/wbq651" target="_blank" rel="noopener">' + t("cta.joinMovement") + '</a>' +
     '<a class="cta ghost" style="text-decoration:none; margin-top:10px;" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener">' + t("cta.donate") + '</a>' +
     '<button type="button" class="cta ghost" style="margin-top:10px;" data-open="espace">' + esc(t("espace.entree")) + '</button>' +
+    '<button type="button" class="cta ghost" style="margin-top:10px;" data-open="rejoindre">' + esc(t("form.nousRejoindre")) + '</button>' +
     accItem(ICON_TOPIC.about, t("infos.aboutTitle"),
       "<p>" + t("infos.about1") + "</p>" +
       "<p>" + t("infos.about2") + "</p>" +

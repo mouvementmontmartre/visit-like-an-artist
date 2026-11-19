@@ -81,6 +81,12 @@
         <div class="loading" data-i18n="loading.visites">Chargement des visites…</div>
       </div>
 
+      <div class="adm-encart prive-encart">
+        <div class="prive-titre" data-i18n="form.priveEncartTitre">Une réservation privée ?</div>
+        <p class="member-note" data-i18n="form.priveEncartTexte">Une visite ou un atelier rien que pour vous, à la date de votre choix.</p>
+        <button type="button" class="cta fee" data-open="demande" data-i18n="form.priveEncartBouton">Demander une visite ou un atelier privé</button>
+      </div>
+
       <div class="mini-label" data-i18n="label.communaute">Communauté</div>
       <button class="bandeau bandeau-eco" data-open="carte-tab">
         <img class="media-photo" src="icons/banniere-ecosysteme.jpg" alt="" loading="lazy">
@@ -271,6 +277,20 @@
     <div class="screen-inner" id="espace-body"></div>
   </section>
 
+  <!-- ================= FORMULAIRES PUBLICS (empilé, E7 et E14) ================= -->
+  <section class="screen stack" id="screen-demande">
+    <header class="back-header">
+      <button class="back-btn" data-back aria-label="Retour">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5 L8 12 L15 19"/></svg>
+      </button>
+      <div>
+        <div class="back-title" id="demande-titre"></div>
+        <div class="back-sub" id="demande-sous"></div>
+      </div>
+    </header>
+    <div class="screen-inner" id="demande-body"></div>
+  </section>
+
   <!-- ================= RÉSERVATION : FORMULAIRE (empilé, E8) ================= -->
   <section class="screen stack" id="screen-reserver">
     <header class="back-header">
@@ -430,5 +450,6 @@
   <script src="js/i18n.js"></script>
   <script src="js/app.js"></script>
   <script src="js/admin.js"></script>
+  <script src="js/formulaires.js"></script>
 </body>
 </html>
