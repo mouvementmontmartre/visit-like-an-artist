@@ -133,6 +133,11 @@ const v = (nom, c, d) => { if (c) { ok++; console.log("OK     " + nom); } else {
   const nouveau = (m2.htmlContent.match(/#parcours=([0-9a-f]{64})/) || [])[1];
   v("nouveau lien envoyé, différent de l'ancien", nouveau && nouveau !== jeton);
   v("l'ancien lien ne marche plus, le nouveau oui", (await post({ action: "voir", jeton })).s === 404 && (await post({ action: "voir", jeton: nouveau })).s === 200);
+  await db.query("update public.acces set active_le = now() - interval '13 months', lien_envoye_le = null where id = $1", [ac.id]);
+  r = await post({ action: "voir", jeton: nouveau });
+  v("accès de plus de 12 mois : expiré", r.s === 410 && r.b.error === "EXPIRE");
+  const avant = brevo.length; r = await post({ action: "lien", email: "camille@exemple.invalid" });
+  v("accès expiré : pas de nouveau lien", r.s === 200 && brevo.length === avant);
   r = await post({ action: "lien", email: "personne@exemple.invalid" });
   v("adresse sans accès : même réponse", r.s === 200 && r.b.ok === true);
 

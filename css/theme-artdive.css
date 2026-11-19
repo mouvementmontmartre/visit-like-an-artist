@@ -364,6 +364,10 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .parc-code .input-field { flex: 1; text-transform: uppercase; }
 .parc-code .cta { width: auto; padding: 0 18px; margin: 0; }
 .parc-nav { display: flex; gap: 10px; margin-top: 16px; }
+/* Lignes d'étapes sur fond de visite : vert « succès » du design system, texte crème (contraste suffisant) */
+#screen-visite .adm-ligne, #screen-parcours .adm-ligne { background: var(--succes); border-color: var(--succes); }
+#screen-visite .adm-ligne .adm-ligne-meta, #screen-parcours .adm-ligne .adm-ligne-meta { color: var(--velin); }
+#screen-visite .parc-num, #screen-parcours .parc-num { border-color: var(--velin); color: var(--velin); }
 .parc-nav .cta { flex: 1; }
 
 /* ---------- Menu des langues (canvas E1.2) ---------- */

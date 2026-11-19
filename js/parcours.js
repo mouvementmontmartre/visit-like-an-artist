@@ -172,7 +172,7 @@ async function ouvrirCircuit(jeton) {
   const corps = $("#parcours-body");
   corps.innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>';
   const { ok, d } = await appelParcours({ action: "voir", jeton }).catch(() => ({ ok: false, d: {} }));
-  if (!ok) { corps.innerHTML = '<div class="member-note">' + esc(t("parc.lienInvalide")) + '</div>'; return; }
+  if (!ok) { corps.innerHTML = '<div class="member-note">' + esc(d.error === "EXPIRE" ? t("parc.expire") : t("parc.lienInvalide")) + '</div>'; return; }
   PARC.jeton = jeton; PARC.data = d;
   garderAcces(d.parcours.slug, jeton);
   peindreCircuit();

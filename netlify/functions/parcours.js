@@ -15,7 +15,7 @@
    ============================================================ */
 
 const { json, rpc, table, stripe, stripePost, emailValide, sha256hex, SITE_URL, CGV_VERSION } = require("../lib/commun");
-const { nouveauJetonHex, activerAcces, envoyerLienAcces, accesParJeton, distanceM } = require("../lib/parcours");
+const { nouveauJetonHex, activerAcces, envoyerLienAcces, accesParJeton, distanceM, encoreValable } = require("../lib/parcours");
 
 const CASES = ["cgv", "acces_immediat", "renonciation"];   // CGV art. 16.3 : deux cases + les CGV
 
@@ -85,6 +85,7 @@ exports.handler = async (event) => {
     if (p.action === "voir" || p.action === "etape") {
       const a = await accesParJeton(p.jeton);
       if (!a) return json(404, { error: "ACCES" });
+      if (a.expire) return json(410, { error: "EXPIRE" });
       const e = (await table("GET", "experiences?select=id,slug,titre,nb_etapes,intervenant_id&id=eq." + a.experience_id))[0];
       const { etapes, avecCode } = await etapesDe(a.experience_id);
       const prog = a.progression || {};
@@ -122,7 +123,7 @@ exports.handler = async (event) => {
     if (p.action === "lien") {
       const email = String(p.email || "").trim().toLowerCase();
       if (!emailValide(email)) return json(400, { error: "EMAIL" });
-      const accesListe = await table("GET", "acces?select=id,reference,email,langue,audioguide,montant_centimes,experience_id,lien_envoye_le&statut=eq.actif&email=eq." + encodeURIComponent(email));
+      const accesListe = (await table("GET", "acces?select=id,reference,email,langue,audioguide,montant_centimes,experience_id,lien_envoye_le,active_le&statut=eq.actif&email=eq." + encodeURIComponent(email))).filter(encoreValable);
       for (const a of accesListe.slice(0, 5)) {
         if (a.lien_envoye_le && Date.now() - new Date(a.lien_envoye_le).getTime() < 20 * 60e3) continue;   // un envoi toutes les 20 min
         const jeton = nouveauJetonHex();

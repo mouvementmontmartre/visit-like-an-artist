@@ -38,7 +38,17 @@ async function envoyerLienAcces(a, jeton) {
 /** Accès actif correspondant à un jeton, ou null. */
 async function accesParJeton(jeton) {
   if (!/^[0-9a-f]{64}$/.test(String(jeton || ""))) return null;
-  return (await table("GET", "acces?select=id,reference,email,langue,audioguide,montant_centimes,progression,experience_id,statut&statut=eq.actif&jeton_hash=eq." + sha256hex(jeton)))[0] || null;
+  const a = (await table("GET", "acces?select=id,reference,email,langue,audioguide,montant_centimes,progression,experience_id,statut,active_le&statut=eq.actif&jeton_hash=eq." + sha256hex(jeton)))[0];
+  if (!a) return null;
+  return encoreValable(a) ? a : Object.assign(a, { expire: true });
+}
+
+/** Accès valable 12 mois à compter du paiement (CGV art. 12, décision du 19/11). */
+const DUREE_ACCES_MOIS = 12;
+function encoreValable(a) {
+  if (!a.active_le) return true;
+  const fin = new Date(a.active_le); fin.setMonth(fin.getMonth() + DUREE_ACCES_MOIS);
+  return Date.now() < fin.getTime();
 }
 
 /** Distance en mètres entre deux points (formule de haversine). */
@@ -48,4 +58,4 @@ function distanceM(lat1, lng1, lat2, lng2) {
   return 2 * 6371000 * Math.asin(Math.sqrt(x));
 }
 
-module.exports = { nouveauJetonHex, activerAcces, envoyerLienAcces, accesParJeton, distanceM };
+module.exports = { nouveauJetonHex, activerAcces, envoyerLienAcces, accesParJeton, distanceM, encoreValable };
