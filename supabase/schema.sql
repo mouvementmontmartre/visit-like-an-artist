@@ -2041,6 +2041,25 @@ alter table public.codes_import enable row level security;
 create policy "admin lit" on public.adhesions for select to authenticated
   using ((select interne.est_admin()));
 
+-- 9.4 Photos des fiches et des intervenants (stockage Supabase, dossier « photos »).
+-- Lecture publique par leur adresse ; envoi, remplacement et suppression
+-- réservés à l'admin (les intervenants viendront avec leur espace, 6.3).
+-- 5 Mo au plus par photo, JPEG, PNG ou WebP (l'app les réduit avant l'envoi).
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('photos', 'photos', true, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do update set public = true, file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+create policy "artdive photos : admin liste" on storage.objects for select to authenticated
+  using (bucket_id = 'photos' and (select interne.est_admin()));
+create policy "artdive photos : admin envoie" on storage.objects for insert to authenticated
+  with check (bucket_id = 'photos' and (select interne.est_admin()));
+create policy "artdive photos : admin remplace" on storage.objects for update to authenticated
+  using (bucket_id = 'photos' and (select interne.est_admin()))
+  with check (bucket_id = 'photos' and (select interne.est_admin()));
+create policy "artdive photos : admin supprime" on storage.objects for delete to authenticated
+  using (bucket_id = 'photos' and (select interne.est_admin()));
+
 commit;
 
 -- ============================================================

@@ -41,6 +41,7 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
     if (u.pathname === "/auth/v1/user") return [200, { id: "u-admin", email: "admin@exemple.invalid" }];
     if (u.pathname === "/rest/v1/profils") return [200, [{ role: "admin", intervenant_id: null }]];
     if (u.pathname === "/auth/v1/logout") return [204, null];
+    if (u.pathname.startsWith("/rest/v1/")) return [200, []];   // administration : listes vides
     return [404, {}];
   };
 
@@ -63,10 +64,10 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   // 2. Retour par le lien : administratrice
   ({ pg, ctx, st } = await page({ supabase: supabaseAdmin }));
   await pg.goto("http://localhost:8768/#access_token=AAA&expires_in=3600&refresh_token=RRR&token_type=bearer&type=magiclink");
-  v("retour du lien : connectée, accueil administration", await attendre(pg, "#espace-body", "Bonjour admin@exemple.invalid") && await attendre(pg, "#espace-body", "administration"));
+  v("retour du lien : connectée, accueil administration", await attendre(pg, "#espace-body", "Bonjour admin@exemple.invalid") && await attendre(pg, "#espace-body", "Fiches · 0"));
   v("la session disparaît de l'adresse", !pg.url().includes("access_token"), pg.url());
   v("session gardée sur le téléphone", (await pg.evaluate(() => JSON.parse(localStorage.getItem("sessionEspace")).refresh_token)) === "RRR");
-  v("lectures de la base au nom de la personne connectée", st.appels.filter((a) => a.chemin.startsWith("/rest/v1/")).every((a) => a.auth === "Bearer AAA"));
+  v("lectures de la base au nom de la personne connectée", (() => { const priv = st.appels.filter((a) => /^\/rest\/v1\/(profils|intervenants_contacts)/.test(a.chemin)); return priv.length >= 2 && priv.every((a) => a.auth === "Bearer AAA"); })());
   await pg.click("#espace-deconnexion");
   v("déconnexion : session effacée, formulaire revenu", await attendre(pg, "#espace-body", "Gérez vos séances") && (await pg.evaluate(() => localStorage.getItem("sessionEspace"))) === null && st.appels.some((a) => a.chemin === "/auth/v1/logout"));
   await ctx.close();

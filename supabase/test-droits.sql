@@ -522,7 +522,17 @@ begin
       jsonb_build_array('Intervenant A', 'ne modifie pas le contact de B', 'refus',
         pg_temp.essai('authenticated', u_a, format('update public.intervenants_contacts set email = %L where intervenant_id = %L', 'pirate@exemple.invalid', i_b))),
       jsonb_build_array('Intervenant A', 'ne change pas ses frais d''annulation', 'refus',
-        pg_temp.essai('authenticated', u_a, format('update public.experiences set frais_annulation_tardive_centimes = 0 where id = %L', x_a)))
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set frais_annulation_tardive_centimes = 0 where id = %L', x_a))),
+      jsonb_build_array('Admin', 'envoie une photo dans « photos »', '1',
+        pg_temp.essai('authenticated', u_admin, 'insert into storage.objects (bucket_id, name) values (''photos'', ''essai/admin.jpg'')')),
+      jsonb_build_array('Admin', 'remplace une photo', '1',
+        pg_temp.essai('authenticated', u_admin, 'update storage.objects set metadata = ''{}'' where bucket_id = ''photos'' and name = ''essai/admin.jpg''')),
+      jsonb_build_array('Intervenant A', 'n''envoie pas de photo (pas encore, étape 6.3)', 'refus',
+        pg_temp.essai('authenticated', u_a, 'insert into storage.objects (bucket_id, name) values (''photos'', ''essai/a.jpg'')')),
+      jsonb_build_array('Intervenant A', 'ne supprime pas une photo', 'refus',
+        pg_temp.essai('authenticated', u_a, 'delete from storage.objects where bucket_id = ''photos''')),
+      jsonb_build_array('Visiteur', 'n''envoie pas de photo', 'refus',
+        pg_temp.essai('anon', null, 'insert into storage.objects (bucket_id, name) values (''photos'', ''essai/v.jpg'')'))
     );
 
     raise exception 'FIN_DU_TEST';   -- annule toutes les fausses données

@@ -14,3 +14,8 @@ la base et les fonctions Netlify avant chaque livraison.
    `node tests/carte-ecran.test.js <chemin du dépôt> <dossier des captures>`.
 
 Données de test uniquement (adresses en `@exemple.invalid`), jamais de vraies données d'adhérents.
+4. Connexion à l'espace intervenants : `node tests/espace-ecran.test.js <chemin du dépôt>`.
+5. Administration (fiches, intervenants, photos, invitation, reprise de la Sheet, lecture des fiches par l'app),
+   Supabase simulé en mémoire : `node tests/admin-ecran.test.js <chemin du dépôt> [dossier des captures]`.
+6. Fonction d'invitation, Supabase et Brevo simulés : `node tests/inviter-fonction.test.js <chemin du dépôt>`.
+La base locale imite aussi le stockage de Supabase (`storage.buckets`, `storage.objects`) pour les essais de droits des photos.

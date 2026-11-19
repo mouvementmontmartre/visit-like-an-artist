@@ -86,6 +86,48 @@ async function table(methode, chemin, corps, enTetes) {
   return texte ? JSON.parse(texte) : null;
 }
 
+/** Supabase Auth, API d'administration (clé secrète) : chemin sous /auth/v1/. */
+async function authAdmin(methode, chemin, corps) {
+  const res = await fetch(SUPABASE_URL + "/auth/v1/" + chemin, {
+    method: methode, headers: enTetesSupabase(), body: corps === undefined ? undefined : JSON.stringify(corps),
+  });
+  const texte = await res.text();
+  let data = null;
+  try { data = texte ? JSON.parse(texte) : null; } catch (e) { /* réponse non JSON */ }
+  return { ok: res.ok, status: res.status, data };
+}
+
+/** Qui appelle ? Vérifie le jeton de session envoyé par l'app et rend { id, role } ou null. */
+async function appelant(event) {
+  const h = (event.headers && (event.headers.authorization || event.headers.Authorization)) || "";
+  const jeton = h.replace(/^Bearer\s+/i, "");
+  if (!/^[A-Za-z0-9._-]{20,4096}$/.test(jeton)) return null;
+  const res = await fetch(SUPABASE_URL + "/auth/v1/user", {
+    headers: { apikey: process.env.SUPABASE_SECRET_KEY || "", Authorization: "Bearer " + jeton },
+  });
+  if (!res.ok) return null;
+  const u = await res.json();
+  if (!u || !u.id) return null;
+  const p = await table("GET", "profils?select=role,intervenant_id&user_id=eq." + encodeURIComponent(u.id));
+  return { id: u.id, email: u.email, role: (p && p[0] && p[0].role) || null };
+}
+
+/** Envoi d'un email par Brevo. m = { sujet, html, texte }. */
+async function envoyerBrevo(destinataire, m, tags) {
+  if (!process.env.BREVO_API_KEY) throw new Error("BREVO_API_KEY absente");
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": process.env.BREVO_API_KEY, "Content-Type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      sender: { name: NOM_EXPEDITEUR, email: EMAIL_EXPEDITEUR },
+      replyTo: { name: NOM_EXPEDITEUR, email: EMAIL_REPONSE },
+      to: [{ email: destinataire }],
+      subject: m.sujet, htmlContent: m.html, textContent: m.texte, tags: tags || [],
+    }),
+  });
+  if (!res.ok) throw new Error("Brevo " + res.status + " " + (await res.text()).slice(0, 200));
+}
+
 /* ---------- Stripe ---------- */
 
 async function stripe(chemin, params) {
@@ -236,6 +278,6 @@ async function enregistrerSession(session) {
 module.exports = {
   SITE_URL, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE, CGV_VERSION, PRODUITS_ADHESION, LIENS_PONCTUELS,
   json, sha256hex, nouveauJeton, jetonValide, emailValide,
-  rpc, table, stripe, stripePost, signatureStripeValide,
+  rpc, table, authAdmin, appelant, envoyerBrevo, stripe, stripePost, signatureStripeValide,
   idDe, iso, periode, nomDeSession, formuleAbonnement, enregistrerAbonnement, enregistrerSession,
 };

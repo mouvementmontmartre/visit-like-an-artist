@@ -403,11 +403,52 @@ const PIN_COLORS = {
 
 let VISITES_CACHE = null;
 
+/* Fiches : lues dans Supabase (administration, étape 6.2) dès qu'au moins une y est publiée ;
+   sinon, en secours, dans la Sheet « Visites » (décision du 19/11 : la Sheet est abandonnée
+   une fois les fiches reprises). Les fiches Supabase sont converties au format des lignes de
+   la Sheet pour que l'accueil, la fiche et la carte n'aient qu'une seule façon de les lire. */
 async function loadVisites() {
   if (VISITES_CACHE) return VISITES_CACHE;
-  const rows = await loadCSV(CONFIG.sources.visites, "visites");
-  VISITES_CACHE = rows.filter(v => (v["Actif"] || "").toLowerCase() === "oui" && v["id"] && inLocalite(v));
+  let rows = null;
+  try { rows = await loadFichesSupabase(); } catch (e) { rows = null; }
+  if (!rows || !rows.length) {
+    rows = (await loadCSV(CONFIG.sources.visites, "visites"))
+      .filter(v => (v["Actif"] || "").toLowerCase() === "oui" && v["id"] && inLocalite(v));
+  }
+  VISITES_CACHE = rows;
   return VISITES_CACHE;
+}
+
+const TYPE_LIBELLE_SHEET = { visite_guidee: "Visite", autoguidee: "Visite", atelier: "Atelier", soiree: "Soirée", escape_game: "Escape game" };
+function prixAffiche(e) {
+  const c = e.type === "autoguidee" ? e.prix_libre_min_centimes : e.prix_centimes;
+  if (c == null) return "";
+  const m = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", minimumFractionDigits: c % 100 ? 2 : 0 }).format(c / 100);
+  return e.type === "autoguidee" ? tx("card.des", { m }) : m;
+}
+function dureeAffichee(min) {
+  if (!min) return "";
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? h + " h" + (m ? " " + String(m).padStart(2, "0") : "") : m + " min";
+}
+async function loadFichesSupabase() {
+  const loc = (currentLocalite() || {}).id || CONFIG.localiteParDefaut;
+  const exps = await supa("experiences?select=slug,type,titre,accroche,description,duree_minutes,photo_url,point_rdv,prix_centimes,prix_libre_min_centimes,intervenant_id" +
+    "&publie=eq.true&actif=eq.true&localite_id=eq." + encodeURIComponent(loc) + "&order=ordre.asc,cree_le.asc");
+  if (!exps.length) return [];
+  const ids = [...new Set(exps.map(e => e.intervenant_id).filter(Boolean))];
+  const ints = ids.length ? await supa("intervenants?select=id,nom&id=in.(" + ids.join(",") + ")").catch(() => []) : [];
+  const ligne = (champ, base, o) => { ["fr", "en", "es", "zh", "ar", "ru"].forEach(l => { if (champ && champ[l]) o[base + (l === "fr" ? "" : "_" + l.toUpperCase())] = champ[l]; }); };
+  return exps.map(e => {
+    const o = { id: e.slug, Type: TYPE_LIBELLE_SHEET[e.type] || "Visite", Actif: "Oui",
+      Guide: (ints.find(i => i.id === e.intervenant_id) || {}).nom || "",
+      "Tarif direct": prixAffiche(e), "Durée": dureeAffichee(e.duree_minutes), Photo: e.photo_url || "",
+      "Rendez-vous": (e.point_rdv && e.point_rdv.fr) || "", _source: "supabase" };
+    ligne(e.titre, "Nom", o);
+    ligne(Object.keys(e.description || {}).length ? e.description : e.accroche, "Description", o);
+    ligne(e.accroche, "Accroche", o);   // phrase courte des cartes d'accueil
+    return o;
+  });
 }
 
 /** Bannières locales par visite (secours si la colonne "Photo" du Sheet est vide).
@@ -507,7 +548,7 @@ async function renderAccueil() {
     const guide = trField(v, "Guide");
     const prix = v["Tarif direct"] || "";
     const nom = trField(v, "Nom");
-    const desc = trField(v, "Description");
+    const desc = trField(v, "Accroche") || trField(v, "Description");
     const type = offreTypeOf(v);
     const x = INFOS_CARTES[v["id"]] || {};
     const metier = x.role ? parLangue(x.role) || "" : "";
@@ -1857,6 +1898,7 @@ async function renderEspace(note) {
     return;
   }
   const role = profil ? profil.role : null;
+  if (role === "admin" && typeof renderAdmin === "function") { renderAdmin(corps, nom); return; }   // js/admin.js
   corps.innerHTML =
     '<h1 class="espace-titre">' + esc(tx("espace.bonjour", { nom })) + '</h1>' +
     '<p class="espace-texte">' + esc(role === "admin" ? t("espace.admin") : role === "intervenant" ? t("espace.intervenant") : t("espace.sansRole")) + '</p>' +

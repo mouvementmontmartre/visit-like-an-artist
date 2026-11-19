@@ -243,4 +243,18 @@ function rediger(envoi) {
   return { sujet, html, texte: versTexte(html), pieces };
 }
 
-module.exports = { rediger, ics, esc };
+/** Invitation d'un intervenant à son espace (en français : les intervenants sont des partenaires locaux). */
+function redigerInvitation({ nom, lien }) {
+  const corps =
+    "<p>Bonjour " + esc(nom) + ",</p>" +
+    "<p>Le Mouvement Montmartre vous ouvre votre espace intervenant sur ArtDive. Vous pourrez y suivre vos séances et vos inscrits, " +
+    "et mettre à jour votre fiche et vos visites.</p>" +
+    bouton(lien, "Ouvrir mon espace") +
+    "<p>Ce lien est personnel et valable 15 minutes. Ensuite, ouvrez ArtDive, touchez « Infos » puis « Espace intervenants », " +
+    "et demandez un nouveau lien avec cette adresse email. Pas de mot de passe à retenir.</p>" +
+    "<p>À très vite sur la Butte,<br>Mouvement Montmartre</p>";
+  const html = cadre(corps);
+  return { sujet: "Votre espace intervenant ArtDive", html, texte: versTexte(html) };
+}
+
+module.exports = { rediger, redigerInvitation, ics, esc };
