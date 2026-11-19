@@ -509,6 +509,9 @@ async function renderAccueil() {
     const nom = trField(v, "Nom");
     const desc = trField(v, "Description");
     const type = offreTypeOf(v);
+    const x = INFOS_CARTES[v["id"]] || {};
+    const metier = x.role ? parLangue(x.role) || "" : "";
+    const ligneGroupe = x.groupe || v["Durée"] || "";
     return (
       '<button class="act-card' + (bannerSrc ? '' : ' act-card-plain') + '" data-type="' + type + '" data-open="visite" data-arg="' + esc(v["id"]) + '">' +
         (bannerSrc ? '<img class="act-fond" src="' + esc(bannerSrc) + '" alt="" loading="lazy"><span class="act-voile"></span>' : '') +
@@ -516,9 +519,10 @@ async function renderAccueil() {
         '<span class="act-corps">' +
           '<span class="act-name">' + esc(nom) + '</span>' +
           (desc ? '<span class="act-desc">' + esc(desc) + '</span>' : '') +
-          (guide ? '<span class="act-by">' + esc(t("card.with")) + ' <b>' + esc(guide) + '</b></span>' : '') +
-          (v["Durée"] ? '<span class="act-meta">' + esc(v["Durée"]) + '</span>' : '') +
-          (prix ? '<span class="act-foot"><span class="act-price">' + esc(prix) + '</span></span>' : '') +
+          (guide ? '<span class="act-by">' + esc(t("card.with")) + ' <b>' + esc(guide) + '</b>' + (metier ? ', ' + esc(metier) : '') + '</span>' : '') +
+          (ligneGroupe ? '<span class="act-meta">' + esc(ligneGroupe) + '</span>' : '') +
+          ((prix || x.prochain) ? '<span class="act-foot"><span class="act-next">' + esc(x.prochain || "") + '</span>' +
+            (prix ? '<span class="act-price">' + esc(prix) + '</span>' : '') + '</span>' : '') +
         '</span>' +
       '</button>'
     );
@@ -546,6 +550,42 @@ async function renderAccueil() {
       : '<div class="act-empty">' + t("empty.bientot") + '</div>';
   };
   paint();
+  completerCartes(visites).then((change) => { if (change) paint(); });
+}
+
+/* Lignes des cartes d'accueil venant de Supabase (canvas E1.1) : métier de l'intervenant,
+   taille du groupe, prochaine date. Seulement pour les fiches publiées dans la base
+   (même identifiant que la Sheet) ; sinon la carte garde la durée de la Sheet. */
+const INFOS_CARTES = {};
+async function completerCartes(visites) {
+  const slugs = visites.map((v) => v["id"]).filter((id) => /^[a-z0-9-]+$/.test(id || ""));
+  if (!slugs.length) return false;
+  try {
+    const exps = await supa("experiences?select=id,slug,type,capacite_max,intervenant_id&publie=eq.true&actif=eq.true&slug=in.(" + slugs.join(",") + ")");
+    if (!exps.length) return false;
+    const ids = exps.map((e) => e.id).join(",");
+    const intIds = [...new Set(exps.map((e) => e.intervenant_id).filter(Boolean))].join(",");
+    const [seances, ints] = await Promise.all([
+      supa("seances_publiques?select=experience_id,debut,places_restantes&statut=eq.publiee&experience_id=in.(" + ids + ")&debut=gt." +
+        encodeURIComponent(new Date().toISOString()) + "&order=debut.asc").catch(() => []),
+      intIds ? supa("intervenants?select=id,role&id=in.(" + intIds + ")").catch(() => []) : Promise.resolve([]),
+    ]);
+    exps.forEach((e) => {
+      const prochaine = seances.find((s) => s.experience_id === e.id && s.places_restantes > 0);
+      const role = (ints.find((i) => i.id === e.intervenant_id) || {}).role;
+      const n = e.capacite_max;
+      const groupe = e.type === "autoguidee" ? t("card.aTonRythme")
+        : e.type === "escape_game" ? (n ? tx("card.equipe", { n }) : "")
+        : (e.type === "visite_guidee" || e.type === "atelier") && n ? tx("card.petitGroupe", { n }) : "";
+      INFOS_CARTES[e.slug] = {
+        role: role && Object.keys(role).length ? role : null,
+        groupe,
+        prochain: prochaine ? tx("card.prochain", { d: new Date(prochaine.debut).toLocaleDateString(localeResa(),
+          { timeZone: "Europe/Paris", weekday: "short", day: "numeric", month: "short" }) }) : "",
+      };
+    });
+    return true;
+  } catch (e) { return false; }   // hors ligne ou base pas prête : les cartes restent comme avant
 }
 
 /* ============================================================

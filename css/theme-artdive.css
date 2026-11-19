@@ -144,7 +144,8 @@ a { color: var(--lien); }
 }
 .act-by { font-size: 12px; margin-top: 6px; color: var(--velin); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .act-meta { font-size: 11px; margin-top: 5px; color: #D8CEBC; }
-.act-foot { margin-top: 12px; display: flex; justify-content: flex-end; align-items: baseline; }
+.act-foot { margin-top: 12px; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.act-next { font-size: 12px; color: var(--velin); }
 .act-price { font-family: var(--mono); font-weight: 500; font-size: 13px; color: var(--c); }
 .act-empty { padding: 28px 0; text-align: center; color: var(--muted); font-size: 14px; }
 
