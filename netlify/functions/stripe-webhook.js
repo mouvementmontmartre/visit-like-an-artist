@@ -23,6 +23,7 @@ const {
   enregistrerAbonnement, enregistrerSession, formuleAbonnement,
 } = require("../lib/commun");
 const { confirmerSession, toutTraiter } = require("../lib/reservations");
+const { activerAcces } = require("../lib/parcours");
 
 async function traiter(evt) {
   const obj = evt.data && evt.data.object;
@@ -34,6 +35,11 @@ async function traiter(evt) {
         const session = await stripe("checkout/sessions/" + obj.id);
         await confirmerSession(session);
         return "reservation";
+      }
+      if (meta.acces_id) {                            // parcours autoguidé : accès activé, lien envoyé par email
+        const session = await stripe("checkout/sessions/" + obj.id);
+        await activerAcces(session);
+        return "parcours";
       }
       if (meta.frais_reservation_id) {                // frais payés avec le lien envoyé par email
         if (obj.payment_status === "paid") {

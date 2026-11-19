@@ -531,7 +531,10 @@ create table public.acces (
   stripe_session_id     text unique,
   stripe_payment_intent text unique,
   cree_le       timestamptz not null default now(),
-  active_le     timestamptz
+  active_le     timestamptz,
+  consentements jsonb not null default '{}',   -- cases cochées à l'achat et leur heure (CGV art. 16.3)
+  cgv_version   text,
+  lien_envoye_le timestamptz                    -- dernier lien d'accès envoyé (3 par heure au plus)
 );
 create index acces_email on public.acces (email);
 
@@ -2069,7 +2072,8 @@ create policy "artdive photos : intervenant envoie dans son dossier" on storage.
 -- lecture publique, 50 Mo au plus (MP4, MOV, WebM ; sous-titres WebVTT).
 -- Envoi par l'admin, ou par l'intervenant dans SON dossier videos/intervenants/<son id>/.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('videos', 'videos', true, 52428800, array['video/mp4', 'video/quicktime', 'video/webm', 'text/vtt'])
+values ('videos', 'videos', true, 52428800, array['video/mp4', 'video/quicktime', 'video/webm', 'text/vtt',
+  'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/aac'])
 on conflict (id) do update set public = true, file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 create policy "artdive videos : admin gère" on storage.objects for all to authenticated

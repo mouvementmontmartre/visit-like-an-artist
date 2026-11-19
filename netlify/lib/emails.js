@@ -257,4 +257,28 @@ function redigerInvitation({ nom, lien }) {
   return { sujet: "Votre espace intervenant ArtDive", html, texte: versTexte(html) };
 }
 
-module.exports = { rediger, redigerInvitation, ics, esc };
+/** Lien d'accès à un parcours autoguidé, avec le rappel de l'accès immédiat et du renoncement (CGV art. 16.3). */
+function redigerAcces({ langue, titre, etapes, lien, reference, montant, audioguide }) {
+  const l = LOCALES[langue] ? langue : "fr";
+  const t = {
+    fr: { sujet: "Votre parcours : " + titre, bonjour: "Bonjour,", intro: "Votre parcours « " + titre + " » est débloqué" + (etapes ? " (" + etapes + " étapes)" : "") + (audioguide ? ", avec l'audioguide" : "") + ".",
+      bouton: "Ouvrir le parcours", garder: "Gardez cet email : ce lien personnel vous permet de retrouver le parcours sur n'importe quel téléphone. Ne le partagez pas.",
+      ligneRef: "Référence", lignePaye: "Payé", droit: "Vous avez demandé l'accès immédiat au parcours et reconnu perdre votre droit de rétractation dès son début (article L221-28, 13° du Code de la consommation).",
+      fin: "Bonne balade sur la Butte," },
+    en: { sujet: "Your tour: " + titre, bonjour: "Hello,", intro: "Your tour \"" + titre + "\" is unlocked" + (etapes ? " (" + etapes + " stops)" : "") + (audioguide ? ", with the audio guide" : "") + ".",
+      bouton: "Open the tour", garder: "Keep this email: this personal link lets you find the tour again on any phone. Do not share it.",
+      ligneRef: "Reference", lignePaye: "Paid", droit: "You asked for immediate access to the tour and acknowledged that you lose your right of withdrawal once it starts (article L221-28, 13° of the French Consumer Code).",
+      fin: "Enjoy your walk on the Butte," },
+    es: { sujet: "Tu recorrido: " + titre, bonjour: "Hola,", intro: "Tu recorrido «" + titre + "» está desbloqueado" + (etapes ? " (" + etapes + " etapas)" : "") + (audioguide ? ", con la audioguía" : "") + ".",
+      bouton: "Abrir el recorrido", garder: "Guarda este email: este enlace personal te permite volver al recorrido desde cualquier móvil. No lo compartas.",
+      ligneRef: "Referencia", lignePaye: "Pagado", droit: "Pediste el acceso inmediato al recorrido y reconociste perder tu derecho de desistimiento desde su inicio (artículo L221-28, 13° del Código de consumo francés).",
+      fin: "Buen paseo por la Butte," },
+  }[l];
+  const corps = "<p>" + esc(t.bonjour) + "</p><p>" + esc(t.intro) + "</p>" + bouton(lien, t.bouton) + "<p>" + esc(t.garder) + "</p>" +
+    '<table style="border-collapse:collapse">' + ligne(t.ligneRef, reference) + ligne(t.lignePaye, euros(montant, l)) + "</table>" +
+    '<p style="font-size:13px;color:#5A4E44">' + esc(t.droit) + "</p><p>" + esc(t.fin) + "<br>Mouvement Montmartre</p>";
+  const html = cadre(corps);
+  return { sujet: t.sujet, html, texte: versTexte(html) };
+}
+
+module.exports = { rediger, redigerInvitation, redigerAcces, ics, esc };
