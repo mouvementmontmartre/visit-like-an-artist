@@ -420,8 +420,14 @@ function visiteBannerSrc(v) {
   if (v["Photo"]) return v["Photo"];
   const nom = (v["Nom"] || "") + " " + (v["id"] || "");
   const found = VISITE_BANNIERES_LOCALES.find(b => b.match.test(nom));
-  return found ? found.src : "";
+  return found ? found.src : (IMAGES_PAR_TYPE[offreTypeOf(v)] || "");
 }
+/** Image de fond par type d'expérience, quand une fiche n'a pas sa propre photo.
+    Visites et escape game : en attente des images de l'association. */
+const IMAGES_PAR_TYPE = {
+  atelier: "icons/fond-atelier.jpg",
+  diner: "icons/fond-soiree.jpg",
+};
 
 /** Bandeaux sponsors (image + nom en overlay, cliquable) : rendus depuis
     CONFIG.sponsors, identiques sur Accueil et Festival. targetId : id du conteneur. */
