@@ -1492,7 +1492,8 @@ function peindreFormExperience(corps, e) {
       participants_min: Math.min(e.participants_min || 1, places.valeur()),
       langues: admLanguesChoisies("x-langues").length ? admLanguesChoisies("x-langues") : ["fr"],
       photo_url: $("#x-photo").dataset.url || null, point_rdv: admTraduit("x-rdv"),
-      point_rdv_lat: pos.lat == null ? null : pos.lat, point_rdv_lng: pos.lng == null ? null : pos.lng, prix_centimes: prix };
+      point_rdv_lat: pos.lat == null ? null : pos.lat, point_rdv_lng: pos.lng == null ? null : pos.lng,
+      prix_centimes: prix + (e.prereservation_centimes || 0) };   // prix affiché = net ; une ancienne fiche garde sa pré-réservation
     if (!enLigne) { d.type = admChoix("x-type"); d.titre = admTraduit("x-titre"); }
     if (refusee) Object.assign(d, { a_valider: true, refusee_le: null, motif_refus: null });   // renvoyée pour validation
     note.textContent = t("member.loading");
