@@ -50,6 +50,9 @@ const T = {
     seance_annulee_sujet: (d) => "Séance annulée : " + d,
     seance_annulee_minimum: "Le nombre minimum de participants n'a pas été atteint : la séance est annulée.",
     seance_annulee_orga: "Nous sommes désolés : la séance est annulée par l'organisation.",
+    seance_annulee_intervenant: (g) => "Nous sommes désolés : " + (g || "votre hôte") + " ne peut pas assurer la séance, elle est annulée. Votre réservation est annulée sans aucun frais.",
+    mot_intervenant: (g) => "Le mot de " + (g || "votre hôte"),
+    autre_date: "Choisissez une autre date dans ArtDive :",
     rembourse: (m) => "Vous êtes remboursé intégralement de " + m + ". Le remboursement apparaît sur votre compte sous 5 à 10 jours.",
     tardif_sujet: (d) => "Réservation impossible, vous êtes remboursé : " + d,
     tardif_texte: "Votre paiement est arrivé après la fin du délai de réservation, et la dernière place a été prise entre-temps.",
@@ -107,6 +110,9 @@ const T = {
     seance_annulee_sujet: (d) => "Session cancelled: " + d,
     seance_annulee_minimum: "The minimum number of participants was not reached: the session is cancelled.",
     seance_annulee_orga: "We are sorry: the session has been cancelled by the organisers.",
+    seance_annulee_intervenant: (g) => "We are sorry: " + (g || "your host") + " cannot run the session, so it has been cancelled. Your booking is cancelled free of charge.",
+    mot_intervenant: (g) => "A word from " + (g || "your host"),
+    autre_date: "Pick another date in ArtDive:",
     rembourse: (m) => "You are fully refunded " + m + ". The refund shows on your account within 5 to 10 days.",
     tardif_sujet: (d) => "Booking not possible, you are refunded: " + d,
     tardif_texte: "Your payment arrived after the booking time limit, and the last spot was taken in the meantime.",
@@ -164,6 +170,9 @@ const T = {
     seance_annulee_sujet: (d) => "Sesión cancelada: " + d,
     seance_annulee_minimum: "No se alcanzó el número mínimo de participantes: la sesión se cancela.",
     seance_annulee_orga: "Lo sentimos: la organización ha cancelado la sesión.",
+    seance_annulee_intervenant: (g) => "Lo sentimos: " + (g || "tu anfitrión") + " no puede realizar la sesión, por lo que se ha cancelado. Tu reserva se cancela sin ningún gasto.",
+    mot_intervenant: (g) => "Unas palabras de " + (g || "tu anfitrión"),
+    autre_date: "Elige otra fecha en ArtDive:",
     rembourse: (m) => "Se te reembolsan íntegramente " + m + ". El reembolso aparece en tu cuenta en 5 a 10 días.",
     tardif_sujet: (d) => "Reserva imposible, se te reembolsa: " + d,
     tardif_texte: "Tu pago llegó después del plazo de reserva y la última plaza se ocupó mientras tanto.",
@@ -269,8 +278,10 @@ function rediger(envoi) {
     case "seance_annulee":
       sujet = t.seance_annulee_sujet(nomVisite);
       corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p><p>" +
-        esc(d.motif === "minimum_non_atteint" ? t.seance_annulee_minimum : t.seance_annulee_orga) + "</p>" +
-        (d.paye_en_ligne_centimes > 0 ? "<p>" + esc(t.rembourse(euros(d.paye_en_ligne_centimes, l))) + "</p>" : "") + recap + fin;
+        esc(d.motif === "minimum_non_atteint" ? t.seance_annulee_minimum : d.motif === "intervenant_empeche" ? t.seance_annulee_intervenant(d.intervenant) : t.seance_annulee_orga) + "</p>" +
+        (d.message_intervenant ? '<p><b>' + esc(t.mot_intervenant(d.intervenant)) + '</b><br><span style="white-space:pre-line">' + esc(d.message_intervenant) + "</span></p>" : "") +
+        (d.paye_en_ligne_centimes > 0 ? "<p>" + esc(t.rembourse(euros(d.paye_en_ligne_centimes, l))) + "</p>" : "") + recap +
+        "<p>" + esc(t.autre_date) + ' <a href="' + esc(SITE_URL + "/") + '">artdive.app</a></p>' + fin;
       break;
     case "paiement_tardif":
       sujet = d.paye_en_ligne_centimes > 0 ? t.tardif_sujet(nomVisite) : t.tardif_sujet_0(nomVisite);
@@ -335,6 +346,15 @@ function rediger(envoi) {
       corps = "<p>La séance est annulée (" + esc(d.motif === "minimum_non_atteint" ? "minimum de participants non atteint 48 h avant"
         : d.motif === "intervenant_empeche" ? "intervenant empêché" : "annulation par l'organisation") + ").</p>" +
         "<p>" + esc(d.inscrits_rembourses) + " réservation(s) remboursée(s) automatiquement, chaque inscrit a été prévenu par email.</p>";
+      break;
+    case "alerte_annulation_intervenant":
+      sujet = "Séance annulée par " + (d.intervenant || "l'intervenant") + " : " + titre(d, "fr") + ", " + quand(d.debut, "fr");
+      corps = "<p>Pour information : " + esc(d.intervenant || "l'intervenant") + " a annulé sa séance depuis son espace.</p>" +
+        '<table style="border-collapse:collapse">' + ligne("Expérience", titre(d, "fr")) + ligne("Date", quand(d.debut, "fr")) + ligne("Rendez-vous", d.point_rdv) +
+        ligne("Inscrits prévenus", String(d.inscrits_rembourses || 0)) + "</table>" +
+        (d.message ? '<p><b>Son mot aux inscrits :</b><br><span style="white-space:pre-line">' + esc(d.message) + "</span></p>" : "") +
+        "<p>" + esc(d.inscrits_rembourses ? "Chaque inscrit a reçu un email ; sa réservation est annulée sans frais (remboursée s'il avait payé en ligne)." : "Personne n'était inscrit.") + "</p>" +
+        "<p style=\"font-size:13px;color:#5A4E44\">« Répondre » écrit directement à l'intervenant.</p>" + bouton(SITE_URL + "/#espace=seances", "Voir les séances");
       break;
     case "alerte_technique":
       sujet = "À vérifier : " + (d.probleme || "problème technique");

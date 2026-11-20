@@ -284,7 +284,21 @@ const lienDe = (mail) => (mail.htmlContent.match(/#connexion=([A-Za-z0-9_-]{43})
     sql("select public.confirmer_reservation($1, null, null, 0, 'cus_x', 'pm_x', null)", [q.rows[0].r.reservation_id]));
   r = await appel(validations, { action: "intervenant_supprimer", id: iHeber }, SESSION_ADMIN);
   v("suppression refusée tant qu'une séance à venir a des inscrits", r.status === 409 && r.d.error === "SEANCES_AVEC_INSCRITS", r.d);
-  await db.query("update public.reservations set statut = 'annulee', annulee_le = now(), annulee_par = 'client' where email = 'camille22@exemple.invalid' and statut = 'confirmee'");
+  // L'intervenant annule lui-même la séance (22/11) : l'inscrite et l'association sont prévenues.
+  const sLoin = (await ligne("select id from public.seances where experience_id = $1 order by debut desc limit 1", [x.id])).id;
+  const ann = (await comme(heber, "select public.annuler_seance($1, 'annulation_organisation', 'Je suis souffrant, désolé.') as r", [sLoin])).rows[0].r;
+  process.env.NOTIFY_EMAIL = "alertes22@exemple.invalid";
+  await traiterEnvois(50);
+  delete process.env.NOTIFY_EMAIL;
+  mail = brevo.filter((m) => m.to[0].email === "camille22@exemple.invalid" && /annulée/i.test(m.subject)).slice(-1)[0];
+  v("annulation par l'intervenant : l'inscrite reçoit un email avec son mot, sans frais", ann.inscrits === 1 && mail && mail.htmlContent.includes("Je suis souffrant") &&
+    mail.htmlContent.includes("sans aucun frais"), mail && mail.subject);
+  mail = dernierMail("alertes22@exemple.invalid");
+  v("l'association est prévenue (NOTIFY_EMAIL), Répondre vers l'intervenant", mail && /Séance annulée par Essai Heber/.test(mail.subject) && mail.replyTo.email === "heber@exemple.invalid" &&
+    mail.htmlContent.includes("Je suis souffrant"), mail && mail.subject);
+  err = null;
+  try { await comme(heber, "update public.seances set statut = 'annulee' where id = $1", [sProche.id]); } catch (e) { err = e.message; }
+  v("pas d'annulation en changeant le statut (seulement par le bouton)", /bouton/.test(err || ""), err);
   r = await appel(validations, { action: "intervenant_supprimer", id: iHeber }, SESSION_ADMIN);
   v("intervenant supprimé : fiche, profil et compte de connexion", r.status === 200 && !(await ligne("select 1 from public.intervenants where id = $1", [iHeber])) &&
     !(await ligne("select 1 from auth.users where id = $1", [heber])) && authAppels.some((a) => a.m === "DELETE" && a.chemin.endsWith(heber)), r.d);

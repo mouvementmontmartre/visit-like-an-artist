@@ -847,8 +847,13 @@ async function peindreFormSeance(corps, x, modele) {
           '</div>';
         }).join("") + '</div>' : '<div class="member-note">' + esc(t("adm.aucunInscrit")) + '</div>') +
         '<div class="member-note" id="s-absent-note" role="status"></div>' +
-        (annulee ? '' : inter ? '<div class="member-note">' + esc(t("adm.annulerIntervenant")) + ' <a href="mailto:' + esc(CONFIG.contacts.general) + '">' + esc(CONFIG.contacts.general) + '</a></div>' :
-          '<div class="adm-encart"><b>' + esc(t("adm.annulerSeance")) + '</b><p class="member-note">' + esc(t("adm.annulerAide")) + '</p>' +
+        (annulee || (inter && commencee) ? '' : inter
+          // 22/11 : l'intervenant annule lui-même ; inscrits et association prévenus par email automatiquement.
+          ? '<div class="adm-encart"><b>' + esc(t("adm.annulerSeance")) + '</b><p class="member-note">' + esc(t(nInscrits ? "adm.annulerIntervenantAide" : "adm.annulerIntervenantSansInscrit")) + '</p>' +
+            (nInscrits ? '<label class="adm-champ"><span>' + esc(t("adm.annulerMot")) + '</span><textarea class="input-field" id="s-mot" rows="2" maxlength="1000" placeholder="' + esc(t("adm.annulerMotAide")) + '"></textarea></label>' : '') +
+            '<button type="button" class="cta ghost adm-danger" id="s-annuler">' + esc(t("adm.annulerSeance")) + '</button>' +
+            '<div class="resa-erreur" id="s-annuler-note" role="alert"></div></div>'
+          : '<div class="adm-encart"><b>' + esc(t("adm.annulerSeance")) + '</b><p class="member-note">' + esc(t("adm.annulerAide")) + '</p>' +
             admSelect("s-motif", [["annulation_organisation", t("adm.motifOrga")], ["intervenant_empeche", t("adm.motifIntervenant")]], "annulation_organisation") +
             '<button type="button" class="cta ghost" id="s-annuler">' + esc(t("adm.annulerSeance")) + '</button>' +
             '<div class="resa-erreur" id="s-annuler-note" role="alert"></div></div>')) +
@@ -901,14 +906,17 @@ async function peindreFormSeance(corps, x, modele) {
       admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t("adm.seanceSupprimee")) + '</div>');
     } catch (e) { $("#s-note").textContent = e.message === "RESERVATIONS" ? t("adm.supprimerSeanceImpossible") : admErreur(e); }
   });
-  if (!n && !annulee && !inter) $("#s-annuler").addEventListener("click", async () => {
-    if (!confirm(tx("adm.annulerConfirmer", { n: confirmees.length }))) return;
-    const note = $("#s-annuler-note");
+  if ($("#s-annuler")) $("#s-annuler").addEventListener("click", async () => {
+    if (!confirm(inter ? tx("adm.annulerConfirmerIntervenant", { n: nInscrits }) : tx("adm.annulerConfirmer", { n: confirmees.length }))) return;
+    const note = $("#s-annuler-note"), b = $("#s-annuler");
+    b.disabled = true; note.textContent = t("member.loading");
     try {
-      const r = await supaEcrire("POST", "rpc/annuler_seance", { p_seance_id: x.id, p_motif: admVal("s-motif") });
+      const r = await supaEcrire("POST", "rpc/annuler_seance", inter
+        ? { p_seance_id: x.id, p_motif: "intervenant_empeche", p_message: admVal("s-mot") || null }
+        : { p_seance_id: x.id, p_motif: admVal("s-motif") });
       await peindreFormSeance(corps, Object.assign({}, x, { statut: "annulee" }));
-      $("#s-note").textContent = tx("adm.annuleeFaite", { n: (r && r.inscrits) || 0 });
-    } catch (e) { note.textContent = admErreur(e); }
+      $("#s-note").textContent = inter ? tx("adm.annuleeIntervenant", { n: (r && r.inscrits) || 0 }) : tx("adm.annuleeFaite", { n: (r && r.inscrits) || 0 });
+    } catch (e) { note.textContent = /SEANCE_COMMENCEE/.test(e.message) ? t("adm.annulerTropTard") : admErreur(e); b.disabled = false; }
   });
   if (annulee) return;
   const enregistrer = async (statut) => {
@@ -1533,7 +1541,7 @@ async function peindreValidations(corps) {
       '<textarea class="input-field" rows="3" maxlength="1000" placeholder="' + esc(t("adm.motifAide")) + '"></textarea></label>' +
       '<button type="button" class="cta ghost adm-petit" data-decider="confirmer">' + esc(t("adm.confirmerRefus")) + '</button></span></span>';
   const NOTIFS = ["alerte_candidature", "alerte_demande", "alerte_experience", "alerte_seances_publiees", "acces_intervenant",
-    "experience_validee", "experience_refusee", "candidature_refusee", "seance_modifiee"];
+    "experience_validee", "experience_refusee", "candidature_refusee", "seance_modifiee", "alerte_annulation_intervenant", "seance_annulee"];
   admZone().innerHTML =
     (notifs.length ? '<div class="adm-encart adm-notifs"><b>' + esc(tx("adm.notifsNonEnvoyees", { n: notifs.length })) + '</b>' +
       '<p class="member-note">' + esc(t("adm.notifsAide")) + '</p>' + notifs.map((v) =>

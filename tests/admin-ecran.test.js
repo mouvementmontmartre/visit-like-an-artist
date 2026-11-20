@@ -272,6 +272,15 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   await pg.click("#s-publier");
   await attendre(pg, "#adm-zone", "Enregistré.");
   v("séance en ligne modifiée directement (plus de proposition)", st.db.seances[0].capacite_max === 8 && st.db.seances[0].point_rdv === "Place Blanche" && !st.db.propositions.length, JSON.stringify(st.db.seances[0]));
+  await pg.click('[data-adm-seance="s-1"]');
+  await pg.waitForSelector("#s-annuler");
+  v("l'intervenant peut annuler sa séance lui-même", await attendre(pg, "#adm-form", "Annuler la séance") && await attendre(pg, "#adm-form", "L'association est prévenue"));
+  pg.once("dialog", (d) => d.accept());
+  await pg.click("#s-annuler");
+  v("annulation par l'intervenant : fonction de la base, motif « intervenant empêché », message", await attendre(pg, "#s-note", "l'association est informée") &&
+    st.rpc.some((r) => r.nom === "annuler_seance" && r.args.p_seance_id === "s-1" && r.args.p_motif === "intervenant_empeche"));
+  await pg.click("#s-retour");
+  await pg.waitForSelector("#adm-nouvelle-seance");
   await pg.click("#adm-nouvelle-seance");
   await pg.selectOption("#s-exp", "x-1");
   v("places limitées à celles de l'expérience (maximum 10)", await attendre(pg, "#s-max-apres", "maximum 10"));
