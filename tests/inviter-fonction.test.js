@@ -30,6 +30,13 @@ global.fetch = async (url, opts = {}) => {
   if (u.pathname === "/auth/v1/admin/users") return etat.compteExiste ? rep(422, { error_code: "email_exists" }) : rep(200, { id: U_NEUF });
   if (u.pathname === "/auth/v1/admin/generate_link") return rep(200, { id: etat.userLien, email: corps.email, action_link: "https://mepcwassmoespzzsdjxf.supabase.co/auth/v1/verify?token=abc&type=magiclink&redirect_to=" + encodeURIComponent(corps.redirect_to) });
   if (u.hostname === "api.brevo.com") return etat.brevoOk ? rep(201, { messageId: "m" }) : rep(500, {});
+  // File des emails (22/11) : l'email d'accès est mis en file puis envoyé aussitôt.
+  etat.envois = etat.envois || [];
+  if (u.pathname === "/rest/v1/envois" && m === "POST") { const e = Object.assign({ id: etat.envois.length + 1, statut: "a_envoyer" }, corps); etat.envois.push(e); return rep(201, [e]); }
+  if (u.pathname === "/rest/v1/envois" && m === "GET") return rep(200, etat.envois.filter((e) => "eq." + e.id === u.searchParams.get("id")));
+  if (u.pathname === "/rest/v1/rpc/envois_a_traiter") { const lot = etat.envois.filter((e) => e.statut === "a_envoyer"); lot.forEach((e) => { e.statut = "en_cours"; }); return rep(200, lot); }
+  if (u.pathname === "/rest/v1/rpc/envoi_resultat") { const e = etat.envois.find((x) => x.id === corps.p_id); if (e) e.statut = corps.p_ok ? "envoye" : "echec"; return rep(200, null); }
+  if (u.pathname === "/rest/v1/rpc/connexion_lien_creer") { etat.liens = (etat.liens || []).concat([corps]); return rep(200, null); }
   return rep(404, {});
 };
 const { handler } = require(path.join(DEPOT, "netlify/functions/inviter.js"));
@@ -42,10 +49,11 @@ const appeler = (corps, jeton = "jeton-valide-de-session-0123456789") =>
   let r = await appeler({ intervenant_id: I });
   v("admin invite un nouvel intervenant : 200", r.status === 200, JSON.stringify(r));
   v("compte créé avec email confirmé", etat.appels.some((a) => a.chemin === "/auth/v1/admin/users" && a.corps.email === "guide@exemple.invalid" && a.corps.email_confirm === true));
-  v("lien de connexion vers artdive.app", etat.appels.some((a) => a.chemin === "/auth/v1/admin/generate_link" && a.corps.type === "magiclink" && a.corps.redirect_to === "https://artdive.app/"));
+  v("lien de connexion directe gardé en base par son empreinte seulement", etat.liens && etat.liens.length === 1 && etat.liens[0].p_email === "guide@exemple.invalid" && /^[0-9a-f]{64}$/.test(etat.liens[0].p_jeton_hash));
   v("profil intervenant relié à la fiche", etat.profils.some((p) => p.user_id === U_NEUF && p.role === "intervenant" && p.intervenant_id === I));
   const mail = etat.appels.find((a) => a.chemin.startsWith("/v3/smtp/email"));
-  v("email envoyé à l'intervenant avec le lien", mail && mail.corps.to[0].email === "guide@exemple.invalid" && mail.corps.htmlContent.includes("auth/v1/verify?token=abc") && mail.corps.htmlContent.includes("Sylvain Lesecq"));
+  v("email d'accès envoyé avec le lien de connexion (7 jours) vers l'espace", mail && mail.corps.to[0].email === "guide@exemple.invalid" &&
+    /https:\/\/artdive\.app\/#connexion=[A-Za-z0-9_-]{43}&amp;vers=espace/.test(mail.corps.htmlContent) && mail.corps.htmlContent.includes("Sylvain Lesecq") && r.body.notifie === true, mail && mail.corps.htmlContent);
   v("clé secrète jamais envoyée à Brevo", mail && !JSON.stringify(mail).includes("sb_secret_essai"));
 
   reinit({ compteExiste: true, profils: [{ user_id: U_ADMIN, role: "admin" }, { user_id: U_NEUF, role: "intervenant", intervenant_id: I }] });
@@ -75,7 +83,8 @@ const appeler = (corps, jeton = "jeton-valide-de-session-0123456789") =>
   v("identifiant invalide : 400", r.status === 400);
   reinit({ brevoOk: false });
   r = await appeler({ intervenant_id: I });
-  v("Brevo en panne : erreur rendue, sans détail technique", r.status === 500 && r.body.error === "ERREUR");
+  v("Brevo en panne : accès ouvert quand même, « notification non envoyée » (reste en file)", r.status === 200 && r.body.notifie === false &&
+    etat.profils.some((p) => p.user_id === U_NEUF) && etat.envois[0].statut === "echec");
 
   console.log("\n" + ok + " réussis, " + ko + " en échec"); process.exit(ko ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

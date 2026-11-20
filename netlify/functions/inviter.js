@@ -4,13 +4,14 @@
    de l'administratrice connectée dans l'app.
    Ouvre l'espace d'un intervenant : crée son compte de connexion s'il
    n'existe pas (les inscriptions libres restent fermées), le relie à sa
-   fiche (profil « intervenant ») et lui envoie par Brevo un email ArtDive
-   avec un lien de connexion. Réservé à l'admin : vérifié ici à partir de
+   fiche (profil « intervenant ») et lui envoie un email ArtDive avec un
+   lien de connexion directe valable 7 jours (22/11 ; ensuite, code à
+   6 chiffres depuis « Mon compte »). Réservé à l'admin : vérifié ici à partir de
    la session, pas sur la parole de l'app.
    ============================================================ */
 
-const { json, table, authAdmin, appelant, envoyerBrevo, emailValide, SITE_URL } = require("../lib/commun");
-const { redigerInvitation } = require("../lib/emails");
+const { json, table, appelant, emailValide, compteDeConnexion } = require("../lib/commun");
+const { traiterEnvois } = require("../lib/reservations");
 
 const uuidValide = (x) => typeof x === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(x);
 
@@ -31,16 +32,8 @@ exports.handler = async (event) => {
     if (!emailValide(email)) return json(400, { error: "EMAIL_MANQUANT" });
 
     // Compte de connexion : créé s'il n'existe pas encore (email déjà confirmé : c'est l'association qui l'invite).
-    const cree = await authAdmin("POST", "admin/users", { email, email_confirm: true });
-    if (!cree.ok && cree.status !== 422 && cree.status !== 400) throw new Error("Création du compte : " + cree.status);
-
-    // Lien de connexion, et identifiant du compte (nouveau ou existant).
-    const lien = await authAdmin("POST", "admin/generate_link", { type: "magiclink", email, redirect_to: SITE_URL + "/" });
-    if (!lien.ok || !lien.data) throw new Error("Lien de connexion : " + lien.status);
-    const d = lien.data;
-    const userId = d.id || (d.user && d.user.id);
-    const action = d.action_link || (d.properties && d.properties.action_link);
-    if (!uuidValide(userId) || !action) throw new Error("Lien de connexion incomplet");
+    const userId = await compteDeConnexion(email);
+    if (!uuidValide(userId)) throw new Error("Compte incomplet");
 
     // Profil : un compte = un rôle. On ne transforme jamais l'admin ni le compte d'un autre intervenant.
     const profil = (await table("GET", "profils?select=role,intervenant_id&user_id=eq." + userId))[0];
@@ -50,8 +43,14 @@ exports.handler = async (event) => {
     if (autre && autre.user_id !== userId) return json(409, { error: "FICHE_DEJA_RELIEE" });
     if (!profil) await table("POST", "profils", { user_id: userId, role: "intervenant", intervenant_id: p.intervenant_id }, { Prefer: "return=minimal" });
 
-    await envoyerBrevo(email, redigerInvitation({ nom: fiche.nom, lien: action }), ["invitation"]);
-    return json(200, { ok: true, email });
+    // Email d'accès par la file (lien de connexion directe, 7 jours) : un échec reste visible dans l'administration.
+    const envoi = (await table("POST", "envois", { type: "acces_intervenant", destinataire: email, langue: "fr",
+      donnees: { nom: fiche.nom, connexion: true, vers: "espace" }, cible_table: "intervenants", cible_id: p.intervenant_id },
+      { Prefer: "return=representation" }))[0];
+    await traiterEnvois(10).catch((e) => console.error("inviter envoi", e.message));
+    const v = (await table("GET", "envois?select=statut&id=eq." + envoi.id))[0];
+    if (!v || v.statut !== "envoye") return json(200, { ok: true, email, notifie: false });
+    return json(200, { ok: true, email, notifie: true });
   } catch (e) {
     console.error("inviter :", e.message);
     return json(500, { error: "ERREUR" });

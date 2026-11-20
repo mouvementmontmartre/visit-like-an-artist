@@ -9,6 +9,8 @@
    - SUPABASE_SECRET_KEY    clé secrète Supabase (sb_secret_… ou service_role)
    - BREVO_API_KEY          clé API Brevo (envoi des emails)
    - SUPABASE_URL, SITE_URL, EMAIL_EXPEDITEUR, EMAIL_REPONSE : facultatives
+   - NOTIFY_EMAIL           facultative : adresse qui reçoit les emails d'information
+                            de l'association (sinon EMAIL_REPONSE)
    - STRIPE_PRIX_ADHESION   facultative : prix de l'abonnement d'adhésion (par défaut 5 €/an)
    ============================================================ */
 
@@ -325,10 +327,42 @@ async function carteAdhesion(email) {
   return pm ? { customer: c.stripe_customer, pm } : null;
 }
 
+/* ---------- Connexion à l'espace (intervenants, association) ----------
+   22/11 : une seule connexion par code à 6 chiffres pour tout le monde.
+   Une fois l'adresse prouvée (code, ou lien de connexion d'un email), le
+   serveur crée lui-même la session Supabase : lien magique généré sans
+   envoi d'email (admin/generate_link), aussitôt échangé contre une session
+   (/auth/v1/verify). Rien ne passe par l'adresse du navigateur. */
+
+/** Identifiant du compte de connexion d'une adresse ; le crée si besoin (email confirmé). */
+async function compteDeConnexion(email) {
+  const cree = await authAdmin("POST", "admin/users", { email, email_confirm: true });
+  if (cree.ok && cree.data && cree.data.id) return cree.data.id;
+  if (!cree.ok && cree.status !== 422 && cree.status !== 400) throw new Error("Création du compte : " + cree.status);
+  const lien = await authAdmin("POST", "admin/generate_link", { type: "magiclink", email });
+  const d = lien.data || {};
+  const id = d.id || (d.user && d.user.id);
+  if (!lien.ok || !id) throw new Error("Compte introuvable : " + lien.status);
+  return id;
+}
+
+/** Session Supabase (access_token, refresh_token, expires_at) pour une adresse dont le compte existe. */
+async function sessionPour(email) {
+  const lien = await authAdmin("POST", "admin/generate_link", { type: "magiclink", email });
+  const d = lien.data || {};
+  const hash = d.hashed_token || (d.properties && d.properties.hashed_token);
+  if (!lien.ok || !hash) throw new Error("Lien de session : " + lien.status);
+  const v = await authAdmin("POST", "verify", { type: "magiclink", token_hash: hash });
+  const s = v.data || {};
+  if (!v.ok || !s.access_token) throw new Error("Session : " + v.status);
+  return { access_token: s.access_token, refresh_token: s.refresh_token,
+    expires_at: s.expires_at || Math.floor(Date.now() / 1000) + (s.expires_in || 3600) };
+}
+
 module.exports = {
   SITE_URL, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE, CGV_VERSION, ADHESION_VERSION, PRIX_ADHESION,
   PRODUITS_ADHESION, LIENS_PONCTUELS, sessionAdhesion, carteAdhesion,
   json, sha256hex, nouveauJeton, jetonValide, emailValide,
-  rpc, table, authAdmin, appelant, envoyerBrevo, stripe, stripePost, signatureStripeValide,
+  rpc, table, authAdmin, appelant, envoyerBrevo, compteDeConnexion, sessionPour, stripe, stripePost, signatureStripeValide,
   idDe, iso, periode, nomDeSession, formuleAbonnement, enregistrerAbonnement, enregistrerSession,
 };

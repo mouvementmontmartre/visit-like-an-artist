@@ -153,6 +153,10 @@ begin
                         'sanstel@exemple.invalid', 'version@exemple.invalid', 'cgv@exemple.invalid', 'case@exemple.invalid']) m;
     insert into public.intervenants_contacts (intervenant_id, email) values
       (i_a, 'guide-a@exemple.invalid'), (i_b, 'guide-b@exemple.invalid');
+    insert into auth.users (id, email) values (gen_random_uuid(), 'candidat@exemple.invalid');
+    insert into public.candidatures (type, nom, email, message) values
+      ('artiste', 'Candidat Essai', 'candidat@exemple.invalid', 'Atelier de gravure'),
+      ('guide', 'Refusé Essai', 'refuse@exemple.invalid', 'Visites');
 
     insert into public.propositions (id, intervenant_id, type, donnees) values
       (p_a, i_a, 'fiche', '{"nom":"Intervenant A corrigé","publie":false,"ordre":999}');
@@ -222,20 +226,44 @@ begin
         pg_temp.essai('authenticated', u_a, format('insert into public.seances (experience_id, debut, langue, capacite_max, participants_min, statut) values (%L, now() + interval %L, %L, 6, 1, %L)', x_a, '30 days', 'en', 'brouillon'))),
       jsonb_build_array('Contrôle', 'le minimum choisi par l''intervenant (1) est gardé', '1',
         pg_temp.essai(null, null, format('select 1 from public.seances where experience_id = %L and capacite_max = 6 and participants_min = 1 and cree_par = %L and statut = %L', x_a, u_a, 'brouillon'))),
-      jsonb_build_array('Intervenant A', 'ne publie pas une séance lui-même', 'refus',
-        pg_temp.essai('authenticated', u_a, format('insert into public.seances (experience_id, debut, statut) values (%L, now() + interval %L, %L)', x_a, '31 days', 'publiee'))),
-      jsonb_build_array('Intervenant A', 'ne passe pas son brouillon en ligne', 'refus',
+      jsonb_build_array('Intervenant A', 'publie lui-même une séance sur sa visite validée (22/11)', '1',
+        pg_temp.essai('authenticated', u_a, format('insert into public.seances (experience_id, debut, statut, prix_centimes) values (%L, now() + interval %L, %L, 4500)', x_a, '31 days', 'publiee'))),
+      jsonb_build_array('Contrôle', 'l''association est prévenue de la séance publiée', '1',
+        pg_temp.essai(null, null, format('select 1 from public.envois where type = %L and cible_id = %L and jsonb_array_length(donnees->%L) = 1', 'alerte_seances_publiees', i_a, 'seances'))),
+      jsonb_build_array('Intervenant A', 'publie son brouillon (un seul email groupé)', '1',
         pg_temp.essai('authenticated', u_a, format('update public.seances set statut = %L where id = %L', 'publiee', s_a_brouillon))),
+      jsonb_build_array('Contrôle', 'les 2 séances sont dans le même email', '1',
+        pg_temp.essai(null, null, format('select 1 from public.envois where type = %L and cible_id = %L and jsonb_array_length(donnees->%L) = 2', 'alerte_seances_publiees', i_a, 'seances'))),
+      jsonb_build_array('Intervenant A', 'ne fixe pas de tarif adhérent ni de séance réservée lui-même', '0',
+        pg_temp.essai('authenticated', u_a, format('select 1 from public.seances where id = %L and (prix_adherent_centimes is not null or reservee_adherents)', s_a_brouillon))),
+      jsonb_build_array('Intervenant A', 'supprime sa séance sans réservation', '1',
+        pg_temp.essai('authenticated', u_a, format('delete from public.seances where experience_id = %L and prix_centimes = 4500', x_a))),
+      jsonb_build_array('Intervenant A', 'ne supprime pas une séance qui a des réservations', 'refus',
+        pg_temp.essai('authenticated', u_a, format('delete from public.seances where id = %L', s_a))),
+      jsonb_build_array('Intervenant A', 'n''annule pas une séance lui-même (écrit à l''association)', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.seances set statut = %L where id = %L', 'annulee', s_a))),
       jsonb_build_array('Intervenant A', 'ne dépasse pas la jauge de l''expérience', 'refus',
         pg_temp.essai('authenticated', u_a, format('update public.seances set capacite_max = 50 where id = %L', s_a_brouillon))),
-      jsonb_build_array('Intervenant A', 'ne modifie pas directement une séance en ligne', 'refus',
+      jsonb_build_array('Intervenant A', 'modifie sa séance en ligne (22/11)', '1',
         pg_temp.essai('authenticated', u_a, format('update public.seances set point_rdv = %L where id = %L', 'Ailleurs', s_a))),
+      jsonb_build_array('Contrôle', 'chaque inscrit reçoit un email avec un lien pour annuler', '1',
+        pg_temp.essai(null, null, format('select distinct 1 from public.envois v join public.reservations r on r.id = v.reservation_id where v.type = %L and r.seance_id = %L and v.donnees ? %L and (v.donnees->>%L)::boolean', 'seance_modifiee', s_a, 'jeton', 'lieu_change'))),
+      jsonb_build_array('Contrôle', 'la séance est notée modifiée', '1',
+        pg_temp.essai(null, null, format('select 1 from public.seances where id = %L and modifiee_le is not null', s_a))),
       jsonb_build_array('Intervenant A', 'ne crée pas de séance sur l''atelier de B', 'refus',
         pg_temp.essai('authenticated', u_a, format('insert into public.seances (experience_id, debut, statut) values (%L, now() + interval %L, %L)', x_b, '30 days', 'brouillon'))),
       jsonb_build_array('Intervenant A', 'ne change pas son prix', 'refus',
         pg_temp.essai('authenticated', u_a, format('update public.experiences set prix_centimes = 9900, prereservation_centimes = 0 where id = %L', x_a))),
-      jsonb_build_array('Intervenant A', 'ne modifie pas sa fiche sans validation', 'refus',
-        pg_temp.essai('authenticated', u_a, format('update public.intervenants set nom = %L where id = %L', 'Sans validation', i_a))),
+      jsonb_build_array('Intervenant A', 'modifie sa fiche directement (22/11)', '1',
+        pg_temp.essai('authenticated', u_a, format('update public.intervenants set nom = %L, bio = %L where id = %L', 'Sans validation', '{"fr":"Guide"}', i_a))),
+      jsonb_build_array('Contrôle', 'fiche changée, traductions à relire, journal', '1',
+        pg_temp.essai(null, null, format('select 1 from public.intervenants i where id = %L and nom = %L and langues_relues = %L and exists (select 1 from public.journal_admin where action = %L and cible_id = i.id)', i_a, 'Sans validation', '{fr}', 'fiche_modifiee'))),
+      jsonb_build_array('Intervenant A', 'ne dépublie pas et ne change pas le type de sa fiche', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.intervenants set publie = false, type = %L where id = %L', 'lieu', i_a))),
+      jsonb_build_array('Intervenant A', 'ne modifie pas la fiche de B', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.intervenants set nom = %L where id = %L', 'Piraté', i_b))),
+      jsonb_build_array('Intervenant A', 'ne lit pas les notifications non envoyées', 'refus',
+        pg_temp.essai('authenticated', u_a, 'select * from public.notifications_non_envoyees()')),
       jsonb_build_array('Intervenant A', 'ne change pas la visibilité d''un lieu', 'refus',
         pg_temp.essai('authenticated', u_a, format('update public.lieux set visibilite = %L where id = %L', 'adherent', l_pub))),
       jsonb_build_array('Intervenant A', 'dépose une proposition pour sa séance', '1',
@@ -288,22 +316,71 @@ begin
         pg_temp.essai('authenticated', u_a, format('update public.experiences set description = %L where id = %L', '{"fr":"Piraté"}', x_b))),
       jsonb_build_array('Intervenant B', 'ne modifie pas la visite de A', 'refus',
         pg_temp.essai('authenticated', u_b, format('update public.experiences set capacite_max = 99 where id = %L', x_a))),
-      jsonb_build_array('Intervenant A', 'propose une nouvelle visite (en essayant de la publier à 1 €)', '1',
-        pg_temp.essai('authenticated', u_a, format('insert into public.experiences (type, titre, publie, prix_centimes, intervenant_id) values (%L, %L, true, 100, %L)', 'visite_guidee', '{"fr":"Montmartre la nuit"}', i_b))),
-      jsonb_build_array('Contrôle', 'proposition à son nom, non publiée, à valider, sans prix', '1',
-        pg_temp.essai(null, null, format('select 1 from public.experiences where titre->>%L = %L and intervenant_id = %L and not publie and a_valider and prix_centimes is null and prereservation_centimes = 500 and participants_min >= 1 and slug like %L', 'fr', 'Montmartre la nuit', i_a, 'montmartre-la-nuit-%'))),
+      jsonb_build_array('Intervenant A', 'propose une nouvelle visite à 45 € (en essayant de la publier)', '1',
+        pg_temp.essai('authenticated', u_a, format('insert into public.experiences (type, titre, publie, prix_centimes, capacite_max, intervenant_id) values (%L, %L, true, 4500, 8, %L)', 'visite_guidee', '{"fr":"Montmartre la nuit"}', i_b))),
+      jsonb_build_array('Contrôle', 'à son nom, non publiée, à valider, son prix net, sans pré-réservation', '1',
+        pg_temp.essai(null, null, format('select 1 from public.experiences where titre->>%L = %L and intervenant_id = %L and not publie and a_valider and prix_centimes = 4500 and prereservation_centimes = 0 and participants_min >= 1 and slug like %L', 'fr', 'Montmartre la nuit', i_a, 'montmartre-la-nuit-%'))),
+      jsonb_build_array('Contrôle', 'l''association est prévenue (réponse à l''intervenant)', '1',
+        pg_temp.essai(null, null, format('select 1 from public.envois v join public.experiences e on e.id = v.cible_id where v.type = %L and e.titre->>%L = %L and (v.donnees->>%L)::boolean', 'alerte_experience', 'fr', 'Montmartre la nuit', 'pour_association'))),
+      jsonb_build_array('Intervenant A', 'ne propose pas sans prix', 'refus',
+        pg_temp.essai('authenticated', u_a, format('insert into public.experiences (type, titre, capacite_max) values (%L, %L, 8)', 'atelier', '{"fr":"Sans prix"}'))),
+      jsonb_build_array('Intervenant A', 'ne dépasse pas 200 caractères de description', 'refus',
+        pg_temp.essai('authenticated', u_a, format('insert into public.experiences (type, titre, description, prix_centimes, capacite_max) values (%L, %L, %L, 2000, 8)', 'atelier', '{"fr":"Long"}', jsonb_build_object('fr', repeat('x', 201))))),
+      jsonb_build_array('Intervenant A', 'ne publie pas de séance sur une expérience à valider', 'refus',
+        pg_temp.essai('authenticated', u_a, format('insert into public.seances (experience_id, debut, statut, capacite_max, participants_min) select id, now() + interval %L, %L, 4, 1 from public.experiences where titre->>%L = %L', '20 days', 'publiee', 'fr', 'Montmartre la nuit'))),
       jsonb_build_array('Visiteur', 'ne voit pas la visite proposée', 'refus',
         pg_temp.essai('anon', null, format('select 1 from public.experiences where titre->>%L = %L', 'fr', 'Montmartre la nuit'))),
       jsonb_build_array('Intervenant A', 'corrige le titre de sa proposition', '1',
         pg_temp.essai('authenticated', u_a, format('update public.experiences set titre = %L where titre->>%L = %L', '{"fr":"Montmartre by night"}', 'fr', 'Montmartre la nuit'))),
       jsonb_build_array('Intervenant A', 'ne publie pas sa proposition lui-même', 'refus',
         pg_temp.essai('authenticated', u_a, format('update public.experiences set publie = true, a_valider = false where titre->>%L = %L', 'fr', 'Montmartre by night'))),
-      jsonb_build_array('Intervenant A', 'ne propose pas d''escape game', 'refus',
-        pg_temp.essai('authenticated', u_a, format('insert into public.experiences (type, titre) values (%L, %L)', 'escape_game', '{"fr":"Mon escape"}'))),
+      jsonb_build_array('Intervenant A', 'ne propose pas de soirée', 'refus',
+        pg_temp.essai('authenticated', u_a, format('insert into public.experiences (type, titre, prix_centimes, capacite_max) values (%L, %L, 2000, 8)', 'soiree', '{"fr":"Ma soirée"}'))),
+      jsonb_build_array('Intervenant A', 'propose un escape game (22/11)', '1',
+        pg_temp.essai('authenticated', u_a, format('insert into public.experiences (type, titre, prix_centimes, capacite_max) values (%L, %L, 2500, 6)', 'escape_game', '{"fr":"Mon escape"}'))),
+      jsonb_build_array('Intervenant A', 'n''appelle pas la validation des expériences', 'refus',
+        pg_temp.essai('authenticated', u_a, format('select public.valider_experience(id, %L) from public.experiences where titre->>%L = %L', u_a, 'fr', 'Mon escape'))),
       jsonb_build_array('Admin', 'fixe le prix et publie la visite proposée', '1',
         pg_temp.essai('authenticated', u_admin, format('update public.experiences set prix_centimes = 4000, capacite_max = 8, publie = true, a_valider = false where titre->>%L = %L', 'fr', 'Montmartre by night'))),
       jsonb_build_array('Visiteur', 'voit maintenant la visite validée', '1',
-        pg_temp.essai('anon', null, format('select 1 from public.experiences where titre->>%L = %L', 'fr', 'Montmartre by night')))
+        pg_temp.essai('anon', null, format('select 1 from public.experiences where titre->>%L = %L', 'fr', 'Montmartre by night'))),
+      -- Validations par l'association (22/11) : serveur, après vérification de la session admin.
+      jsonb_build_array('Serveur', 'refuse l''escape game avec un motif', '1',
+        pg_temp.essai('service_role', null, format('select public.refuser_experience(id, %L, %L) from public.experiences where titre->>%L = %L', 'Précisez le lieu', u_admin, 'fr', 'Mon escape'))),
+      jsonb_build_array('Contrôle', 'refusée, motif gardé, email à l''intervenant', '1',
+        pg_temp.essai(null, null, format('select 1 from public.experiences e join public.envois v on v.cible_id = e.id and v.type = %L and v.destinataire = %L where e.titre->>%L = %L and not e.a_valider and e.refusee_le is not null and e.motif_refus = %L', 'experience_refusee', 'guide-a@exemple.invalid', 'fr', 'Mon escape', 'Précisez le lieu'))),
+      jsonb_build_array('Intervenant A', 'corrige et renvoie son expérience refusée', '1',
+        pg_temp.essai('authenticated', u_a, format('update public.experiences set description = %L, a_valider = true, refusee_le = null, motif_refus = null where titre->>%L = %L', '{"fr":"Rue Lepic"}', 'fr', 'Mon escape'))),
+      jsonb_build_array('Contrôle', 'l''association est de nouveau prévenue', '2',
+        pg_temp.essai(null, null, format('select 1 from public.envois v join public.experiences e on e.id = v.cible_id where v.type = %L and e.titre->>%L = %L', 'alerte_experience', 'fr', 'Mon escape'))),
+      jsonb_build_array('Serveur', 'valide l''escape game', '1',
+        pg_temp.essai('service_role', null, format('select public.valider_experience(id, %L) from public.experiences where titre->>%L = %L', u_admin, 'fr', 'Mon escape'))),
+      jsonb_build_array('Contrôle', 'en ligne, email « Créez votre première séance » avec lien de connexion', '1',
+        pg_temp.essai(null, null, format('select 1 from public.experiences e join public.envois v on v.cible_id = e.id and v.type = %L where e.titre->>%L = %L and e.publie and not e.a_valider and e.validee_le is not null and (v.donnees->>%L)::boolean', 'experience_validee', 'fr', 'Mon escape', 'connexion'))),
+      jsonb_build_array('Intervenant A', 'publie une séance d''escape game validé', '1',
+        pg_temp.essai('authenticated', u_a, format('insert into public.seances (experience_id, debut, fin, statut, capacite_max, participants_min, prix_centimes) select id, now() + interval %L, now() + interval %L, %L, 6, 2, 2500 from public.experiences where titre->>%L = %L', '20 days', '20 days 90 minutes', 'publiee', 'fr', 'Mon escape'))),
+      jsonb_build_array('Visiteur', 'voit la séance, réservée aux adhérents, prix net 25 €', '1',
+        pg_temp.essai('anon', null, format('select 1 from public.seances_publiques p join public.experiences e on e.id = p.experience_id where e.titre->>%L = %L and p.reservee_adherents and p.prix_centimes = 2500', 'fr', 'Mon escape'))),
+      jsonb_build_array('Serveur', 'accepte une candidature (fiche, compte, accès)', '1',
+        pg_temp.essai('service_role', null, format('select public.accepter_candidature(c.id, %L, %L) from public.candidatures c where c.email = %L', (select id from auth.users where email = 'candidat@exemple.invalid'), u_admin, 'candidat@exemple.invalid'))),
+      jsonb_build_array('Contrôle', 'intervenant non publié, profil, contact, email d''accès', '1',
+        pg_temp.essai(null, null, format('select 1 from public.candidatures c join public.intervenants i on i.id = c.intervenant_id and not i.publie join public.profils p on p.intervenant_id = i.id and p.role = %L join public.intervenants_contacts k on k.intervenant_id = i.id and k.email = c.email join public.envois v on v.cible_id = c.id and v.type = %L where c.email = %L and c.statut = %L', 'intervenant', 'acces_intervenant', 'candidat@exemple.invalid', 'acceptee'))),
+      jsonb_build_array('Serveur', 'refuse une candidature avec un motif', '1',
+        pg_temp.essai('service_role', null, format('select public.refuser_candidature(id, %L, %L) from public.candidatures where email = %L', 'Hors Montmartre', u_admin, 'refuse@exemple.invalid'))),
+      jsonb_build_array('Contrôle', 'refusée et prévenue', '1',
+        pg_temp.essai(null, null, format('select 1 from public.candidatures c join public.envois v on v.cible_id = c.id and v.type = %L where c.email = %L and c.statut = %L and c.motif_refus = %L', 'candidature_refusee', 'refuse@exemple.invalid', 'refusee', 'Hors Montmartre'))),
+      jsonb_build_array('Serveur', 'code de connexion pour un intervenant non adhérent', '1',
+        pg_temp.essai('service_role', null, format('select 1 where public.carte_code_creer(%L, repeat(%L, 64)) = %L', 'candidat@exemple.invalid', 'a', 'cree'))),
+      jsonb_build_array('Serveur', 'pas de code pour une adresse inconnue', '1',
+        pg_temp.essai('service_role', null, format('select 1 where public.carte_code_creer(%L, repeat(%L, 64)) = %L', 'inconnu@exemple.invalid', 'a', 'inconnu'))),
+      jsonb_build_array('Serveur', 'ne supprime pas un intervenant dont une séance a des inscrits', 'refus',
+        pg_temp.essai('service_role', null, format('select public.supprimer_intervenant(%L, %L)', i_b, u_admin))),
+      jsonb_build_array('Serveur', 'supprime l''intervenant de la candidature', '1',
+        pg_temp.essai('service_role', null, format('select public.supprimer_intervenant(intervenant_id, %L) from public.candidatures where email = %L', u_admin, 'candidat@exemple.invalid'))),
+      jsonb_build_array('Contrôle', 'fiche et profil effacés, candidature gardée', '1',
+        pg_temp.essai(null, null, format('select 1 from public.candidatures c where c.email = %L and c.intervenant_id is null and not exists (select 1 from public.profils p join auth.users u on u.id = p.user_id where u.email = c.email)', 'candidat@exemple.invalid'))),
+      jsonb_build_array('Intervenant A', 'n''appelle pas la suppression d''un intervenant', 'refus',
+        pg_temp.essai('authenticated', u_a, format('select public.supprimer_intervenant(%L, %L)', i_b, u_a)))
     );
 
     -- ---------- ADMIN ----------
@@ -327,7 +404,7 @@ begin
       jsonb_build_array('Contrôle', 'lieu et minimum (3) changés', '1',
         pg_temp.essai(null, null, format('select 1 from public.seances where id = %L and point_rdv = %L and participants_min = 3', s_a, 'Place des Abbesses'))),
       jsonb_build_array('Contrôle', 'les 2 validations sont dans le journal', '2',
-        pg_temp.essai(null, null, format('select 1 from public.journal_admin where acteur = %L', u_admin)))
+        pg_temp.essai(null, null, format('select 1 from public.journal_admin where acteur = %L and action like %L', u_admin, 'proposition%')))
     );
 
     -- ---------- SERVEUR (fonctions Netlify, clé secrète) ----------
@@ -674,7 +751,8 @@ begin
 
   select count(*)::text into v from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and has_function_privilege('authenticated', p.oid, 'execute')
-     and p.proname not in ('valider_proposition', 'refuser_proposition', 'code_import_creer', 'ajouter_adhesion_manuelle', 'annuler_seance', 'signaler_absence', 'registre_adherents');
+     and p.proname not in ('valider_proposition', 'refuser_proposition', 'code_import_creer', 'ajouter_adhesion_manuelle', 'annuler_seance', 'signaler_absence', 'registre_adherents',
+                         'notifications_non_envoyees', 'notification_reessayer');
   res := res || jsonb_build_array(jsonb_build_array('Structure', 'fonctions serveur appelables par un compte connecté', '0', v));
 
   begin

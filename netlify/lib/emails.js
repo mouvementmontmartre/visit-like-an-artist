@@ -18,7 +18,12 @@ const euros = (c, l) => new Intl.NumberFormat(LOCALES[l] || "fr-FR", { style: "c
 const quand = (iso, l) => new Intl.DateTimeFormat(LOCALES[l] || "fr-FR", { timeZone: "Europe/Paris",
   weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 const titre = (d, l) => (d.titre && (d.titre[l] || d.titre.fr)) || "";
-const estVisite = (d) => d.type === "visite_guidee" || d.type === "atelier";
+const estVisite = (d) => d.type === "visite_guidee" || d.type === "atelier" || d.type === "escape_game";
+/** Durée lisible : 150 → « 2 h 30 », 75 → « 1 h 15 », 45 → « 45 min ». */
+const duree = (m) => { m = Number(m) || 0; if (!m) return ""; const h = Math.floor(m / 60), r = m % 60;
+  return h ? h + " h" + (r ? " " + String(r).padStart(2, "0") : "") : r + " min"; };
+const TYPES_FR = { visite_guidee: "Visite guidée", atelier: "Atelier", escape_game: "Escape game", soiree: "Soirée", autoguidee: "Parcours autoguidé" };
+const PROFILS_FR = { guide: "Guide", artiste: "Artiste", lieu: "Lieu", autre: "Autre" };
 
 const T = {
   fr: {
@@ -71,6 +76,12 @@ const T = {
     relance_numero: "Membre n°",
     fin: "À bientôt sur la Butte,",
     signature: "Mouvement Montmartre",
+    modif_sujet: (d) => "Changement pour votre réservation : " + d,
+    modif_intro: "L'intervenant a modifié la séance que vous avez réservée. Voici les nouvelles informations.",
+    modif_avant: (q) => "Avant : " + q + ".",
+    modif_langue: "Langue de la séance",
+    modif_annuler: "Ce changement ne vous convient pas ? Vous pouvez annuler sans frais, même moins de 24 h avant, avec le bouton ci-dessous.",
+    langues: { fr: "français", en: "anglais", es: "espagnol", zh: "chinois", ar: "arabe", ru: "russe" },
   },
   en: {
     bonjour: (n) => "Hello " + n + ",",
@@ -122,6 +133,12 @@ const T = {
     relance_numero: "Member no.",
     fin: "See you soon on the Butte,",
     signature: "Mouvement Montmartre",
+    modif_sujet: (d) => "Change to your booking: " + d,
+    modif_intro: "Your host has changed the session you booked. Here are the new details.",
+    modif_avant: (q) => "Before: " + q + ".",
+    modif_langue: "Language of the session",
+    modif_annuler: "Does this change not suit you? You can cancel free of charge, even less than 24 hours before, with the button below.",
+    langues: { fr: "French", en: "English", es: "Spanish", zh: "Chinese", ar: "Arabic", ru: "Russian" },
   },
   es: {
     bonjour: (n) => "Hola " + n + ",",
@@ -173,6 +190,12 @@ const T = {
     relance_numero: "Socio n.º",
     fin: "Hasta pronto en la Butte,",
     signature: "Mouvement Montmartre",
+    modif_sujet: (d) => "Cambio en tu reserva: " + d,
+    modif_intro: "Tu anfitrión ha modificado la sesión que reservaste. Estos son los nuevos datos.",
+    modif_avant: (q) => "Antes: " + q + ".",
+    modif_langue: "Idioma de la sesión",
+    modif_annuler: "¿Este cambio no te viene bien? Puedes cancelar sin gastos, incluso con menos de 24 h de antelación, con el botón de abajo.",
+    langues: { fr: "francés", en: "inglés", es: "español", zh: "chino", ar: "árabe", ru: "ruso" },
   },
 };
 
@@ -319,6 +342,90 @@ function rediger(envoi) {
         '<table style="border-collapse:collapse">' + ligne("Problème", d.probleme) + ligne("Réservation", d.reference) +
         ligne("Nom", d.nom) + ligne("Détail", d.erreur) + "</table>";
       break;
+    case "seance_modifiee": {
+      const avant = [d.date_changee && d.ancien_debut ? quand(d.ancien_debut, l) : "", d.lieu_change ? d.ancien_point_rdv : ""].filter(Boolean).join(", ");
+      sujet = t.modif_sujet(nomVisite);
+      corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p><p>" + esc(t.modif_intro) + "</p>" +
+        "<h2 style=\"font-size:20px;margin:16px 0 4px\">" + esc(nomVisite) + "</h2>" + recap +
+        (d.langue_changee ? '<table style="border-collapse:collapse">' + ligne(t.modif_langue, t.langues[d.langue_seance] || d.langue_seance) + "</table>" : "") +
+        (avant ? '<p style="font-size:14px;color:#5A4E44">' + esc(t.modif_avant(avant)) + "</p>" : "") + mot +
+        "<p>" + esc(t.modif_annuler) + "</p>" + (lienResa ? bouton(lienResa, t.bouton_annuler) : "") + fin;
+      pieces = [{ name: "visite.ics", content: Buffer.from(ics(d), "utf8").toString("base64") }];
+      break;
+    }
+
+    // ---- Information de l'association (en français, « Répondre » écrit à la personne) ----
+    case "alerte_candidature":
+    case "alerte_demande": {
+      const cand = envoi.type === "alerte_candidature";
+      sujet = (d.a_verifier ? "[À vérifier : envoi très rapide] " : "") + (d.sujet || (cand ? "ArtDive : nouvelle candidature de " + d.nom : "ArtDive : nouvelle demande de " + d.nom));
+      corps = "<p>" + esc(cand ? "Nouvelle candidature pour devenir intervenant sur ArtDive." : "Nouvelle demande de visite ou d'atelier privé.") + "</p>" +
+        '<table style="border-collapse:collapse">' + (d.lignes || []).map((x) => ligne(x[0], x[1] == null ? "" : String(x[1]))).join("") + "</table>" +
+        (d.message ? '<p style="white-space:pre-line">' + esc(d.message) + "</p>" : "") +
+        "<p>Pour répondre, utilisez simplement « Répondre » : l'email part chez " + esc(d.nom) + ".</p>" +
+        bouton(SITE_URL + (cand ? "/#espace=valider" : "/#espace=demandes"), cand ? "Valider ou refuser la candidature" : "Ouvrir l'onglet Demandes");
+      break;
+    }
+    case "alerte_experience":
+      sujet = (d.renvoyee ? "Expérience corrigée à valider : " : "Nouvelle expérience à valider : ") + titre(d, "fr") + " (" + (d.intervenant || "") + ")";
+      corps = "<p>" + esc(d.intervenant || "Un intervenant") + (d.renvoyee ? " a corrigé et renvoyé son expérience." : " propose une nouvelle expérience.") + "</p>" +
+        '<table style="border-collapse:collapse">' + ligne("Titre", titre(d, "fr")) + ligne("Type", TYPES_FR[d.type] || d.type) +
+        ligne("Prix par personne (sur place)", d.prix_centimes != null ? euros(d.prix_centimes, "fr") : "") +
+        ligne("Places", d.capacite_max ? String(d.capacite_max) : "") + ligne("Durée", duree(d.duree_minutes)) +
+        ligne("Langues", (d.langues || []).join(", ")) + ligne("Rendez-vous", d.point_rdv && d.point_rdv.fr) + "</table>" +
+        (d.description && d.description.fr ? '<p style="white-space:pre-line">' + esc(d.description.fr) + "</p>" : "") +
+        bouton(SITE_URL + "/#espace=valider", "Valider ou refuser") +
+        "<p style=\"font-size:13px;color:#5A4E44\">« Répondre » écrit directement à l'intervenant.</p>";
+      break;
+    case "alerte_seances_publiees": {
+      const ss = d.seances || [];
+      sujet = (ss.length > 1 ? ss.length + " séances publiées" : "Séance publiée") + " par " + (d.intervenant || "un intervenant");
+      corps = "<p>Pour information : " + esc(d.intervenant || "un intervenant") + (ss.length > 1 ? " a mis en ligne " + ss.length + " séances." : " a mis en ligne une séance.") +
+        " Elles sont réservables tout de suite, aucune action n'est nécessaire.</p>" +
+        '<table style="border-collapse:collapse">' + ss.map((x) => ligne(quand(x.debut, "fr"),
+          [titre(x, "fr"), x.fin ? duree(Math.round((new Date(x.fin) - new Date(x.debut)) / 60000)) : "", (x.langue || "").toUpperCase(),
+           x.point_rdv, x.capacite_max + " places, minimum " + x.participants_min, x.prix_centimes != null ? euros(x.prix_centimes, "fr") + " par personne" : ""]
+            .filter(Boolean).join(" · "))).join("") + "</table>" +
+        bouton(SITE_URL + "/#espace=seances", "Voir les séances");
+      break;
+    }
+
+    // ---- Intervenants (en français) ----
+    case "acces_intervenant":
+      sujet = "Votre espace intervenant ArtDive est ouvert";
+      corps = "<p>Bonjour " + esc(d.nom || "") + ",</p>" +
+        "<p>Bonne nouvelle : le Mouvement Montmartre a accepté votre candidature. Votre espace intervenant est ouvert : " +
+        "décrivez votre première expérience (visite, atelier ou escape game), l'association la relit puis la valide, et vous pourrez publier vos séances.</p>" +
+        (d.lien ? bouton(d.lien, "Ouvrir mon espace") : "") +
+        '<p style="font-size:13px;color:#5A4E44">Ce lien vous connecte directement ; il est personnel et valable 7 jours. Ensuite, ouvrez ArtDive, touchez « Infos » puis « Mon compte » ' +
+        "et entrez cette adresse email : vous recevrez un code à 6 chiffres. Pas de mot de passe à retenir.</p>" +
+        "<p>À très vite sur la Butte,<br>Mouvement Montmartre · Paris 18e.</p>";
+      break;
+    case "experience_validee":
+      sujet = "Votre expérience « " + titre(d, "fr") + " » est validée";
+      corps = '<h2 style="font-size:22px;margin:0 0 8px">Bonne nouvelle, votre expérience est validée.</h2>' +
+        "<p>Bonjour " + esc(d.nom || "") + ", " + esc(titre(d, "fr")) + " est prête. Il ne reste plus qu'à choisir vos dates : " +
+        "créez votre première séance, elle sera en ligne tout de suite.</p>" +
+        '<div style="background:#F3EBDD;border-radius:12px;padding:14px 16px;margin:12px 0"><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#7A5B1F">Prochaine étape</div>' +
+        '<div style="font-size:18px;margin:4px 0"><b>Créer une séance</b></div><div style="font-size:14px;color:#5A4E44">Le lien vous connecte directement à votre espace intervenants.</div></div>' +
+        (d.lien ? bouton(d.lien, "Créer ma première séance") : "") +
+        '<p style="font-size:13px;color:#5A4E44">Lien personnel, valable 7 jours. Ensuite : « Infos », « Mon compte », et le code reçu par email.</p>' +
+        "<p>Mouvement Montmartre · Paris 18e.</p>";
+      break;
+    case "experience_refusee":
+      sujet = "Votre expérience « " + titre(d, "fr") + " » : à revoir";
+      corps = "<p>Bonjour " + esc(d.nom || "") + ",</p><p>L'association a relu votre expérience « " + esc(titre(d, "fr")) + " » et ne peut pas la mettre en ligne en l'état.</p>" +
+        (d.motif ? '<div style="background:#F3EBDD;border-radius:12px;padding:14px 16px;margin:12px 0"><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#7A5B1F">Motif</div><div style="white-space:pre-line">' + esc(d.motif) + "</div></div>" : "") +
+        "<p>Vous pouvez la corriger dans votre espace puis la renvoyer pour validation. Une question ? Répondez simplement à cet email.</p>" +
+        (d.lien ? bouton(d.lien, "Modifier mon expérience") : "") + "<p>Mouvement Montmartre · Paris 18e.</p>";
+      break;
+    case "candidature_refusee":
+      sujet = "Votre candidature ArtDive";
+      corps = "<p>Bonjour " + esc(d.nom || "") + ",</p><p>Merci pour votre intérêt pour ArtDive. Après lecture, le Mouvement Montmartre ne peut pas donner suite à votre candidature pour le moment.</p>" +
+        (d.motif ? '<div style="background:#F3EBDD;border-radius:12px;padding:14px 16px;margin:12px 0"><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#7A5B1F">Motif</div><div style="white-space:pre-line">' + esc(d.motif) + "</div></div>" : "") +
+        "<p>Une question ? Répondez simplement à cet email.</p><p>Mouvement Montmartre · Paris 18e.</p>";
+      break;
+
     default:
       throw new Error("Type d'email inconnu : " + envoi.type);
   }
@@ -394,4 +501,4 @@ function redigerAcceptation({ langue, nom, quoi }) {
   return { sujet: t.sujet, html, texte: versTexte(html) };
 }
 
-module.exports = { rediger, redigerInvitation, redigerAcces, redigerAcceptation, ics, esc };
+module.exports = { rediger, redigerInvitation, redigerAcces, redigerAcceptation, ics, esc, duree };

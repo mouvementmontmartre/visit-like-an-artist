@@ -3091,6 +3091,1018 @@ grant execute on function public.carte_code_creer(text, text), public.carte_code
   public.carte_email(text) to service_role;
 
 
+-- ============================================================
+-- 12. INTERVENANTS AUTONOMES, VALIDATIONS ET CONNEXION UNIQUE (22/11)
+-- (mêmes instructions que maj-14 à maj-18)
+-- ============================================================
+
+-- ---- Notifications d'information (maj-14, lot du 22/11) ----
+-- Emails à l'association (nouvelle candidature, expérience à valider,
+-- séances publiées) et aux intervenants (accès, validation, refus), mis en
+-- file comme les autres. Chaque email garde ce qu'il concerne (cible) :
+-- un envoi qui échoue n'empêche jamais l'enregistrement, il est journalisé
+-- et affiché « notification non envoyée » dans l'administration, avec un
+-- bouton pour réessayer.
+alter table public.envois
+  add column cible_table text check (cible_table in ('candidatures', 'demandes_groupes', 'experiences', 'intervenants', 'seances')),
+  add column cible_id uuid;
+create index envois_cible on public.envois (cible_table, cible_id);
+
+-- Met un email d'information en file (sans réservation) et rend son numéro.
+create function interne.notifier(p_type text, p_destinataire text, p_langue text, p_donnees jsonb,
+                                 p_cible_table text default null, p_cible_id uuid default null) returns bigint
+language plpgsql set search_path = ''
+as $$
+declare v_id bigint;
+begin
+  if coalesce(p_destinataire, '') !~ '^[^\s@]+@[^\s@]+\.[^\s@]+$' then return null; end if;
+  insert into public.envois (type, destinataire, langue, donnees, cible_table, cible_id)
+  values (p_type, lower(btrim(p_destinataire)), coalesce(p_langue, 'fr'), coalesce(p_donnees, '{}'::jsonb), p_cible_table, p_cible_id)
+  returning id into v_id;
+  return v_id;
+end $$;
+
+-- Même chose pour l'association (le serveur l'envoie à NOTIFY_EMAIL si cette variable existe).
+create function interne.notifier_association(p_type text, p_donnees jsonb,
+                                             p_cible_table text default null, p_cible_id uuid default null) returns bigint
+language sql set search_path = ''
+as $$
+  select interne.notifier(p_type, interne.email_association(), 'fr',
+                          coalesce(p_donnees, '{}'::jsonb) || jsonb_build_object('pour_association', true),
+                          p_cible_table, p_cible_id);
+$$;
+
+-- Administration : notifications pas encore parties (échec, ou nouvel essai en cours), 30 derniers jours.
+create function public.notifications_non_envoyees() returns table (
+  id bigint, type text, destinataire text, cree_le timestamptz, statut text, tentatives integer,
+  erreur text, cible_table text, cible_id uuid)
+language plpgsql stable security definer set search_path = ''
+as $$
+begin
+  if not interne.est_admin() then raise exception 'RESERVE_ADMIN'; end if;
+  return query
+    select v.id, v.type, v.destinataire, v.cree_le, v.statut, v.tentatives, v.erreur, v.cible_table, v.cible_id
+      from public.envois v
+     where v.cree_le > now() - interval '30 days'
+       and (v.statut = 'echec' or (v.statut in ('a_envoyer', 'en_cours') and v.tentatives > 0))
+     order by v.cree_le desc
+     limit 100;
+end $$;
+
+-- Administration : renvoyer une notification qui a échoué.
+create function public.notification_reessayer(p_id bigint) returns void
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  if not interne.est_admin() then raise exception 'RESERVE_ADMIN'; end if;
+  update public.envois set statut = 'a_envoyer', tentatives = 0, erreur = null, pris_le = null
+   where id = p_id and statut in ('echec', 'a_envoyer');
+end $$;
+
+-- File des emails : les annonces de séances groupées attendent 2 minutes
+-- (une répétition « tous les dimanches » crée plusieurs séances d'un coup).
+create or replace function public.envois_a_traiter(p_limite integer default 20) returns setof public.envois
+language sql set search_path = ''
+as $$
+  update public.envois set statut = 'en_cours', tentatives = tentatives + 1, pris_le = now()
+   where id in (select id from public.envois
+                 where (statut = 'a_envoyer' or (statut = 'en_cours' and pris_le < now() - interval '30 minutes'))
+                   and tentatives < 5
+                   and not (type = 'alerte_seances_publiees' and cree_le > now() - interval '2 minutes')
+                 order by cree_le limit p_limite for update skip locked)
+  returning *;
+$$;
+
+revoke all on function interne.notifier(text, text, text, jsonb, text, uuid),
+  interne.notifier_association(text, jsonb, text, uuid),
+  public.notifications_non_envoyees(), public.notification_reessayer(bigint) from public, anon, authenticated;
+grant execute on function interne.notifier(text, text, text, jsonb, text, uuid),
+  interne.notifier_association(text, jsonb, text, uuid) to service_role;
+grant execute on function public.notifications_non_envoyees(), public.notification_reessayer(bigint) to authenticated, service_role;
+
+-- ---- Validations par l'association (maj-15, lot du 22/11) ----
+-- Trois statuts distincts : la candidature (nouvelle, acceptee, refusee),
+-- l'expérience (a_valider, puis validee_le ou refusee_le) et la séance
+-- (publiée directement, sans validation). L'association valide la
+-- candidature puis chaque expérience, avec un motif en cas de refus ; un
+-- email part à chaque décision. Les décisions passent par la fonction
+-- Netlify « validations » (qui vérifie que l'appel vient de l'admin).
+alter table public.candidatures
+  add column motif_refus    text check (length(motif_refus) <= 1000),
+  add column traitee_le     timestamptz,
+  add column traitee_par    uuid,
+  add column intervenant_id uuid references public.intervenants(id) on delete set null;
+
+alter table public.experiences
+  add column validee_le  timestamptz,
+  add column refusee_le  timestamptz,
+  add column motif_refus text check (length(motif_refus) <= 1000);
+
+-- Candidature acceptée : fiche d'intervenant (non publiée), contact, profil
+-- relié au compte de connexion créé par le serveur, email d'accès.
+create function public.accepter_candidature(p_id uuid, p_user_id uuid, p_acteur uuid) returns jsonb
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  c public.candidatures;
+  p public.profils;
+  v_int uuid;
+  v_envoi bigint;
+begin
+  select * into c from public.candidatures where id = p_id for update;
+  if not found then raise exception 'CANDIDATURE_INTROUVABLE'; end if;
+  if c.statut = 'acceptee' then
+    return jsonb_build_object('deja', true, 'intervenant_id', c.intervenant_id, 'email', c.email);
+  end if;
+  select * into p from public.profils where user_id = p_user_id;
+  if found and p.role = 'admin' then raise exception 'COMPTE_ADMIN'; end if;
+
+  if found then
+    v_int := p.intervenant_id;            -- déjà intervenant : on garde sa fiche
+  else
+    insert into public.intervenants (localite_id, slug, type, nom, publie)
+    values (coalesce((select id from public.localites where id = 'montmartre'), (select id from public.localites order by id limit 1)),
+            interne.slugifier(c.nom) || '-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 4),
+            c.type, btrim(c.nom), false)
+    returning id into v_int;
+    insert into public.profils (user_id, role, intervenant_id) values (p_user_id, 'intervenant', v_int);
+  end if;
+  insert into public.intervenants_contacts (intervenant_id, email, telephone)
+  values (v_int, lower(btrim(c.email)), c.telephone)
+  on conflict (intervenant_id) do update set email = excluded.email,
+    telephone = coalesce(public.intervenants_contacts.telephone, excluded.telephone), maj_le = now();
+
+  update public.candidatures set statut = 'acceptee', traitee_le = now(), traitee_par = p_acteur,
+         motif_refus = null, intervenant_id = v_int
+   where id = c.id;
+  insert into public.journal_admin (acteur, action, cible_table, cible_id, details)
+  values (p_acteur, 'candidature_acceptee', 'candidatures', c.id, jsonb_build_object('intervenant_id', v_int));
+  v_envoi := interne.notifier('acces_intervenant', c.email, 'fr',
+               jsonb_build_object('nom', c.nom, 'connexion', true, 'vers', 'espace'), 'candidatures', c.id);
+  return jsonb_build_object('deja', false, 'intervenant_id', v_int, 'email', c.email, 'envoi_id', v_envoi);
+end $$;
+
+create function public.refuser_candidature(p_id uuid, p_motif text, p_acteur uuid) returns jsonb
+language plpgsql security definer set search_path = ''
+as $$
+declare c public.candidatures; v_envoi bigint;
+begin
+  update public.candidatures set statut = 'refusee', motif_refus = nullif(btrim(coalesce(p_motif, '')), ''),
+         traitee_le = now(), traitee_par = p_acteur
+   where id = p_id and statut = 'nouvelle'
+  returning * into c;
+  if not found then raise exception 'CANDIDATURE_INDISPONIBLE'; end if;
+  insert into public.journal_admin (acteur, action, cible_table, cible_id, details)
+  values (p_acteur, 'candidature_refusee', 'candidatures', c.id, jsonb_build_object('motif', c.motif_refus));
+  v_envoi := interne.notifier('candidature_refusee', c.email, 'fr',
+               jsonb_build_object('nom', c.nom, 'motif', c.motif_refus), 'candidatures', c.id);
+  return jsonb_build_object('statut', 'refusee', 'email', c.email, 'envoi_id', v_envoi);
+end $$;
+
+-- Expérience validée : en ligne tout de suite, fiche de l'intervenant publiée,
+-- email « Créez votre première séance » (E9.7) avec un lien de connexion directe.
+create function public.valider_experience(p_id uuid, p_acteur uuid) returns jsonb
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  e public.experiences;
+  v_email text;
+  v_nom text;
+  v_envoi bigint;
+begin
+  select * into e from public.experiences where id = p_id for update;
+  if not found or not e.a_valider then raise exception 'EXPERIENCE_INDISPONIBLE'; end if;
+  if e.intervenant_id is null then raise exception 'SANS_INTERVENANT'; end if;
+  if e.prix_centimes is null or e.capacite_max is null then raise exception 'PRIX_OU_PLACES_MANQUANTS'; end if;
+  update public.experiences set publie = true, actif = true, a_valider = false, validee_le = now(),
+         refusee_le = null, motif_refus = null,
+         prereservation_centimes = coalesce(prereservation_centimes, 0)
+   where id = e.id;
+  update public.intervenants set publie = true where id = e.intervenant_id and not publie;
+  select c.email, i.nom into v_email, v_nom
+    from public.intervenants i left join public.intervenants_contacts c on c.intervenant_id = i.id
+   where i.id = e.intervenant_id;
+  insert into public.journal_admin (acteur, action, cible_table, cible_id, details)
+  values (p_acteur, 'experience_validee', 'experiences', e.id, '{}'::jsonb);
+  v_envoi := interne.notifier('experience_validee', v_email, 'fr',
+               jsonb_build_object('nom', v_nom, 'titre', e.titre, 'connexion', true, 'vers', 'seance'), 'experiences', e.id);
+  return jsonb_build_object('statut', 'validee', 'email', v_email, 'envoi_id', v_envoi);
+end $$;
+
+create function public.refuser_experience(p_id uuid, p_motif text, p_acteur uuid) returns jsonb
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  e public.experiences;
+  v_email text;
+  v_nom text;
+  v_envoi bigint;
+begin
+  update public.experiences set a_valider = false, refusee_le = now(),
+         motif_refus = nullif(btrim(coalesce(p_motif, '')), '')
+   where id = p_id and a_valider
+  returning * into e;
+  if not found then raise exception 'EXPERIENCE_INDISPONIBLE'; end if;
+  select c.email, i.nom into v_email, v_nom
+    from public.intervenants i left join public.intervenants_contacts c on c.intervenant_id = i.id
+   where i.id = e.intervenant_id;
+  insert into public.journal_admin (acteur, action, cible_table, cible_id, details)
+  values (p_acteur, 'experience_refusee', 'experiences', e.id, jsonb_build_object('motif', e.motif_refus));
+  v_envoi := interne.notifier('experience_refusee', v_email, 'fr',
+               jsonb_build_object('nom', v_nom, 'titre', e.titre, 'motif', e.motif_refus, 'connexion', true, 'vers', 'espace'),
+               'experiences', e.id);
+  return jsonb_build_object('statut', 'refusee', 'email', v_email, 'envoi_id', v_envoi);
+end $$;
+
+-- ---- « Ma fiche » publiée directement par l'intervenant (décision du 22/11) ----
+-- Il modifie lui-même nom, métier, présentation, photo, vidéo, langues et
+-- Instagram. Le reste (type, adresse, publication, lieu, sous-titres) reste
+-- à l'association. Chaque changement est journalisé.
+create function interne.intervenants_garde() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  libres text[] := array['nom', 'role', 'bio', 'photo_url', 'video_url', 'instagram', 'langues', 'liens',
+                         'langues_relues', 'maj_le'];
+begin
+  if (select auth.uid()) is null or interne.est_admin() then return new; end if;
+  if new.id is distinct from interne.mon_intervenant_id() then raise exception 'Réservé à votre propre fiche.'; end if;
+  if (to_jsonb(new) - libres) is distinct from (to_jsonb(old) - libres) then
+    raise exception 'Seule l''association peut modifier le type, l''adresse, la publication et le lieu d''une fiche.';
+  end if;
+  if length(btrim(coalesce(new.nom, ''))) = 0 then raise exception 'Nom manquant.'; end if;
+  if new.video_url is distinct from old.video_url then new.sous_titres_url := null; end if;
+  if new.role is distinct from old.role or new.bio is distinct from old.bio then new.langues_relues := array['fr']; end if;
+  insert into public.journal_admin (acteur, action, cible_table, cible_id, details)
+  values ((select auth.uid()), 'fiche_modifiee', 'intervenants', new.id,
+          (select coalesce(jsonb_object_agg(k, to_jsonb(new)->k), '{}'::jsonb)
+             from jsonb_object_keys(to_jsonb(new)) k
+            where k not in ('maj_le', 'langues_relues') and to_jsonb(new)->k is distinct from to_jsonb(old)->k));
+  return new;
+end $$;
+create trigger intervenants_garde before update on public.intervenants
+  for each row execute function interne.intervenants_garde();
+
+create policy "intervenant modifie sa fiche" on public.intervenants for update to authenticated
+  using (id = (select interne.mon_intervenant_id()))
+  with check (id = (select interne.mon_intervenant_id()));
+
+-- ---- Suppression d'un intervenant par l'association ----
+-- Refusée tant qu'une séance à venir a des inscrits (l'annuler d'abord).
+-- Ses expériences sont retirées de l'app (gardées pour l'historique des
+-- réservations), ses séances à venir sans inscrit annulées ou supprimées,
+-- son accès fermé. Rend les comptes de connexion à supprimer (serveur).
+create function public.supprimer_intervenant(p_id uuid, p_acteur uuid) returns jsonb
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  i public.intervenants;
+  v_comptes uuid[];
+  v_inscrits integer;
+  v_exps integer;
+begin
+  select * into i from public.intervenants where id = p_id for update;
+  if not found then raise exception 'INTERVENANT_INTROUVABLE'; end if;
+  select count(distinct s.id) into v_inscrits
+    from public.seances s
+    join public.experiences e on e.id = s.experience_id
+    join public.reservations r on r.seance_id = s.id and r.statut = 'confirmee'
+   where e.intervenant_id = p_id and s.statut = 'publiee' and s.debut > now();
+  if v_inscrits > 0 then raise exception 'SEANCES_AVEC_INSCRITS' using detail = v_inscrits::text; end if;
+
+  -- Séances à venir : supprimées si personne n'a jamais réservé, sinon annulées.
+  delete from public.seances s using public.experiences e
+   where e.id = s.experience_id and e.intervenant_id = p_id and s.debut > now()
+     and not exists (select 1 from public.reservations r where r.seance_id = s.id);
+  update public.seances s set statut = 'annulee', annulee_le = now(), motif_annulation = 'intervenant_empeche'
+    from public.experiences e
+   where e.id = s.experience_id and e.intervenant_id = p_id and s.debut > now() and s.statut <> 'annulee';
+  update public.experiences set publie = false, a_valider = false where intervenant_id = p_id;
+  get diagnostics v_exps = row_count;
+
+  select coalesce(array_agg(user_id), '{}') into v_comptes from public.profils where intervenant_id = p_id and role = 'intervenant';
+  delete from public.profils where intervenant_id = p_id and role = 'intervenant';
+  update public.profils set intervenant_id = null where intervenant_id = p_id and role = 'admin';
+  delete from public.intervenants where id = p_id;
+  insert into public.journal_admin (acteur, action, cible_table, cible_id, details)
+  values (p_acteur, 'intervenant_supprime', 'intervenants', p_id,
+          jsonb_build_object('nom', i.nom, 'experiences_retirees', v_exps));
+  return jsonb_build_object('comptes', to_jsonb(v_comptes), 'experiences_retirees', v_exps, 'nom', i.nom);
+end $$;
+
+revoke all on function public.accepter_candidature(uuid, uuid, uuid), public.refuser_candidature(uuid, text, uuid),
+  public.valider_experience(uuid, uuid), public.refuser_experience(uuid, text, uuid),
+  public.supprimer_intervenant(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.accepter_candidature(uuid, uuid, uuid), public.refuser_candidature(uuid, text, uuid),
+  public.valider_experience(uuid, uuid), public.refuser_experience(uuid, text, uuid),
+  public.supprimer_intervenant(uuid, uuid) to service_role;
+revoke all on function interne.intervenants_garde() from public, anon, authenticated;
+
+-- ---- Expériences créées par les intervenants (maj-16, lot du 22/11, E11.6) ----
+-- L'intervenant saisit tout lui-même : type (visite, atelier, escape game),
+-- titre, description (200 caractères), photo, durée, places, langues, point
+-- de rendez-vous et SON prix par personne, réglé à lui sur place. Plus de
+-- pré-réservation de 5 € : le prix affiché est le prix net. L'expérience
+-- arrive « à valider » ; l'association la valide (en ligne) ou la refuse
+-- avec un motif. Refusée, il peut la corriger et la renvoyer.
+-- Escape game proposé par un intervenant : jeu animé, daté, réservé aux
+-- adhérents comme une visite (prix par personne réglé sur place).
+create or replace function interne.experiences_garde() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  restreint boolean := (select auth.uid()) is not null and not interne.est_admin();
+  moi uuid;
+  libres text[] := array['photo_url', 'description', 'accroche', 'bon_a_savoir',
+    'duree_minutes', 'langues', 'point_rdv', 'point_rdv_lat', 'point_rdv_lng',
+    'capacite_max', 'participants_min', 'langues_relues', 'nb_etapes', 'maj_le', 'prix_centimes'];
+begin
+  if not restreint then return new; end if;
+  moi := interne.mon_intervenant_id();
+  if moi is null then raise exception 'Réservé aux intervenants.'; end if;
+
+  if tg_op = 'INSERT' then
+    if new.type not in ('visite_guidee', 'atelier', 'escape_game') then
+      raise exception 'Un intervenant peut proposer une visite, un atelier ou un escape game.';
+    end if;
+    if new.prix_centimes is null or new.prix_centimes < 0 or new.prix_centimes > 100000 then
+      raise exception 'Prix par personne manquant.';
+    end if;
+    if new.capacite_max is null then raise exception 'Nombre de places manquant.'; end if;
+    if length(coalesce(new.description->>'fr', '')) > 200 then raise exception 'Description : 200 caractères maximum.'; end if;
+    new.intervenant_id := moi;
+    select localite_id into new.localite_id from public.intervenants where id = moi;
+    new.slug := interne.slugifier(new.titre->>'fr') || '-'
+                || substr(replace(gen_random_uuid()::text, '-', ''), 1, 4);
+    new.theme := null;
+    new.lieu_id := null;
+    new.prereservation_centimes := 0;          -- plus de frais de réservation : prix net
+    new.prix_libre_min_centimes := null;
+    new.option_audioguide_centimes := null;
+    new.delai_annulation_heures := 48;
+    new.frais_annulation_tardive_centimes := 1000;
+    new.delai_frais_heures := 24;
+    new.telephone_obligatoire := true;
+    new.privatisable := false;
+    new.age_minimum := null;
+    new.nb_etapes := 0;
+    new.langues_relues := '{fr}';
+    new.ordre := 0;
+    new.actif := true;
+    new.publie := false;
+    new.a_valider := true;
+    new.validee_le := null;
+    new.refusee_le := null;
+    new.motif_refus := null;
+    new.cree_le := now();
+    new.maj_le := now();
+    return new;
+  end if;
+
+  -- Tant que l'expérience n'est pas en ligne : titre et type aussi.
+  if not old.publie then libres := libres || array['titre', 'type']; end if;
+  -- Refusée : il la corrige puis la renvoie (« à valider » de nouveau).
+  if old.refusee_le is not null and not old.publie and new.a_valider and new.refusee_le is null and new.motif_refus is null then
+    libres := libres || array['a_valider', 'refusee_le', 'motif_refus'];
+  end if;
+  if (to_jsonb(new) - libres) is distinct from (to_jsonb(old) - libres) then
+    raise exception 'Seule l''association peut modifier la publication, le titre d''une expérience en ligne et les règles d''annulation.';
+  end if;
+  if new.type not in ('visite_guidee', 'atelier', 'escape_game') then
+    raise exception 'Un intervenant peut proposer une visite, un atelier ou un escape game.';
+  end if;
+  if new.prix_centimes is null or new.prix_centimes < 0 or new.prix_centimes > 100000 then
+    raise exception 'Prix par personne manquant.';
+  end if;
+  if new.description is distinct from old.description and length(coalesce(new.description->>'fr', '')) > 200 then
+    raise exception 'Description : 200 caractères maximum.';
+  end if;
+  if new.capacite_max is not null and new.participants_min > new.capacite_max then
+    raise exception 'Le minimum (%) dépasse le nombre de places (%).', new.participants_min, new.capacite_max;
+  end if;
+  -- Textes changés : les traductions seront à refaire puis à relire.
+  if new.titre is distinct from old.titre or new.description is distinct from old.description
+     or new.accroche is distinct from old.accroche or new.bon_a_savoir is distinct from old.bon_a_savoir
+     or new.point_rdv is distinct from old.point_rdv then
+    new.langues_relues := array['fr'];
+  end if;
+  return new;
+end $$;
+
+-- Nouvelle expérience (ou renvoyée après correction) : email à l'association.
+create function interne.experiences_alerte() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+declare v_nom text; v_email text;
+begin
+  if (select auth.uid()) is null or interne.est_admin() then return null; end if;
+  if not new.a_valider or (tg_op = 'UPDATE' and old.a_valider) then return null; end if;
+  select i.nom, c.email into v_nom, v_email
+    from public.intervenants i left join public.intervenants_contacts c on c.intervenant_id = i.id
+   where i.id = new.intervenant_id;
+  perform interne.notifier_association('alerte_experience', jsonb_build_object(
+    'titre', new.titre, 'type', new.type, 'description', new.description,
+    'prix_centimes', new.prix_centimes, 'capacite_max', new.capacite_max, 'duree_minutes', new.duree_minutes,
+    'langues', new.langues, 'point_rdv', new.point_rdv, 'intervenant', v_nom, 'repondre_a', v_email,
+    'renvoyee', tg_op = 'UPDATE'), 'experiences', new.id);
+  return null;
+end $$;
+create trigger experiences_alerte after insert or update of a_valider on public.experiences
+  for each row execute function interne.experiences_alerte();
+
+-- Escape game daté : réservé aux adhérents et réglé sur place, comme une visite.
+create or replace function interne.seance_pour_adherents(p_seance public.seances, p_exp public.experiences) returns boolean
+language sql immutable set search_path = ''
+as $$ select p_exp.type in ('visite_guidee', 'atelier', 'escape_game') or p_seance.reservee_adherents; $$;
+
+revoke all on function interne.experiences_alerte() from public, anon, authenticated;
+
+-- Escape game daté : mêmes règles qu'une visite pour la réservation, les frais et l'adhésion.
+create or replace function public.reserver_places(
+  p_seance_id uuid, p_personnes integer, p_nom text, p_email text,
+  p_telephone text default null, p_langue text default 'fr',
+  p_consentements jsonb default '{}', p_cgv_version text default null
+) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare
+  s public.seances;
+  e public.experiences;
+  r public.reservations;
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  v_tel   text := nullif(btrim(coalesce(p_telephone, '')), '');
+  v_prises integer;
+  v_unitaire integer;
+  v_total integer;
+  v_en_ligne integer;
+  v_frais boolean;
+  v_visite boolean;
+  v_adherent boolean;
+  v_accords jsonb;
+begin
+  -- Une seule case : les conditions de réservation (frais, rétractation, âge, non-remboursement y sont).
+  select coalesce(jsonb_object_agg(k, now()), '{}'::jsonb) into v_accords
+    from jsonb_each(coalesce(p_consentements, '{}'::jsonb)) as c(k, v)
+   where v = 'true'::jsonb and k = 'conditions';
+  if not v_accords ? 'conditions' then raise exception 'CONDITIONS_NON_ACCEPTEES'; end if;
+  if coalesce(p_cgv_version, '') = '' then raise exception 'CGV_VERSION_MANQUANTE'; end if;
+
+  select * into s from public.seances where id = p_seance_id for update;
+  if not found or s.statut <> 'publiee' or s.debut <= now() then
+    raise exception 'SEANCE_INDISPONIBLE';
+  end if;
+  select * into e from public.experiences where id = s.experience_id;
+  if not (e.publie and e.actif) then raise exception 'SEANCE_INDISPONIBLE'; end if;
+  v_visite := e.type in ('visite_guidee', 'atelier', 'escape_game');
+
+  if p_personnes is null or p_personnes < 1 or p_personnes > s.capacite_max then
+    raise exception 'NOMBRE_INVALIDE';
+  end if;
+  if e.telephone_obligatoire and v_tel is null then raise exception 'TELEPHONE_REQUIS'; end if;
+
+  v_adherent := interne.adhesion_valide_jusqua(v_email) is not null;
+  if interne.seance_pour_adherents(s, e) and not v_adherent then raise exception 'ADHESION_REQUISE'; end if;
+  v_frais := v_visite and e.frais_annulation_tardive_centimes > 0;
+
+  v_prises := interne.places_prises(s.id);
+  if v_prises + p_personnes > s.capacite_max then
+    raise exception 'COMPLET' using detail = (s.capacite_max - v_prises)::text;
+  end if;
+
+  v_unitaire := case when v_visite then interne.prix_adherent(s, e) else coalesce(s.prix_centimes, e.prix_centimes) end;
+  v_total := v_unitaire * p_personnes;
+  v_en_ligne := case when v_visite then 0 else v_total end;
+
+  insert into public.reservations
+    (seance_id, experience_id, nom, email, telephone, langue, personnes, statut, bloque_jusqua,
+     prix_unitaire_centimes, total_centimes, paye_en_ligne_centimes, reste_sur_place_centimes,
+     cgv_acceptees_le, accord_frais_le, cgv_version, consentements, adherent)
+  values
+    (s.id, e.id, btrim(p_nom), v_email, v_tel, coalesce(p_langue, 'fr'), p_personnes,
+     'en_attente', now() + interval '15 minutes',
+     v_unitaire, v_total, v_en_ligne, v_total - v_en_ligne, now(),
+     case when v_frais then now() end, p_cgv_version, v_accords, v_adherent)
+  returning * into r;
+
+  return jsonb_build_object(
+    'reservation_id', r.id, 'reference', r.reference,
+    'a_payer_centimes', r.paye_en_ligne_centimes,
+    'reste_sur_place_centimes', r.reste_sur_place_centimes,
+    'bloque_jusqua', r.bloque_jusqua,
+    'garder_carte', v_frais, 'age_minimum', e.age_minimum, 'adherent', v_adherent,
+    'frais_centimes', case when v_frais then least(e.frais_annulation_tardive_centimes * p_personnes, v_total - v_en_ligne) else 0 end,
+    'experience_type', e.type, 'experience_titre', e.titre, 'debut', s.debut);
+end $$;
+
+create or replace function public.retenir_pour_adhesion(
+  p_seance_id uuid, p_personnes integer, p_nom text, p_email text,
+  p_telephone text default null, p_langue text default 'fr'
+) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare
+  s public.seances;
+  e public.experiences;
+  r public.reservations;
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  v_prises integer;
+  v_unitaire integer;
+begin
+  if v_email !~ '^[^\s@]+@[^\s@]+\.[^\s@]+$' or length(btrim(coalesce(p_nom, ''))) not between 1 and 120 then
+    raise exception 'PARAMETRES';
+  end if;
+  select * into s from public.seances where id = p_seance_id for update;
+  if not found or s.statut <> 'publiee' or s.debut <= now() then raise exception 'SEANCE_INDISPONIBLE'; end if;
+  select * into e from public.experiences where id = s.experience_id;
+  if not (e.publie and e.actif) then raise exception 'SEANCE_INDISPONIBLE'; end if;
+  -- Visites et ateliers seulement (une soirée réservée aux adhérents se paie en ligne : adhérer d'abord).
+  if e.type not in ('visite_guidee', 'atelier', 'escape_game') then raise exception 'ADHESION_INUTILE'; end if;
+  if interne.adhesion_valide_jusqua(v_email) is not null then raise exception 'DEJA_ADHERENT'; end if;
+  if p_personnes is null or p_personnes < 1 or p_personnes > s.capacite_max then raise exception 'NOMBRE_INVALIDE'; end if;
+  v_prises := interne.places_prises(s.id);
+  if v_prises + p_personnes > s.capacite_max then
+    raise exception 'COMPLET' using detail = (s.capacite_max - v_prises)::text;
+  end if;
+  v_unitaire := interne.prix_adherent(s, e);
+  insert into public.reservations
+    (seance_id, experience_id, nom, email, telephone, langue, personnes, statut, bloque_jusqua,
+     prix_unitaire_centimes, total_centimes, paye_en_ligne_centimes, reste_sur_place_centimes, attente_adhesion)
+  values
+    (s.id, e.id, btrim(p_nom), v_email, nullif(btrim(coalesce(p_telephone, '')), ''), coalesce(p_langue, 'fr'), p_personnes,
+     'en_attente', now() + interval '15 minutes', v_unitaire, v_unitaire * p_personnes, 0, v_unitaire * p_personnes, true)
+  returning * into r;
+  return jsonb_build_object('reservation_id', r.id, 'reference', r.reference, 'bloque_jusqua', r.bloque_jusqua);
+end $$;
+
+create or replace function public.finaliser_reservation_adherent(
+  p_reservation_id uuid, p_email text, p_consentements jsonb, p_cgv_version text
+) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare
+  r public.reservations;
+  s public.seances;
+  e public.experiences;
+  v_frais boolean;
+begin
+  if not (coalesce(p_consentements, '{}'::jsonb) -> 'conditions') = 'true'::jsonb then
+    raise exception 'CONDITIONS_NON_ACCEPTEES';
+  end if;
+  if coalesce(p_cgv_version, '') = '' then raise exception 'CGV_VERSION_MANQUANTE'; end if;
+  select seance_id into r.seance_id from public.reservations where id = p_reservation_id;
+  if not found then raise exception 'RESERVATION_INTROUVABLE'; end if;
+  select * into s from public.seances where id = r.seance_id for update;
+  select * into r from public.reservations where id = p_reservation_id for update;
+  if r.email <> lower(btrim(coalesce(p_email, ''))) or not r.attente_adhesion then raise exception 'RESERVATION_INTROUVABLE'; end if;
+  if r.statut not in ('en_attente', 'expiree') then raise exception 'RESERVATION_INTROUVABLE'; end if;
+  if interne.adhesion_valide_jusqua(r.email) is null then raise exception 'ADHESION_REQUISE'; end if;
+  if s.statut <> 'publiee' or s.debut <= now() then raise exception 'SEANCE_INDISPONIBLE'; end if;
+  if (r.statut = 'expiree' or r.bloque_jusqua <= now())
+     and interne.places_prises(s.id) + r.personnes > s.capacite_max then
+    raise exception 'COMPLET';
+  end if;
+  select * into e from public.experiences where id = r.experience_id;
+  v_frais := e.type in ('visite_guidee', 'atelier', 'escape_game') and e.frais_annulation_tardive_centimes > 0;
+  update public.reservations set
+    statut = 'en_attente', bloque_jusqua = now() + interval '15 minutes', annulee_par = null,
+    attente_adhesion = false, adherent = true,
+    cgv_acceptees_le = now(), cgv_version = p_cgv_version,
+    consentements = jsonb_build_object('conditions', now()),
+    accord_frais_le = case when v_frais then now() end
+  where id = r.id returning * into r;
+  return jsonb_build_object(
+    'reservation_id', r.id, 'reference', r.reference,
+    'a_payer_centimes', r.paye_en_ligne_centimes, 'reste_sur_place_centimes', r.reste_sur_place_centimes,
+    'bloque_jusqua', r.bloque_jusqua, 'garder_carte', v_frais, 'adherent', true,
+    'experience_type', e.type, 'experience_titre', e.titre, 'debut', s.debut);
+end $$;
+
+create or replace function interne.frais_dus(p_reservation uuid) returns integer
+language sql stable set search_path = ''
+as $$
+  select case
+    when r.stripe_payment_method is null or e.frais_annulation_tardive_centimes <= 0
+         or e.type not in ('visite_guidee', 'atelier', 'escape_game') then 0
+    else least(e.frais_annulation_tardive_centimes * r.personnes, r.reste_sur_place_centimes)
+  end
+  from public.reservations r join public.experiences e on e.id = r.experience_id
+  where r.id = p_reservation;
+$$;
+
+-- ---- Séances programmées par les intervenants (maj-17, lot du 22/11, E11.2) ----
+-- Sur une expérience validée, l'intervenant publie ses séances lui-même
+-- (aucune validation) : date, heure, lieu, langue, places, minimum pour
+-- partir, durée et prix par personne (réglé à lui sur place). L'association
+-- reçoit un email d'information (groupé quand plusieurs séances sont créées
+-- d'un coup). Séance modifiée alors qu'il y a des inscrits (date, heure,
+-- durée, lieu, langue) : chaque inscrit reçoit un email et peut annuler
+-- sans frais, même à moins de 24 h.
+alter table public.seances
+  add column prix_centimes integer check (prix_centimes >= 0 and prix_centimes <= 100000),
+      -- prix par personne réglé sur place, fixé par l'intervenant ; vide = celui de l'expérience
+  add column modifiee_le timestamptz;   -- dernier changement notifié aux inscrits
+
+-- Prix par personne réglé sur place par un adhérent : prix de la séance,
+-- sinon celui de l'expérience (moins une éventuelle pré-réservation), ou
+-- l'ancien tarif adhérent s'il est plus bas.
+create or replace function interne.prix_adherent(p_seance public.seances, p_exp public.experiences) returns integer
+language sql immutable set search_path = ''
+as $$
+  select least(coalesce(p_seance.prix_adherent_centimes,
+                        coalesce(p_seance.prix_centimes, p_exp.prix_centimes - coalesce(p_exp.prereservation_centimes, 0))),
+               coalesce(p_seance.prix_centimes, p_exp.prix_centimes - coalesce(p_exp.prereservation_centimes, 0)));
+$$;
+
+-- Une séance a-t-elle déjà eu une réservation (même expirée) ? (règle de suppression)
+create function interne.seance_a_des_reservations(p_seance_id uuid) returns boolean
+language sql stable security definer set search_path = ''
+as $$ select exists (select 1 from public.reservations where seance_id = p_seance_id); $$;
+
+create or replace function interne.seances_garde() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  e public.experiences;
+  restreint boolean := (select auth.uid()) is not null and not interne.est_admin();
+  v_prises integer;
+begin
+  select * into e from public.experiences where id = new.experience_id;
+  if e.type not in ('visite_guidee', 'atelier', 'soiree', 'escape_game') then
+    raise exception 'Ce type d''expérience n''a pas de séances datées.';
+  end if;
+
+  if new.capacite_max is null then new.capacite_max := e.capacite_max; end if;
+  if new.participants_min is null then new.participants_min := e.participants_min; end if;
+  if new.prix_adherent_centimes is not null and e.prix_centimes is not null
+     and new.prix_adherent_centimes > e.prix_centimes then
+    raise exception 'Tarif adhérent : il ne peut pas dépasser le prix normal (%).', e.prix_centimes;
+  end if;
+
+  if tg_op = 'UPDATE' and new.statut is distinct from old.statut and old.statut = 'publiee'
+     and new.statut in ('brouillon', 'en_attente')
+     and exists (select 1 from public.reservations where seance_id = old.id and statut = 'confirmee') then
+    raise exception 'Cette séance a des inscrits : elle reste en ligne (l''annuler si besoin).';
+  end if;
+  if tg_op = 'UPDATE' and old.statut = 'publiee' and new.statut = 'publiee' then
+    v_prises := interne.places_prises(old.id);
+    if new.capacite_max < v_prises then
+      raise exception 'Nombre de places : % personnes sont déjà inscrites.', v_prises;
+    end if;
+  end if;
+
+  if restreint then
+    if new.capacite_max > e.capacite_max then
+      raise exception 'Nombre de places : % maximum pour cette expérience.', e.capacite_max;
+    end if;
+    if new.statut not in ('brouillon', 'en_attente', 'publiee') then
+      raise exception 'Pour annuler une séance, écrivez à l''association.';
+    end if;
+    if new.statut = 'publiee' and (tg_op = 'INSERT' or old.statut <> 'publiee')
+       and not (e.publie and e.actif and not e.a_valider) then
+      raise exception 'Votre expérience doit d''abord être validée par l''association.';
+    end if;
+    new.annulee_le := null;
+    new.motif_annulation := null;
+    new.prix_adherent_centimes := case when tg_op = 'UPDATE' then old.prix_adherent_centimes end;
+    new.reservee_adherents := case when tg_op = 'UPDATE' then old.reservee_adherents else false end;
+    if tg_op = 'UPDATE' then
+      if new.experience_id <> old.experience_id then
+        raise exception 'Une séance ne peut pas changer d''expérience.';
+      end if;
+      new.cree_par := old.cree_par;
+      new.cree_le := old.cree_le;
+      new.minimum_verifie_le := old.minimum_verifie_le;
+    else
+      new.cree_par := (select auth.uid());
+      new.minimum_verifie_le := null;
+    end if;
+  end if;
+
+  -- Changement visible par les inscrits : noté, puis notifié par le déclencheur suivant.
+  if tg_op = 'UPDATE' and old.statut = 'publiee' and new.statut = 'publiee'
+     and (new.debut, new.fin, new.point_rdv, new.point_rdv_precis, new.langue)
+         is distinct from (old.debut, old.fin, old.point_rdv, old.point_rdv_precis, old.langue) then
+    new.modifiee_le := now();
+  end if;
+  new.maj_le := now();
+  return new;
+end $$;
+
+-- Après l'enregistrement : inscrits prévenus d'un changement ; association
+-- informée des séances publiées par un intervenant (un email groupé).
+create function interne.seances_apres() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  e public.experiences;
+  r record;
+  v_nom text;
+  v_email text;
+  v_envoi bigint;
+  v_ligne jsonb;
+begin
+  select * into e from public.experiences where id = new.experience_id;
+
+  if tg_op = 'UPDATE' and new.modifiee_le is distinct from old.modifiee_le and new.statut = 'publiee' then
+    for r in select id, email, langue from public.reservations where seance_id = new.id and statut = 'confirmee' loop
+      perform interne.envoyer('seance_modifiee', r.email, r.langue, r.id, jsonb_build_object(
+        'jeton', interne.lien_reservation(r.id),
+        'ancien_debut', old.debut, 'ancien_point_rdv', coalesce(old.point_rdv_precis, old.point_rdv),
+        'ancienne_langue', old.langue,
+        'date_changee', new.debut is distinct from old.debut or new.fin is distinct from old.fin,
+        'lieu_change', (new.point_rdv, new.point_rdv_precis) is distinct from (old.point_rdv, old.point_rdv_precis),
+        'langue_changee', new.langue is distinct from old.langue));
+    end loop;
+  end if;
+
+  if new.statut = 'publiee' and (tg_op = 'INSERT' or old.statut <> 'publiee')
+     and (select auth.uid()) is not null and not interne.est_admin() then
+    select i.nom, c.email into v_nom, v_email
+      from public.intervenants i left join public.intervenants_contacts c on c.intervenant_id = i.id
+     where i.id = e.intervenant_id;
+    v_ligne := jsonb_build_object('id', new.id, 'titre', e.titre, 'debut', new.debut, 'fin', new.fin,
+      'langue', new.langue, 'point_rdv', new.point_rdv, 'capacite_max', new.capacite_max,
+      'participants_min', new.participants_min, 'prix_centimes', interne.prix_adherent(new, e));
+    select id into v_envoi from public.envois
+     where type = 'alerte_seances_publiees' and statut = 'a_envoyer' and cible_table = 'intervenants'
+       and cible_id = e.intervenant_id and cree_le > now() - interval '10 minutes'
+     order by cree_le desc limit 1 for update skip locked;
+    if found then
+      update public.envois set donnees = jsonb_set(donnees, '{seances}', coalesce(donnees->'seances', '[]'::jsonb) || jsonb_build_array(v_ligne))
+       where id = v_envoi;
+    else
+      perform interne.notifier_association('alerte_seances_publiees', jsonb_build_object(
+        'intervenant', v_nom, 'repondre_a', v_email, 'seances', jsonb_build_array(v_ligne)), 'intervenants', e.intervenant_id);
+    end if;
+  end if;
+  return null;
+end $$;
+create trigger seances_apres after insert or update on public.seances
+  for each row execute function interne.seances_apres();
+
+-- Règles d'accès des séances : l'intervenant crée, publie (expérience validée),
+-- modifie ses séances non annulées ; il supprime une séance sans aucune réservation.
+drop policy "ajout de ses seances" on public.seances;
+drop policy "modification de ses brouillons" on public.seances;
+drop policy "suppression de ses brouillons" on public.seances;
+create policy "ajout de ses seances" on public.seances for insert to authenticated
+  with check ((select interne.est_admin())
+         or (statut in ('brouillon', 'en_attente', 'publiee')
+             and exists (select 1 from public.experiences e
+                         where e.id = seances.experience_id
+                           and e.intervenant_id = (select interne.mon_intervenant_id()))));
+create policy "modification de ses seances" on public.seances for update to authenticated
+  using ((select interne.est_admin())
+         or (statut in ('brouillon', 'en_attente', 'publiee')
+             and exists (select 1 from public.experiences e
+                         where e.id = seances.experience_id
+                           and e.intervenant_id = (select interne.mon_intervenant_id()))))
+  with check ((select interne.est_admin())
+         or (statut in ('brouillon', 'en_attente', 'publiee')
+             and exists (select 1 from public.experiences e
+                         where e.id = seances.experience_id
+                           and e.intervenant_id = (select interne.mon_intervenant_id()))));
+create policy "suppression de ses seances sans reservation" on public.seances for delete to authenticated
+  using ((select interne.est_admin())
+         or (statut in ('brouillon', 'en_attente', 'publiee')
+             and not interne.seance_a_des_reservations(id)
+             and exists (select 1 from public.experiences e
+                         where e.id = seances.experience_id
+                           and e.intervenant_id = (select interne.mon_intervenant_id()))));
+
+-- Ce que le visiteur voit : le prix net par personne de la séance (à la fin, pour garder l'ordre des colonnes).
+create or replace view public.seances_publiques with (security_barrier = true) as
+select s.id, s.experience_id, s.debut, s.fin, s.langue,
+       s.capacite_max, s.participants_min, s.point_rdv, s.statut,
+       coalesce(r.inscrits, 0)::integer                             as inscrits,
+       greatest(s.capacite_max - coalesce(r.prises, 0), 0)::integer as places_restantes,
+       coalesce(r.inscrits, 0) >= s.participants_min                as confirmee,
+       s.prix_adherent_centimes,
+       s.reservee_adherents or e.type in ('visite_guidee', 'atelier', 'escape_game') as reservee_adherents,
+       case when e.type in ('visite_guidee', 'atelier', 'escape_game') then interne.prix_adherent(s, e)
+            else coalesce(s.prix_centimes, e.prix_centimes) end   as prix_centimes
+from public.seances s
+join public.experiences e on e.id = s.experience_id and e.publie and e.actif
+left join lateral (
+  select sum(personnes) filter (where statut = 'confirmee') as inscrits,
+         sum(personnes) filter (where statut = 'confirmee'
+              or (statut = 'en_attente' and bloque_jusqua > now())) as prises
+  from public.reservations where seance_id = s.id
+) r on true
+where s.statut in ('publiee', 'annulee')
+  and s.debut > now() - interval '1 day';
+grant select on public.seances_publiques to anon, authenticated;
+grant execute on function interne.prix_adherent(public.seances, public.experiences) to anon, authenticated;
+
+revoke all on function interne.seances_apres(), interne.seance_a_des_reservations(uuid) from public, anon, authenticated;
+grant execute on function interne.seance_a_des_reservations(uuid) to authenticated;
+
+-- Séance modifiée après la réservation : annulation sans frais, même à moins de 24 h.
+create or replace function public.annuler_par_client(p_jeton_hash text) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare
+  v_id uuid;
+  r public.reservations;
+  s public.seances;
+  e public.experiences;
+  v_frais integer := 0;
+begin
+  select reservation_id into v_id from public.reservations_liens where jeton_hash = p_jeton_hash;
+  if not found then raise exception 'LIEN_INVALIDE'; end if;
+  select * into r from public.reservations where id = v_id;
+  select * into s from public.seances where id = r.seance_id for update;
+  select * into r from public.reservations where id = v_id for update;
+  select * into e from public.experiences where id = r.experience_id;
+
+  if r.statut = 'annulee' then
+    return jsonb_build_object('statut', 'annulee', 'deja_annulee', true, 'frais_centimes', r.frais_centimes);
+  end if;
+  if r.statut <> 'confirmee' then raise exception 'NON_ANNULABLE'; end if;
+  if s.debut <= now() then raise exception 'TROP_TARD'; end if;
+
+  -- Moins de 24 h avant (délai de l'expérience) : frais d'annulation tardive, plafonnés au solde.
+  if now() > s.debut - make_interval(hours => e.delai_frais_heures)
+     and not (s.modifiee_le is not null and s.modifiee_le > coalesce(r.confirmee_le, r.cree_le)) then
+    v_frais := interne.frais_dus(r.id);
+  end if;
+
+  update public.reservations set
+    statut = 'annulee', annulee_le = now(), annulee_par = 'client',
+    motif_annulation = 'Annulée par le client.',
+    frais_centimes = v_frais,
+    frais_statut = case when v_frais > 0 then 'a_prelever' else 'aucun' end
+  where id = r.id;
+
+  perform interne.envoyer('annulation_client', r.email, r.langue, r.id);
+  perform interne.alerter('alerte_annulation', r.id);
+  return jsonb_build_object('statut', 'annulee', 'deja_annulee', false, 'frais_centimes', v_frais);
+end $$;
+
+create or replace function public.reservation_par_jeton(p_jeton_hash text) returns jsonb
+language plpgsql stable set search_path = ''
+as $$
+declare
+  r public.reservations;
+  s public.seances;
+  e public.experiences;
+  v_tardif boolean;
+begin
+  select res.* into r from public.reservations_liens l
+    join public.reservations res on res.id = l.reservation_id
+   where l.jeton_hash = p_jeton_hash;
+  if not found then return null; end if;
+  select * into s from public.seances where id = r.seance_id;
+  select * into e from public.experiences where id = r.experience_id;
+  v_tardif := now() > s.debut - make_interval(hours => e.delai_frais_heures)
+              and not (s.modifiee_le is not null and s.modifiee_le > coalesce(r.confirmee_le, r.cree_le));
+  return interne.donnees_reservation(r.id) - 'email' - 'telephone' || jsonb_build_object(
+    'statut', r.statut, 'seance_statut', s.statut,
+    'seance_modifiee', s.modifiee_le is not null and s.modifiee_le > coalesce(r.confirmee_le, r.cree_le),
+    'peut_annuler', r.statut = 'confirmee' and s.statut = 'publiee' and s.debut > now(),
+    'annulation_tardive', v_tardif,
+    'frais_si_annulation_centimes', case when v_tardif then interne.frais_dus(r.id) else 0 end,
+    'frais_statut', r.frais_statut, 'adherent', r.adherent,
+    'absent', r.absent_le is not null,
+    'absence_contestee', r.absence_contestee_le is not null,
+    'absence_contestable', r.absent_le is not null and r.frais_statut = 'a_prelever'
+                           and r.frais_prevu_le > now() and r.absence_contestee_le is null);
+end $$;
+
+-- ---- Connexion unique et « Mon compte » (maj-18, lot du 22/11, E15.2, E15.3) ----
+-- Un seul code à 6 chiffres par email pour tout le monde : l'adhérent
+-- retrouve sa carte et ses réservations, l'intervenant et l'association
+-- ouvrent leur espace (le serveur crée alors la session de connexion).
+-- Les emails aux intervenants (accès, expérience validée) contiennent un
+-- lien de connexion directe, valable 7 jours et une seule fois.
+
+-- Compte de connexion (intervenant ou association) d'une adresse : serveur seulement.
+create function public.compte_par_email(p_email text) returns jsonb
+language sql stable security definer set search_path = ''
+as $$
+  select jsonb_build_object('user_id', u.id, 'role', p.role, 'intervenant_id', p.intervenant_id)
+    from auth.users u join public.profils p on p.user_id = u.id
+   where lower(u.email) = lower(btrim(coalesce(p_email, '')))
+   order by (p.role = 'admin') desc
+   limit 1;
+$$;
+
+-- Code demandé : pour une adresse adhérente OU qui a un compte d'espace.
+create or replace function public.carte_code_creer(p_email text, p_code_hash text) returns text
+language plpgsql set search_path = ''
+as $$
+declare v_email text := lower(btrim(coalesce(p_email, '')));
+begin
+  delete from public.codes_carte where cree_le < now() - interval '1 day';
+  if not exists (select 1 from public.adhesions where email = v_email and statut <> 'remboursee')
+     and public.compte_par_email(v_email) is null then
+    return 'inconnu';
+  end if;
+  if (select count(*) from public.codes_carte where email = v_email and cree_le > now() - interval '1 hour') >= 3 then
+    return 'trop_de_demandes';
+  end if;
+  insert into public.codes_carte (email, code_hash, expire_le) values (v_email, p_code_hash, now() + interval '15 minutes');
+  return 'cree';
+end $$;
+
+-- Code vérifié : lien de carte créé seulement si l'adresse a une adhésion.
+create or replace function public.carte_code_verifier(p_email text, p_code_hash text, p_jeton_hash text) returns text
+language plpgsql set search_path = ''
+as $$
+declare
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  c public.codes_carte;
+begin
+  select * into c from public.codes_carte
+   where email = v_email and utilise_le is null order by cree_le desc limit 1 for update;
+  if not found or c.expire_le <= now() then return 'expire'; end if;
+  if c.essais >= 5 then return 'trop_essais'; end if;
+  if c.code_hash <> p_code_hash then
+    update public.codes_carte set essais = essais + 1 where id = c.id;
+    return case when c.essais + 1 >= 5 then 'trop_essais' else 'invalide' end;
+  end if;
+  update public.codes_carte set utilise_le = now() where id = c.id;
+  if exists (select 1 from public.adhesions where email = v_email and statut <> 'remboursee') then
+    insert into public.cartes_liens (jeton_hash, email, origine) values (p_jeton_hash, v_email, 'code');
+  end if;
+  return 'ok';
+end $$;
+
+-- Liens de connexion directe envoyés par email (seule l'empreinte est gardée).
+create table public.connexions_liens (
+  jeton_hash text primary key check (jeton_hash ~ '^[0-9a-f]{64}$'),
+  email      text not null check (email = lower(email)),
+  cree_le    timestamptz not null default now(),
+  expire_le  timestamptz not null,
+  utilise_le timestamptz
+);
+alter table public.connexions_liens enable row level security;   -- aucune règle : serveur seulement
+
+create function public.connexion_lien_creer(p_email text, p_jeton_hash text) returns void
+language sql set search_path = ''
+as $$
+  delete from public.connexions_liens where expire_le < now() - interval '30 days';
+  insert into public.connexions_liens (jeton_hash, email, expire_le)
+  values (p_jeton_hash, lower(btrim(p_email)), now() + interval '7 days');
+$$;
+
+-- Rend l'email du lien s'il est encore valable (et le marque utilisé), sinon 'expire' ou 'utilise'.
+create function public.connexion_lien_utiliser(p_jeton_hash text) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare l public.connexions_liens;
+begin
+  select * into l from public.connexions_liens where jeton_hash = p_jeton_hash for update;
+  if not found or l.expire_le <= now() then return jsonb_build_object('etat', 'expire'); end if;
+  if l.utilise_le is not null then return jsonb_build_object('etat', 'utilise'); end if;
+  update public.connexions_liens set utilise_le = now() where jeton_hash = p_jeton_hash;
+  return jsonb_build_object('etat', 'ok', 'email', l.email);
+end $$;
+
+-- « Mon compte » (E15.2) : expériences réservées à venir de l'adresse vérifiée par la carte du téléphone.
+create function public.reservations_a_venir(p_jeton_hash text) returns jsonb
+language sql stable set search_path = ''
+as $$
+  select coalesce(jsonb_agg(x order by x->>'debut'), '[]'::jsonb) from (
+    select jsonb_build_object(
+      'id', r.id, 'reference', r.reference, 'personnes', r.personnes, 'debut', s.debut, 'fin', s.fin,
+      'type', e.type, 'titre', e.titre, 'point_rdv', coalesce(s.point_rdv, e.point_rdv->>'fr'),
+      'intervenant', i.nom, 'delai_frais_heures', e.delai_frais_heures,
+      'seance_modifiee', s.modifiee_le is not null and s.modifiee_le > coalesce(r.confirmee_le, r.cree_le)) as x
+      from public.cartes_liens l
+      join public.reservations r on r.email = l.email and r.statut = 'confirmee'
+      join public.seances s on s.id = r.seance_id and s.debut > now() - interval '3 hours'
+      join public.experiences e on e.id = r.experience_id
+      left join public.intervenants i on i.id = e.intervenant_id
+     where l.jeton_hash = p_jeton_hash and l.revoque_le is null
+     order by s.debut limit 20) t;
+$$;
+
+-- « Voir » une réservation depuis Mon compte : lien personnel (même page que l'email).
+create function public.lien_reservation_compte(p_jeton_hash text, p_reservation_id uuid) returns text
+language plpgsql set search_path = ''
+as $$
+declare v_id uuid;
+begin
+  select r.id into v_id
+    from public.cartes_liens l join public.reservations r on r.email = l.email
+   where l.jeton_hash = p_jeton_hash and l.revoque_le is null and r.id = p_reservation_id;
+  if v_id is null then return null; end if;
+  return interne.lien_reservation(v_id);
+end $$;
+
+revoke all on table public.connexions_liens from public, anon, authenticated;
+grant all on table public.connexions_liens to service_role;
+revoke all on function public.compte_par_email(text), public.carte_code_creer(text, text),
+  public.carte_code_verifier(text, text, text), public.connexion_lien_creer(text, text),
+  public.connexion_lien_utiliser(text), public.reservations_a_venir(text),
+  public.lien_reservation_compte(text, uuid) from public, anon, authenticated;
+grant execute on function public.compte_par_email(text), public.carte_code_creer(text, text),
+  public.carte_code_verifier(text, text, text), public.connexion_lien_creer(text, text),
+  public.connexion_lien_utiliser(text), public.reservations_a_venir(text),
+  public.lien_reservation_compte(text, uuid) to service_role;
+
+
 commit;
 
 -- ============================================================

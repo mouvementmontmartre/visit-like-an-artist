@@ -1,16 +1,16 @@
 /* ============================================================
    FONCTION NETLIFY — accepter
-   POST { table: "demandes_groupes" | "candidatures", id }, avec l'en-tête
+   POST { table: "demandes_groupes", id }, avec l'en-tête
    Authorization: Bearer <session> de l'administratrice.
    Envoie à la personne l'email d'acceptation avec les coordonnées de
-   l'association, puis passe la demande « en cours » (candidature :
-   « acceptée »). Réservé à l'admin, vérifié ici à partir de la session.
+   l'association, puis passe la demande « en cours ». Réservé à l'admin, vérifié ici à partir de la session.
    ============================================================ */
 
 const { json, table, appelant, envoyerBrevo, emailValide } = require("../lib/commun");
 const { redigerAcceptation } = require("../lib/emails");
 
-const TABLES = { demandes_groupes: { quoi: "demande", statut: "en_cours" }, candidatures: { quoi: "candidature", statut: "acceptee" } };
+// Candidatures : plus ici depuis le 22/11 (onglet Validations, fonction « validations », qui ouvre aussi l'espace).
+const TABLES = { demandes_groupes: { quoi: "demande", statut: "en_cours" } };
 const uuidValide = (x) => typeof x === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(x);
 
 exports.handler = async (event) => {

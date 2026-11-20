@@ -22,3 +22,7 @@ La base locale imite aussi le stockage de Supabase (`storage.buckets`, `storage.
 7. Formulaires publics : `node tests/demande-fonction.test.js <dépôt>` et `node tests/demande-ecran.test.js <dépôt> [captures]`.
 8. Page d'un intervenant, vidéo, traductions : `node tests/hote-ecran.test.js <dépôt> [captures]` et `node tests/traduire-fonction.test.js <dépôt>`.
 9. Parcours autoguidés : `NODE_PATH=<dossier avec pg> node tests/parcours-fonctions.test.js <dépôt> <base>` (vraie base locale) et `node tests/parcours-ecran.test.js <dépôt> [captures]`.
+10. Lot du 22/11 (connexion unique par code, Mon compte, intervenants autonomes, validations, notifications) :
+   `NODE_PATH=<dossier avec pg> node tests/intervenants-fonctions.test.js <dépôt> <base>` (vraie base locale, à jour de maj-18 ;
+   faux Supabase Auth et Brevo) et `node tests/compte-ecran.test.js <dépôt> [captures]` (Mon compte, routage, lien de connexion,
+   pilules sur une ligne, affichage sur ordinateur).

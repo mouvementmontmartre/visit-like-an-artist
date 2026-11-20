@@ -30,6 +30,12 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
         const rep = etat.supabase(u, appel);
         return r.fulfill({ status: rep[0], contentType: "application/json", body: JSON.stringify(rep[1]) });
       }
+      if (u.pathname === "/.netlify/functions/carte" && etat.carte) {   // connexion par code (22/11)
+        const corps = JSON.parse(r.request().postData() || "{}");
+        st.appels.push({ chemin: u.pathname, corps });
+        const rep = etat.carte(corps);
+        return r.fulfill({ status: rep[0], contentType: "application/json", body: JSON.stringify(rep[1]) });
+      }
       if (u.hostname === "localhost") return r.continue();
       return r.abort();
     });
@@ -45,20 +51,41 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
     return [404, {}];
   };
 
-  // 1. Demande du lien depuis la page Infos
-  let { pg, ctx, st } = await page({ supabase: supabaseAdmin });
+  // 1. Connexion par code depuis la page Infos (22/11 : un seul code pour tout le monde)
+  const carteAdmin = (c) => c.action === "email" ? [200, { ok: true }]
+    : c.code === "123456" ? [200, { email: c.email, role: "admin", session: { access_token: "AAA", refresh_token: "RRR", expires_at: Math.floor(Date.now() / 1000) + 3600 } }]
+    : [400, { error: "invalide", code: "INVALIDE" }];
+  let { pg, ctx, st } = await page({ supabase: supabaseAdmin, carte: carteAdmin });
   await pg.goto("http://localhost:8768/"); await pg.waitForTimeout(2600);
   await pg.evaluate(() => openTarget("infos"));
   await pg.click('#infos-body [data-open="espace"]');
-  v("Infos → bouton « Espace intervenants » → formulaire de connexion", await attendre(pg, "#espace-body", "Gérez vos séances vous-même."));
-  await pg.fill("#espace-email", "pas-un-email"); await pg.click("#espace-envoyer");
-  v("email invalide signalé", await attendre(pg, "#espace-note", "adresse email valide"));
-  await pg.fill("#espace-email", "  Guide@Exemple.invalid "); await pg.click("#espace-envoyer");
-  v("message neutre après la demande", await attendre(pg, "#espace-note", "Si cette adresse correspond à un compte"));
-  const otp = st.appels.find((a) => a.chemin.startsWith("/auth/v1/otp"));
-  v("demande du lien : email en minuscules, pas de création de compte, retour vers l'app",
-    otp && JSON.parse(otp.corps).email === "guide@exemple.invalid" && JSON.parse(otp.corps).create_user === false && otp.chemin.includes("redirect_to=" + encodeURIComponent("http://localhost:8768/")), JSON.stringify(otp));
+  v("Infos → bouton « Espace intervenants » → connexion par code", await attendre(pg, "#espace-body", "Gérez vos séances vous-même.") && await attendre(pg, "#espace-body", "code de connexion"));
+  await pg.fill("#esp-email", "pas-un-email"); await pg.click("#esp-envoyer");
+  v("email invalide signalé", await attendre(pg, "#esp-note", "adresse email valide"));
+  await pg.fill("#esp-email", "  Admin@Exemple.invalid "); await pg.click("#esp-envoyer");
+  v("message neutre après la demande, champ du code affiché", await attendre(pg, "#esp-note", "Si cette adresse est connue") && await pg.isVisible("#esp-code"));
+  const dem = st.appels.find((a) => a.corps && a.corps.action === "email");
+  v("demande du code : email en minuscules", dem && dem.corps.email === "admin@exemple.invalid", JSON.stringify(dem));
+  await pg.fill("#esp-code", "111111"); await pg.click("#esp-valider");
+  v("code faux : message clair", await attendre(pg, "#esp-note", "code"));
+  await pg.fill("#esp-code", "123 456"); await pg.click("#esp-valider");
+  v("code bon : connectée, accueil administration", await attendre(pg, "#espace-body", "Bonjour admin@exemple.invalid") && await attendre(pg, "#espace-body", "Fiches · 0"));
+  v("session gardée sur cet appareil", (await pg.evaluate(() => JSON.parse(localStorage.getItem("sessionEspace")).refresh_token)) === "RRR");
+  v("pas de lien magique demandé (plus d'envoi par Supabase)", !st.appels.some((a) => a.chemin && a.chemin.startsWith("/auth/v1/otp")));
   v("pas d'erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
+  await ctx.close();
+
+  // 1 bis. Adhérente sans espace : code bon, elle arrive sur Mon compte avec un mot.
+  ({ pg, ctx, st } = await page({ supabase: () => [404, {}], carte: (c) => c.action === "email" ? [200, { ok: true }]
+    : c.action === "code" ? [200, { email: c.email, jeton: "J".repeat(43), carte: { nom: "Camille Durand", valide_jusqua: new Date(Date.now() + 2e10).toISOString(), formule: "adhesion" } }]
+    : c.action === "voir" ? [200, { carte: { nom: "Camille Durand", valide_jusqua: new Date(Date.now() + 2e10).toISOString(), formule: "adhesion" }, email: "camille@exemple.invalid" }]
+    : c.action === "reservations" ? [200, { reservations: [] }] : [404, {}] }));
+  await pg.goto("http://localhost:8768/"); await pg.waitForTimeout(2600);
+  await pg.evaluate(() => openTarget("espace"));
+  await pg.fill("#esp-email", "camille@exemple.invalid"); await pg.click("#esp-envoyer");
+  await pg.waitForSelector("#esp-code", { state: "visible" });
+  await pg.fill("#esp-code", "654321"); await pg.click("#esp-valider");
+  v("adhérente sans espace : Mon compte, avec « pas encore d'espace intervenant »", await attendre(pg, "#compte-body", "pas encore d'espace intervenant") && await attendre(pg, "#compte-body", "Camille"));
   await ctx.close();
 
   // 2. Retour par le lien : administratrice
@@ -81,7 +108,7 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
     return [404, {}];
   } }));
   await pg.goto("http://localhost:8768/#access_token=GGG&expires_in=3600&refresh_token=G2&type=magiclink");
-  v("guide : « Bonjour Sylvain Lesecq », espace intervenant", await attendre(pg, "#espace-body", "Bonjour Sylvain Lesecq") && await attendre(pg, "#espace-body", "Mes séances"));
+  v("guide (ancien lien encore accepté) : « Bonjour Sylvain Lesecq », tableau de bord", await attendre(pg, "#espace-body", "Bonjour Sylvain Lesecq") && await attendre(pg, "#espace-body", "Proposer une nouvelle expérience"));
   await ctx.close();
 
   // 4. Session expirée : renouvelée
@@ -104,7 +131,7 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   // 5. Lien expiré
   ({ pg, ctx } = await page({ supabase: () => [404, {}] }));
   await pg.goto("http://localhost:8768/#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired");
-  v("lien expiré : message clair et formulaire", await attendre(pg, "#espace-body", "Ce lien de connexion a expiré") && !pg.url().includes("error"));
+  v("lien expiré : message clair et formulaire", await attendre(pg, "#espace-body", "Ce lien de connexion a expiré") && !pg.url().includes("error") && await pg.isVisible("#esp-email"));
   await ctx.close();
 
   // 6. Compte sans rôle

@@ -5,10 +5,11 @@
    - « rejoindre » : guide, artiste ou lieu qui veut rejoindre ArtDive (E14) → candidatures
    Les formulaires n'écrivent jamais dans la base depuis le navigateur :
    cette fonction vérifie tout, enregistre avec la clé secrète, PUIS
-   prévient l'association par email (Brevo) : adresse NOTIFY_EMAIL
+   prévient l'association par la file des emails : adresse NOTIFY_EMAIL
    (variable Netlify, sinon mouvementmontmartre@gmail.com), « Répondre »
-   écrit à la personne, lien direct vers l'onglet Demandes. Si l'email
-   échoue, la demande reste enregistrée (visible dans l'onglet Demandes).
+   écrit à la personne, lien direct vers Validations (candidature) ou
+   Demandes. Si l'email échoue, la demande reste enregistrée et
+   l'administration affiche « notification non envoyée ».
    Pas d'email envoyé à l'adresse saisie : personne ne peut se servir du
    formulaire pour écrire à un tiers.
    Anti-robots : champ piège invisible (demande écartée et journalisée) ;
@@ -17,8 +18,8 @@
    écarté : il est enregistré et signalé « à vérifier » dans l'email.
    ============================================================ */
 
-const { json, table, envoyerBrevo, emailValide, EMAIL_REPONSE, SITE_URL } = require("../lib/commun");
-const { esc } = require("../lib/emails");
+const { json, table, emailValide, EMAIL_REPONSE } = require("../lib/commun");
+const { traiterEnvois } = require("../lib/reservations");
 
 const texte = (v, max) => { const s = String(v == null ? "" : v).trim(); return s ? s.slice(0, max) : null; };
 const OCCASIONS = ["anniversaire", "famille", "entreprise", "ecole", "amis", "autre"];
@@ -83,22 +84,20 @@ exports.handler = async (event) => {
         ["Nom", nom], ["Email", email], ["Téléphone", telephone]];
     }
     // 1. Enregistrement d'abord : la demande n'est jamais perdue, même si l'email échoue.
-    await table("POST", tableCible, ligne, { Prefer: "return=minimal" });
-    if (rapide) sujet = "[À vérifier : envoi très rapide] " + sujet;
+    const cree = ((await table("POST", tableCible, ligne, { Prefer: "return=representation" })) || [])[0];
 
-    // 2. Alerte à l'association (répondre à l'email répond directement à la personne).
-    const lienDemandes = SITE_URL + "/#espace=demandes";
-    const html = '<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#14100D;max-width:560px">' +
-      "<p>" + esc(sujet) + "</p><table style=\"border-collapse:collapse\">" +
-      lignesMail.filter((l) => l[1] != null && l[1] !== "").map((l) => '<tr><td style="padding:3px 12px 3px 0;color:#5C5246">' + esc(l[0]) +
-        "</td><td><b>" + esc(l[1]) + "</b></td></tr>").join("") + "</table>" +
-      (message ? "<p style=\"white-space:pre-line\">" + esc(message) + "</p>" : "") +
-      "<p>Pour répondre, utilisez simplement « Répondre » : l'email part chez " + esc(nom) + ".</p>" +
-      '<p><a href="' + esc(lienDemandes) + '">Ouvrir l\'onglet Demandes dans ArtDive</a></p></div>';
-    const destinataire = String(process.env.NOTIFY_EMAIL || "").trim() || EMAIL_REPONSE;
-    await envoyerBrevo(destinataire, { sujet, html, texte: html.replace(/<a href="([^"]+)">([^<]+)<\/a>/g, "$2 : $1").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") },
-      ["demande"], { email, name: nom })
-      .catch((e) => console.error("alerte demande non envoyée (demande bien enregistrée) :", e.message));
+    // 2. Alerte à l'association, par la file des emails (« Répondre » écrit à la personne ; lien direct
+    //    vers Validations ou Demandes). Un échec est journalisé et affiché « notification non envoyée ».
+    try {
+      await table("POST", "envois", {
+        type: tableCible === "candidatures" ? "alerte_candidature" : "alerte_demande",
+        destinataire: EMAIL_REPONSE, langue: "fr",
+        donnees: { pour_association: true, sujet, nom, message, a_verifier: rapide, repondre_a: email,
+          lignes: lignesMail.filter((l) => l[1] != null && l[1] !== "") },
+        cible_table: tableCible, cible_id: cree && cree.id,
+      }, { Prefer: "return=minimal" });
+      await traiterEnvois(5);
+    } catch (e) { console.error("alerte demande non envoyée (demande bien enregistrée) :", e.message); }
     return json(200, { ok: true });
   } catch (e) {
     console.error("demande :", e.message);

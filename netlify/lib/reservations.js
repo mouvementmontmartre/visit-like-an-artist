@@ -7,7 +7,7 @@
    - email : marqué envoyé une seule fois (file « envois »).
    ============================================================ */
 
-const { rpc, stripe, stripePost, idDe, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE, SITE_URL } = require("./commun");
+const { rpc, stripe, stripePost, idDe, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE, SITE_URL, nouveauJeton, sha256hex } = require("./commun");
 const { rediger } = require("./emails");
 
 /** Confirme la réservation d'une session Checkout payée (idempotent).
@@ -34,14 +34,32 @@ async function confirmerSession(session) {
   });
 }
 
+/* Emails d'information de l'association (alertes) : vers NOTIFY_EMAIL si cette variable existe ;
+   « Répondre » écrit directement à la personne concernée (candidat, intervenant). */
+const EMAIL_ASSOCIATION = "mouvementmontmartre@gmail.com";   // interne.email_association() dans la base
+const emailOk = (e) => typeof e === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 254;
+
 async function envoyerEmail(envoi) {
-  const m = rediger(envoi);
+  const d = envoi.donnees || {};
+  // Lien de connexion directe (accès intervenant, expérience validée) : fabriqué au moment de
+  // l'envoi, valable 7 jours, une fois ; seule son empreinte est gardée en base.
+  if (d.connexion) {
+    const jeton = nouveauJeton();
+    await rpc("connexion_lien_creer", { p_email: envoi.destinataire, p_jeton_hash: sha256hex(jeton) });
+    d.lien = SITE_URL + "/#connexion=" + jeton + (d.vers ? "&vers=" + encodeURIComponent(d.vers) : "");
+  }
+  const m = rediger(Object.assign({}, envoi, { donnees: d }));
+  const association = d.pour_association || (/^alerte_/.test(envoi.type) && envoi.destinataire === EMAIL_ASSOCIATION);
+  const notify = String(process.env.NOTIFY_EMAIL || "").trim().toLowerCase();
+  const destinataire = association && emailOk(notify) ? notify : envoi.destinataire;
+  const repondre = emailOk(d.repondre_a) ? { email: d.repondre_a, name: d.intervenant || d.nom || undefined }
+    : { name: NOM_EXPEDITEUR, email: EMAIL_REPONSE };
   const corps = {
     sender: { name: NOM_EXPEDITEUR, email: EMAIL_EXPEDITEUR },
-    replyTo: { name: NOM_EXPEDITEUR, email: EMAIL_REPONSE },
-    to: [{ email: envoi.destinataire }],
+    replyTo: repondre,
+    to: [{ email: destinataire }],
     subject: m.sujet, htmlContent: m.html, textContent: m.texte,
-    tags: ["reservation", envoi.type],
+    tags: [envoi.reservation_id ? "reservation" : "information", envoi.type],
   };
   if (m.pieces) corps.attachment = m.pieces;
   const res = await fetch("https://api.brevo.com/v3/smtp/email", {
@@ -52,13 +70,19 @@ async function envoyerEmail(envoi) {
   if (!res.ok) throw new Error("Brevo " + res.status + " " + (await res.text()).slice(0, 200));
 }
 
+/* Un échec n'empêche jamais l'enregistrement : il est journalisé (Netlify > Logs) et l'envoi reste
+   en file (5 essais), affiché « notification non envoyée » dans l'administration. */
 async function traiterEnvois(limite = 20) {
   if (!process.env.BREVO_API_KEY) return { envoyes: 0, attente: "BREVO_API_KEY absente" };
   const lot = await rpc("envois_a_traiter", { p_limite: limite });
   let envoyes = 0, erreurs = 0;
   for (const e of lot || []) {
     try { await envoyerEmail(e); await rpc("envoi_resultat", { p_id: e.id, p_ok: true }); envoyes++; }
-    catch (err) { erreurs++; await rpc("envoi_resultat", { p_id: e.id, p_ok: false, p_erreur: err.message }).catch(() => {}); }
+    catch (err) {
+      erreurs++;
+      console.error("notification non envoyée", JSON.stringify({ id: e.id, type: e.type, erreur: String(err.message).slice(0, 200) }));
+      await rpc("envoi_resultat", { p_id: e.id, p_ok: false, p_erreur: err.message }).catch(() => {});
+    }
   }
   return { envoyes, erreurs };
 }

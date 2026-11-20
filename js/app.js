@@ -107,6 +107,7 @@ function openTarget(target, arg) {
     case "carte-tab":       showScreen("carte"); renderEcoMap(); break;
     case "membre":          showScreen("membre"); renderMembre(); break;
     case "espace":          showScreen("espace"); renderEspace(); break;
+    case "compte":          showScreen("compte"); renderCompte(); break;
     case "infos":           renderInfos(); showScreen("infos"); break;
     case "infos-festival":  renderInfosFestival(); showScreen("infos-festival"); break;
     case "visite":          renderVisite(arg); showScreen("visite"); break;
@@ -1509,7 +1510,7 @@ function dateLongueResa(iso) {
   return new Date(iso).toLocaleDateString(localeResa(), { timeZone: "Europe/Paris", weekday: "long", day: "numeric", month: "long" }) +
     ", " + heureResa(iso);
 }
-const estVisiteResa = (type) => type === "visite_guidee" || type === "atelier";
+const estVisiteResa = (type) => type === "visite_guidee" || type === "atelier" || type === "escape_game";   // escape game daté (22/11) : comme une visite
 const titreResa = (o) => (o && (o[getLang()] || o.fr)) || "";
 
 /** Sur la fiche : les prochaines dates, si l'expérience est réservable dans Supabase. */
@@ -1561,20 +1562,21 @@ function seanceHtml(s, choisie) {
 const ADHESION_CENTIMES = 500;
 function unitaireResa() {
   const e = RESA.exp, s = RESA.seance;
+  if (s && s.prix_centimes != null) return s.prix_centimes;   // prix net de la séance (vue seances_publiques, 22/11)
   if (!estVisiteResa(e.type)) return e.prix_centimes;
   const net = e.prix_centimes - (e.prereservation_centimes || 0);
   return s && s.prix_adherent_centimes != null ? Math.min(s.prix_adherent_centimes, net) : net;
 }
 const estAdherentResa = () => !!(RESA && RESA.adherent);
 const pourAdherentsResa = () => estVisiteResa(RESA.exp.type) || !!(RESA.seance && RESA.seance.reservee_adherents);
-const aPayerResa = () => estVisiteResa(RESA.exp.type) ? 0 : RESA.exp.prix_centimes * RESA.personnes;
+const aPayerResa = () => estVisiteResa(RESA.exp.type) ? 0 : unitaireResa() * RESA.personnes;
 const guideResa = () => RESA.guide ? tx("resa.to", { g: RESA.guide }) : "";
 
 /** Sur la fiche (E2.2, E3) : prix net, « Réservez votre place pour 5 € », « Déjà adhérent : 0 € ». */
 function prixHtml() {
   const e = RESA.exp, n = RESA.personnes, u = unitaireResa(), total = u * n;
   if (!estVisiteResa(e.type)) {
-    return '<div class="resa-prix"><div class="resa-ligne"><span>' + esc(n + " × " + euros(e.prix_centimes)) + '</span><b class="resa-gros">' + esc(euros(total)) + '</b></div>' +
+    return '<div class="resa-prix"><div class="resa-ligne"><span>' + esc(n + " × " + euros(u)) + '</span><b class="resa-gros">' + esc(euros(total)) + '</b></div>' +
       (pourAdherentsResa() ? '<p class="member-note">' + esc(t("resa.soireeAdherents")) + '</p>' : '') + '</div>';
   }
   return '<div class="resa-prix">' +
@@ -2067,26 +2069,17 @@ async function renderEspace(note) {
   try { s = await sessionValide(); } catch (e) { s = sessionLue(); }
   if (!s) {
     corps.innerHTML =
+      '<div class="cpt-eyebrow">' + esc(t("espace.sous")) + '</div>' +
       '<h1 class="espace-titre">' + esc(t("espace.titre")) + '</h1>' +
       '<p class="espace-texte">' + esc(t("espace.texte")) + '</p>' +
       (note ? '<div class="resa-etat">' + esc(note) + '</div>' : '') +
-      '<form id="espace-form" novalidate>' +
-        '<label class="resa-champ"><span>' + esc(t("espace.email")) + '</span>' +
-        '<input class="input-field" id="espace-email" type="email" inputmode="email" autocomplete="email" required></label>' +
-        '<button type="submit" class="cta fee" id="espace-envoyer">' + esc(t("espace.envoyer")) + '</button>' +
-        '<div id="espace-note" class="member-note" role="status" aria-live="polite"></div>' +
-      '</form>' +
-      '<div class="member-note">' + esc(t("espace.duree")) + '</div>' +
+      connexionHtml("esp") +
       '<p class="espace-texte">' + esc(t("espace.pasEncore")) + ' <button type="button" class="lien-bouton" data-open="rejoindre">' + esc(t("form.nousRejoindre")) + ' →</button></p>';
-    $("#espace-form").addEventListener("submit", async (ev) => {
-      ev.preventDefault();
-      const email = ($("#espace-email").value || "").trim().toLowerCase();
-      const out = $("#espace-note"), b = $("#espace-envoyer");
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { out.textContent = t("member.emailInvalid"); return; }
-      b.disabled = true; out.textContent = t("member.loading");
-      await demanderLienConnexion(email);
-      out.textContent = t("espace.envoye");
-      b.disabled = false;
+    // Code bon : l'espace s'il y a un compte ; sinon (adhérent sans espace) Mon compte, avec un mot.
+    brancherConnexion("esp", (d) => {
+      if (d.session) { renderEspace(); return; }
+      noteCompte = t("compte.pasEspace");
+      openTarget("compte");
     });
     return;
   }
@@ -2113,6 +2106,240 @@ async function renderEspace(note) {
     (role ? '<div class="resa-etat">' + esc(t("espace.bientot")) + '</div>' : '') +
     '<button type="button" class="cta ghost" id="espace-deconnexion">' + esc(t("espace.deconnexion")) + '</button>';
   $("#espace-deconnexion").addEventListener("click", deconnecter);
+}
+
+/* ============================================================
+   CONNEXION UNIQUE (22/11) ET MON COMPTE (E15.2, E15.3)
+   Un seul code à 6 chiffres par email pour tout le monde (fonction
+   « carte », actions email puis code). Le serveur rend la carte de
+   membre si l'adresse est adhérente, et la session de l'espace si elle a
+   un compte d'intervenant ou d'association. Routage : adhérent seul →
+   Mon compte ; intervenant seul → espace ; les deux → Mon compte, avec
+   l'entrée « Espace intervenants ». Les emails aux intervenants
+   contiennent un lien de connexion directe (#connexion=…, 7 jours).
+   ============================================================ */
+
+let noteCompte = null;   // message à afficher au prochain affichage de Mon compte
+
+/** Formulaire de connexion par code (email, puis code). p : préfixe des identifiants. */
+function connexionHtml(p) {
+  return '<form class="cx-form" id="' + p + '-form" novalidate>' +
+      '<label class="resa-champ"><span>' + esc(t("compte.email")) + '</span>' +
+        '<input class="input-field" id="' + p + '-email" type="email" inputmode="email" autocomplete="email" placeholder="' + esc(t("compte.emailExemple")) + '" required></label>' +
+      '<button type="submit" class="cta fee" id="' + p + '-envoyer">' + esc(t("compte.recevoirCode")) + '</button>' +
+      '<div class="cx-code" id="' + p + '-code-zone" hidden>' +
+        '<label class="resa-champ"><span>' + esc(t("compte.code")) + '</span>' +
+          '<input class="input-field cx-code-champ" id="' + p + '-code" inputmode="numeric" autocomplete="one-time-code" maxlength="7"></label>' +
+        '<button type="button" class="cta fee" id="' + p + '-valider">' + esc(t("compte.seConnecter")) + '</button>' +
+      '</div>' +
+      '<div class="member-note" id="' + p + '-note" role="status" aria-live="polite"></div>' +
+    '</form>' +
+    '<div class="member-note cx-aide">' + esc(t("compte.codeDuree")) + '</div>';
+}
+
+function brancherConnexion(p, quandConnecte) {
+  const note = (m) => { $("#" + p + "-note").textContent = m; };
+  const emailSaisi = () => ($("#" + p + "-email").value || "").trim().toLowerCase();
+  $("#" + p + "-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const email = emailSaisi(), b = $("#" + p + "-envoyer");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { note(t("member.emailInvalid")); return; }
+    b.disabled = true; note(t("member.loading"));
+    try {
+      const etat = await demanderCode(email);
+      note(etat === "envoye" ? t("compte.codeEnvoye") : messageEnvoiCode(etat));
+      if (etat === "envoye") {
+        $("#" + p + "-code-zone").hidden = false; $("#" + p + "-code").focus();
+        b.textContent = t("compte.renvoyerCode"); b.classList.remove("fee"); b.classList.add("ghost");
+      }
+    } catch (e) { note(t("member.error")); }
+    b.disabled = false;
+  });
+  const valider = async () => {
+    const email = emailSaisi(), b = $("#" + p + "-valider");
+    b.disabled = true; note(t("member.loading"));
+    try {
+      const r = await appelCarte({ action: "code", email, code: ($("#" + p + "-code").value || "").replace(/\s/g, "") });
+      if (r.status === 200) { appliquerConnexion(r.data, email); quandConnecte(r.data); return; }
+      note(r.status === 400 ? t("member.codeFaux") : r.status === 429 ? t("member.codeTropEssais")
+        : r.status === 410 ? t("member.codeExpire") : r.status === 404 ? t("compte.inconnu") : t("member.error"));
+    } catch (e) { note(t("member.error")); }
+    b.disabled = false;
+  };
+  $("#" + p + "-valider").addEventListener("click", valider);
+  $("#" + p + "-code").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); valider(); } });
+}
+
+/** Garde sur cet appareil la carte (adhérent) et la session de l'espace (intervenant, association). */
+function appliquerConnexion(d, email) {
+  if (d.jeton && d.carte) carteEcrite({ jeton: d.jeton, carte: d.carte, email: d.email || email, maj: Date.now() });
+  if (d.session && d.session.access_token) sessionEcrite(d.session);
+}
+
+/** Après la connexion. vers : « espace » ou « seance » (lien d'un email aux intervenants). */
+function routerApresConnexion(vers) {
+  const carte = carteLue(), session = sessionLue();
+  if (session && (vers === "espace" || vers === "seance" || !(carte && carte.jeton))) {
+    if (typeof ADM !== "undefined") { ADM.ongletVoulu = "seances"; ADM.nouvelleSeance = vers === "seance"; }
+    openTarget("espace");
+    return;
+  }
+  openTarget("compte");
+}
+
+/** Lien de connexion directe d'un email (#connexion=…&vers=…). */
+async function connexionParLien(jeton, vers) {
+  showScreen("compte");
+  $("#compte-body").innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>';
+  try {
+    const r = await appelCarte({ action: "connexion", jeton });
+    if (r.status === 200) { appliquerConnexion(r.data, r.data.email); routerApresConnexion(vers); return; }
+    noteCompte = r.data && r.data.code === "UTILISE" ? t("compte.lienUtilise") : t("compte.lienExpire");
+  } catch (e) { noteCompte = t("member.error"); }
+  renderCompte();
+}
+
+/** « Mon compte » (E13) : carte sur cet appareil → Mon compte ; session seule → espace ; sinon connexion par code. */
+function ouvrirMonCompte() {
+  const c = carteLue();
+  if (!(c && c.jeton) && sessionLue()) {
+    if (typeof ADM !== "undefined") ADM.ongletVoulu = "seances";
+    openTarget("espace");
+    return;
+  }
+  openTarget("compte");
+}
+
+/** Déconnexion de Mon compte : la carte et la session quittent cet appareil. */
+function deconnecterTout() {
+  const s = sessionLue();
+  carteEcrite(null);
+  sessionEcrite(null);
+  if (s) authAppel("/auth/v1/logout", { method: "POST", headers: { Authorization: "Bearer " + s.access_token } }).catch(() => {});
+}
+
+/** Heure lisible : « 10 h 00 » en français, « 10:00 » ailleurs (heure de Paris). */
+function heureLisible(iso) {
+  const p = {};
+  new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .formatToParts(new Date(iso)).forEach((x) => { p[x.type] = x.value; });
+  return getLang() === "fr" ? p.hour + " h " + p.minute : p.hour + ":" + p.minute;
+}
+const TYPE_COULEUR = { visite_guidee: "visite", autoguidee: "visite", atelier: "atelier", escape_game: "escape", soiree: "soiree" };
+const TYPE_LIBELLE = { visite_guidee: "infos.tVisite", autoguidee: "infos.tVisite", atelier: "infos.tAtelier", escape_game: "infos.tEscape", soiree: "infos.tSoiree" };
+
+function compteResaHtml(r) {
+  const jour = (o) => new Date(r.debut).toLocaleDateString(localeResa(), Object.assign({ timeZone: "Europe/Paris" }, o));
+  const titreR = (r.titre && (r.titre[getLang()] || r.titre.fr)) || "";
+  return '<div class="cpt-resa" style="--p:var(--type-' + (TYPE_COULEUR[r.type] || "visite") + ')">' +
+    '<div class="cpt-resa-haut">' +
+      '<span class="adm-jour"><span>' + esc(jour({ weekday: "short" })) + '</span><b>' + esc(jour({ day: "numeric" })) + '</b><span>' + esc(jour({ month: "short" })) + '</span></span>' +
+      '<span class="cpt-resa-corps"><span class="cpt-badge">' + esc(t(TYPE_LIBELLE[r.type] || "infos.tVisite")) + '</span>' +
+        '<span class="cpt-resa-titre">' + esc(titreR + (r.intervenant ? tx("compte.avec", { g: r.intervenant }) : "")) + '</span>' +
+        '<span class="cpt-resa-meta">' + esc([heureLisible(r.debut), r.point_rdv].filter(Boolean).join(" · ")) + '</span></span>' +
+    '</div>' +
+    '<div class="cpt-resa-bas"><span>' + esc((r.personnes === 1 ? t("resa.person1") : tx("resa.personN", { n: r.personnes })) + " · " +
+        (r.seance_modifiee ? t("compte.annulationModifiee") : tx("compte.annulationGratuite", { h: r.delai_frais_heures || 24 }))) + '</span>' +
+      '<button type="button" class="cpt-voir" data-cpt-voir="' + esc(r.id) + '">' + esc(t("compte.voir")) + ' ›</button></div>' +
+  '</div>';
+}
+
+function compteHtml(c, resas, note) {
+  const valide = new Date(c.valide_jusqua) > new Date();
+  const prenom = String(c.nom || "").trim().split(/\s+/)[0] || "";
+  const fin = new Date(c.valide_jusqua).toLocaleDateString(localeResa(), { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric" });
+  const session = sessionLue();
+  const pastille = (k, couleur) => '<span class="infos-pastille" style="--p:' + couleur + '">' + esc(t(k)) + '</span>';
+  const liste = resas === null ? '<div class="loading">' + esc(t("member.loading")) + '</div>'
+    : resas.length
+      ? '<div class="cpt-liste">' + resas.map(compteResaHtml).join("") + '</div>' +
+        '<button type="button" class="cta ocre" data-cpt-accueil>' + esc(t("compte.reserverAutre")) + '</button>'
+      : '<div class="cpt-vide"><h2>' + esc(t("compte.vide1")) + ' <i>' + esc(t("compte.vide2")) + '</i></h2>' +
+          '<p>' + esc(valide ? t("compte.videTexte") : t("compte.videExpire")) + '</p>' +
+          '<div class="infos-pastilles">' + pastille("infos.tVisite", "var(--type-visite)") + pastille("infos.tAtelier", "var(--type-atelier)") +
+            pastille("infos.tSoiree", "var(--type-soiree)") + '</div>' +
+          '<button type="button" class="cta ocre" data-cpt-accueil>' + esc(t("compte.voirDates")) + '</button></div>';
+  return '<div class="cpt-eyebrow">' + esc(t("compte.eyebrow")) + '</div>' +
+    '<h1 class="espace-titre">' + esc(t("compte.bonjour")) + (prenom ? ' <i>' + esc(prenom) + '</i>' : '') + '</h1>' +
+    (note ? '<div class="resa-etat">' + esc(note) + '</div>' : '') +
+    '<button type="button" class="cpt-adh' + (valide ? '' : ' expiree') + '" data-open="membre">' +
+      '<span class="cpt-adh-icone" aria-hidden="true">' + (valide ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' : '!') + '</span>' +
+      '<span class="cpt-adh-corps"><b>' + esc(valide ? t("compte.adhActive") : t("compte.adhExpiree")) + '</b>' +
+        '<span class="cpt-mono">' + esc(tx("compte.jusquau", { date: fin }) + (c.numero ? " · " + c.numero : "")) + '</span></span>' +
+      '<span class="cpt-adh-carte">' + esc(valide ? t("compte.maCarte") : t("compte.renouveler")) + ' ›</span></button>' +
+    '<div class="cpt-titre-liste"><h2>' + esc(t("compte.prochaines1")) + ' <i>' + esc(t("compte.prochaines2")) + '</i></h2>' +
+      (resas && resas.length ? '<span class="cpt-mono">' + esc(tx("compte.aVenir", { n: resas.length })) + '</span>' : '') + '</div>' +
+    liste +
+    '<div class="infos-label">' + esc(t("compte.animer")) + '</div>' +
+    '<div class="infos-liste">' +
+      '<button type="button" class="infos-ligne" data-open="espace"><span><span class="infos-ligne-t">' + esc(t("espace.entree")) + '</span>' +
+        (session ? '' : '<span class="infos-ligne-s">' + esc(t("compte.espaceSous")) + '</span>') + '</span><span class="infos-fleche" aria-hidden="true">›</span></button>' +
+      '<button type="button" class="infos-ligne" id="cpt-proposer"><span><span class="infos-ligne-t">' + esc(t("infos.proposerBtn")) + '</span></span><span class="infos-fleche" aria-hidden="true">›</span></button>' +
+    '</div>' +
+    (c.renouvelable ? '<button type="button" class="lien-bouton cpt-gerer" id="cpt-portail">' + esc(t("member.gerer")) + '</button><div class="resa-erreur" id="cpt-portail-note" role="alert"></div>' : '') +
+    '<button type="button" class="lien-bouton cpt-deco" id="cpt-deconnexion">' + esc(t("compte.deconnexion")) + '</button>';
+}
+
+/** Écran « Mon compte » : connexion par code, ou l'adhérent (E15.2 avec réservations, E15.3 sans). */
+async function renderCompte(note) {
+  const corps = $("#compte-body");
+  if (!corps) return;
+  note = note || noteCompte; noteCompte = null;
+  const st = carteLue();
+  if (!st || !st.jeton) {
+    if (sessionLue()) { openTarget("espace"); return; }   // intervenant sans adhésion : son espace
+    corps.innerHTML =
+      '<div class="cpt-eyebrow">' + esc(t("compte.eyebrow")) + '</div>' +
+      '<h1 class="espace-titre">' + esc(t("compte.connexion1")) + ' <i>' + esc(t("compte.connexion2")) + '</i></h1>' +
+      '<p class="espace-texte">' + esc(t("compte.connexionTexte")) + '</p>' +
+      (note ? '<div class="resa-etat">' + esc(note) + '</div>' : '') +
+      connexionHtml("cpt") +
+      '<div class="infos-liste cpt-liens">' +
+        '<button type="button" class="infos-ligne" data-open="membre"><span><span class="infos-ligne-t">' + esc(t("compte.pasMembre")) + '</span></span><span class="infos-fleche" aria-hidden="true">›</span></button>' +
+        '<button type="button" class="infos-ligne" data-open="rejoindre"><span><span class="infos-ligne-t">' + esc(t("compte.animer")) + '</span><span class="infos-ligne-s">' + esc(t("form.nousRejoindre")) + '</span></span><span class="infos-fleche" aria-hidden="true">›</span></button>' +
+      '</div>';
+    brancherConnexion("cpt", () => routerApresConnexion());
+    return;
+  }
+  let resas = null;
+  const peindre = () => {
+    const s = carteLue();
+    if (!s || !s.carte) { corps.innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>'; return; }
+    corps.innerHTML = compteHtml(s.carte, resas, note);
+    $$("[data-cpt-accueil]").forEach((b) => b.addEventListener("click", () => showScreen("accueil")));
+    $("#cpt-proposer").addEventListener("click", () => {
+      if (sessionLue() && typeof ADM !== "undefined") { ADM.ongletVoulu = "fiches"; ADM.nouvelleExperience = true; openTarget("espace"); }
+      else openTarget("rejoindre");
+    });
+    $("#cpt-deconnexion").addEventListener("click", () => { deconnecterTout(); renderCompte(); });
+    const portail = $("#cpt-portail");
+    if (portail) portail.addEventListener("click", async () => {
+      portail.disabled = true;
+      try {
+        const r = await appelCarte({ action: "portail", jeton: (carteLue() || {}).jeton });
+        if (r.status === 200 && r.data.url) { window.location.href = r.data.url; return; }
+        $("#cpt-portail-note").textContent = t("member.portailIndispo");
+      } catch (e) { $("#cpt-portail-note").textContent = t("member.error"); }
+      portail.disabled = false;
+    });
+    $$("[data-cpt-voir]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        const r = await appelCarte({ action: "ouvrir", jeton: (carteLue() || {}).jeton, reservation_id: b.dataset.cptVoir });
+        if (r.status === 200 && r.data.jeton) { window.location.hash = "reservation=" + r.data.jeton; handleReservationRetour(); return; }
+      } catch (e) { /* message ci-dessous */ }
+      b.disabled = false; b.textContent = t("member.error");
+    }));
+  };
+  peindre();
+  // Carte à jour (validité, renouvellement) et réservations à venir.
+  try {
+    const [v, r] = await Promise.all([appelCarte({ action: "voir", jeton: st.jeton }), appelCarte({ action: "reservations", jeton: st.jeton })]);
+    if (v.status === 200 && v.data.carte) carteEcrite({ jeton: st.jeton, carte: v.data.carte, email: v.data.email || st.email, maj: Date.now() });
+    else if (v.status === 404 || v.status === 400) { carteEcrite(null); renderCompte(t("member.revoked")); return; }
+    resas = r.status === 200 ? (r.data.reservations || []) : [];
+  } catch (e) { resas = []; note = note || t("member.offline"); }
+  peindre();
 }
 
 /* ============================================================
@@ -2394,11 +2621,6 @@ function renderInfos() {
     '<div class="infos-pied">' + esc(t("infos.pied")) + '<br>' + esc(t("infos.beta")) + '</div>';
 }
 
-/** « Mon compte » (E13) : connectée → l'espace (intervenant : Mes séances) ; sinon la connexion par email. */
-function ouvrirMonCompte() {
-  if (typeof ADM !== "undefined") ADM.ongletVoulu = "seances";
-  openTarget("espace");
-}
 
 function renderInfosFestival() {
   $("#infos-festival-body").innerHTML =
@@ -2416,6 +2638,12 @@ function renderInfosFestival() {
 /** Liens directs à partager : https://artdive.app/#rejoindre, et #espace=demandes (emails d'alerte). */
 function handleLienDirect() {
   const h = window.location.hash || "";
+  const cx = h.match(/^#connexion=([A-Za-z0-9_-]{43})(?:&vers=([a-z]+))?$/);
+  if (cx) {
+    history.replaceState(null, "", window.location.pathname + window.location.search);   // le jeton ne reste pas dans l'adresse
+    connexionParLien(cx[1], cx[2]);
+    return true;
+  }
   const m = h.match(/^#espace(?:=([a-z]+))?$/);
   if (h !== "#rejoindre" && h !== "#membre" && !m) return false;
   history.replaceState(null, "", window.location.pathname + window.location.search);

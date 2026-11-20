@@ -288,7 +288,8 @@ async function renderAdmin(corps, nom, role, moi) {
       inter ? Promise.resolve([]) : supaConnecte("candidatures?select=id&statut=eq.nouvelle"),
     ]);
     ADM.props = props;
-    ADM.nonTraitees = (dNouvelles || []).length + (cNouvelles || []).length;
+    ADM.nonTraitees = (dNouvelles || []).length;   // candidatures : onglet Validations (22/11)
+    ADM.nCands = (cNouvelles || []).length;
     ADM.exps = exps; ADM.ints = ints;
     ADM.contacts = {}; contacts.forEach((c) => { ADM.contacts[c.intervenant_id] = c.email; });
     ADM.comptes = {}; profils.forEach((p) => { if (p.intervenant_id) ADM.comptes[p.intervenant_id] = true; });
@@ -297,33 +298,38 @@ async function renderAdmin(corps, nom, role, moi) {
     corps.innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>';
     return;
   }
-  peindreAdmin(corps);
+  await peindreAdmin(corps);
+  // Lien d'email « Créez votre première séance », ou « Proposer une expérience » depuis Mon compte.
+  if (inter && ADM.nouvelleSeance && ADM.exps.some(admExpValidee)) peindreFormSeance(corps, null);
+  else if (inter && ADM.nouvelleExperience) peindreFormExperience(corps, null);
+  ADM.nouvelleSeance = false; ADM.nouvelleExperience = false;
 }
 
 function admEtatFiche(e) {
   if (e.a_valider) return ["avalider", t("adm.etatAValider")];
+  if (e.refusee_le && !e.publie) return ["suspendue", t("adm.etatARevoir")];
   if (e.publie && e.actif) return ["enligne", t("adm.etatEnLigne")];
   if (e.publie) return ["suspendue", t("adm.etatSuspendue")];
   return ["brouillon", t("adm.etatBrouillon")];
 }
 
 function peindreAdmin(corps) {
-  const aValider = ADM.exps.filter((e) => e.a_valider).length;
+  const aValider = ADM.exps.filter((e) => e.a_valider).length + (ADM.nCands || 0) + (ADM.props || []).length;
   const ongletSimple = (k, libelle) => '<button type="button" class="chip' + (ADM.onglet === k ? " active" : "") + '" data-adm-onglet="' + k + '">' + esc(libelle) + '</button>';
   const onglet = (k, libelle, n) => '<button type="button" class="chip' + (ADM.onglet === k ? " active" : "") + '" data-adm-onglet="' + k + '">' +
     esc(libelle) + ' · ' + n + '</button>';
-  const inter = ADM.role === "intervenant", nProps = (ADM.props || []).length;
+  const inter = ADM.role === "intervenant";
   corps.innerHTML =
     '<h1 class="espace-titre">' + esc(tx("espace.bonjour", { nom: ADM.nom })) + '</h1>' +
     '<div class="adm-sous">' + esc(inter ? t("adm.sousIntervenant") : t("adm.sous")) + '</div>' +
-    (inter ? (nProps ? '<div class="resa-etat">' + esc(tx("adm.enAttenteNote", { n: nProps })) + '</div>' : '')
-      : (aValider ? '<div class="resa-etat">' + esc(tx("adm.aValiderNote", { n: aValider })) + '</div>' : '') +
+    (inter ? ''
+      : (aValider && ADM.onglet !== "valider" ? '<button type="button" class="resa-etat adm-a-traiter" data-adm-onglet="valider">' + esc(tx("adm.aValiderNote", { n: aValider })) + '</button>' : '') +
         (ADM.nonTraitees ? '<button type="button" class="resa-etat adm-a-traiter" data-adm-onglet="demandes">' + esc(tx("adm.nonTraitees", { n: ADM.nonTraitees })) + '</button>' : '')) +
     '<div class="filter-chips adm-onglets" role="tablist">' +
       (inter
         ? ongletSimple("seances", t("adm.mesSeances")) + ongletSimple("inscrits", t("adm.mesInscrits")) +
-          ongletSimple("intervenants", t("adm.maFiche")) + ongletSimple("fiches", t("adm.mesVisites"))
-        : (nProps ? onglet("valider", t("adm.aValider"), nProps) : '') +
+          ongletSimple("fiches", t("adm.mesExperiences")) + ongletSimple("intervenants", t("adm.maFiche"))
+        : (aValider ? onglet("valider", t("adm.validations"), aValider).replace('class="chip', 'class="chip adm-onglet-alerte') : ongletSimple("valider", t("adm.validations"))) +
           onglet("fiches", t("adm.fiches"), ADM.exps.length) + ongletSimple("seances", t("adm.seances")) +
           onglet("intervenants", t("adm.intervenants"), ADM.ints.length) + ongletSimple("adhesions", t("adm.adhesions")) +
           (ADM.nonTraitees ? onglet("demandes", t("adm.demandes"), ADM.nonTraitees).replace('class="chip', 'class="chip adm-onglet-alerte') : ongletSimple("demandes", t("adm.demandes")))) +
@@ -333,7 +339,8 @@ function peindreAdmin(corps) {
   $$("[data-adm-onglet]").forEach((b) => b.addEventListener("click", () => { ADM.onglet = b.dataset.admOnglet; peindreAdmin(corps); }));
   $("#espace-deconnexion").addEventListener("click", deconnecter);
   if (inter && ADM.onglet === "intervenants") { peindreFormIntervenant(corps, ADM.ints[0] || null); return; }
-  ({ fiches: peindreListeFiches, seances: peindreListeSeances, intervenants: peindreListeIntervenants, inscrits: peindreMesInscrits,
+  if (inter && ADM.onglet === "seances") return peindreTableauIntervenant(corps);   // promesse : les messages s'affichent après le chargement
+  return ({ fiches: peindreListeFiches, seances: peindreListeSeances, intervenants: peindreListeIntervenants, inscrits: peindreMesInscrits,
      adhesions: peindreAdhesions, demandes: peindreDemandes, valider: peindreValidations }[ADM.onglet] || peindreListeFiches)(corps);
 }
 
@@ -341,7 +348,7 @@ function peindreListeFiches(corps) {
   const zone = $("#adm-zone");
   const nomInt = (id) => (ADM.ints.find((i) => i.id === id) || {}).nom || "";
   zone.innerHTML =
-    '<button type="button" class="cta fee" id="adm-nouvelle-fiche">' + esc(ADM.role === "intervenant" ? t("adm.proposerVisite") : t("adm.nouvelleFiche")) + '</button>' +
+    '<button type="button" class="cta fee" id="adm-nouvelle-fiche">' + esc(ADM.role === "intervenant" ? t("adm.proposerExperience") : t("adm.nouvelleFiche")) + '</button>' +
     '<div id="adm-reprise"></div>' +
     (ADM.exps.length ? '' : '<div class="member-note">' + esc(t("adm.aucuneFiche")) + '</div>') +
     '<div class="adm-liste">' + ADM.exps.map((e) => {
@@ -353,8 +360,9 @@ function peindreListeFiches(corps) {
         '<span class="adm-etat adm-etat-' + etat[0] + '">' + esc(etat[1]) + '</span>' +
       '</button>';
     }).join("") + '</div>';
-  $("#adm-nouvelle-fiche").addEventListener("click", () => peindreFormFiche(corps, null));
-  $$("[data-adm-fiche]").forEach((b) => b.addEventListener("click", () => peindreFormFiche(corps, ADM.exps.find((e) => e.id === b.dataset.admFiche))));
+  const ouvrir = ADM.role === "intervenant" ? peindreFormExperience : peindreFormFiche;
+  $("#adm-nouvelle-fiche").addEventListener("click", () => ouvrir(corps, null));
+  $$("[data-adm-fiche]").forEach((b) => b.addEventListener("click", () => ouvrir(corps, ADM.exps.find((e) => e.id === b.dataset.admFiche))));
   if (ADM.role !== "intervenant") proposerReprise(corps);
 }
 
@@ -548,22 +556,28 @@ function peindreFormIntervenant(corps, i) {
           '<button type="button" class="cta ghost" id="i-inviter"' + (email ? '' : ' disabled') + '>' +
             esc(ADM.comptes[i.id] ? t("adm.renvoyerLien") : t("adm.inviter")) + '</button>' +
           '<div class="member-note" id="i-invit-note" role="status">' + esc(email ? "" : t("adm.inviterSansEmail")) + '</div>' +
-        '</div>') +
+        '</div>' +
+        '<div class="adm-encart adm-suppression"><b>' + esc(t("adm.supprimerInt")) + '</b><p class="member-note">' + esc(t("adm.supprimerIntAide")) + '</p>' +
+          '<button type="button" class="cta ghost adm-danger" id="i-supprimer">' + esc(t("adm.supprimerInt")) + '</button>' +
+          '<div class="resa-erreur" id="i-suppr-note" role="alert"></div></div>') +
       '<button type="button" class="cta ghost" id="i-retour">' + esc(t("adm.retourListe")) + '</button>' +
     '</form>';
   admBrancherLangues("i-langues");
   const inter = ADM.role === "intervenant";
-  if (inter) {   // l'intervenant propose les changements de sa fiche ; l'association les valide
+  if (inter) {   // 22/11 : l'intervenant publie sa fiche directement (type, publication et sous-titres restent à l'association)
     ["i-type", "i-publie"].forEach((id) => { const el = document.getElementById(id); if (el) el.closest("label").remove(); });
-    $$(".adm-invitation, #i-retour").forEach((x) => x.remove());
-    $("#adm-form").insertAdjacentHTML("afterbegin", '<p class="member-note">' + esc(t("adm.ficheValidee")) + '</p>');
-    $("#i-enregistrer").textContent = t("adm.envoyerProposition");
+    $$(".adm-invitation, .adm-suppression, #i-retour").forEach((x) => x.remove());
+    $("#adm-form").insertAdjacentHTML("afterbegin", '<p class="member-note">' + esc(t("adm.ficheDirecte")) + '</p>');
+    $("#i-enregistrer").textContent = t("adm.enregistrerFiche");
+    if (i.publie) $("#i-enregistrer").insertAdjacentHTML("afterend", '<button type="button" class="cta ghost" id="i-voir">' + esc(t("adm.voirPagePublique")) + '</button>');
+    if ($("#i-voir")) $("#i-voir").addEventListener("click", () => openTarget("hote", i.id));
   }
   admBrancherPhoto("i-photo", inter ? "intervenants/" + ADM.moi : "intervenants");
   admBrancherVideo("i-video", "intervenants/" + (inter ? ADM.moi : (i.id || "nouveau")));
   admBrancherTraduire("i-traduire", ["i-role", "i-bio"]);
   if (!inter) $("#i-retour").addEventListener("click", () => peindreAdmin(corps));
   if (!n && !inter) $("#i-inviter").addEventListener("click", () => admInviter(i));
+  if (!n && !inter) $("#i-supprimer").addEventListener("click", () => admSupprimerIntervenant(corps, i));
   $("#adm-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const note = $("#i-note"), b = $("#i-enregistrer");
@@ -580,10 +594,11 @@ function peindreFormIntervenant(corps, i) {
     if (inter) {
       try {
         delete donnees.type; delete donnees.publie;
-        await supaEcrire("POST", "propositions", { intervenant_id: ADM.moi, type: "fiche", donnees }, "return=minimal");
+        await supaEcrire("PATCH", "intervenants?id=eq." + ADM.moi, donnees, "return=minimal");
         if (mail && mail !== (ADM.contacts[ADM.moi] || "")) await supaEcrire("PATCH", "intervenants_contacts?intervenant_id=eq." + ADM.moi, { email: mail }, "return=minimal");
+        VISITES_CACHE = null;
         await renderAdmin(corps);
-        const z = $("#adm-zone"); if (z) z.insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t("adm.propositionEnvoyee")) + '</div>');
+        const z = $("#adm-zone"); if (z) z.insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t("adm.fichePubliee")) + '</div>');
       } catch (err) { note.textContent = admErreur(err); b.disabled = false; }
       return;
     }
@@ -757,47 +772,71 @@ async function peindreListeSeances(corps) {
   $$("[data-adm-seance]").forEach((b) => b.addEventListener("click", () => peindreFormSeance(corps, seances.find((x) => x.id === b.dataset.admSeance))));
 }
 
-async function peindreFormSeance(corps, x) {
+/* E11.2 (22/11) : séance programmée par l'intervenant (ou l'admin), publiée tout de suite.
+   Durée par pas de 15 minutes, prix par personne réglé sur place, minimum pour partir choisi
+   par l'intervenant ; répétition (chaque semaine, tous les N jours) ou « Dupliquer ».
+   Séance avec inscrits : tout reste modifiable, les inscrits sont prévenus par email (la base
+   s'en charge) et peuvent annuler sans frais. x : séance existante ; modele : séance à dupliquer. */
+async function peindreFormSeance(corps, x, modele) {
   const n = !x;
-  let resas = [];
   const inter = ADM.role === "intervenant";
+  let resas = [];
   if (!n) { admChargement(); try { resas = inter
     // l'intervenant ne voit que la vue mes_inscrits : prénom et initiale, personnes, téléphone, reste à encaisser
-    ? (await supaConnecte("mes_inscrits?select=id,nom,personnes,telephone,reste_sur_place_centimes,adherent&seance_id=eq." + x.id)).map((r) => Object.assign({ statut: "confirmee" }, r))
+    ? (await supaConnecte("mes_inscrits?select=id,nom,personnes,telephone,reste_sur_place_centimes,adherent,absent_le,frais_centimes,frais_statut&seance_id=eq." + x.id)).map((r) => Object.assign({ statut: "confirmee" }, r))
     : await supaConnecte("reservations?select=id,reference,nom,email,telephone,personnes,statut,annulee_par,absent_le,frais_centimes,frais_statut,reste_sur_place_centimes,paye_en_ligne_centimes,adherent&seance_id=eq." + x.id + "&order=cree_le.asc"); } catch (e) { resas = []; } }
   const confirmees = resas.filter((r) => r.statut === "confirmee");
-  const bloque = confirmees.length > 0;   // inscrits : la date et le lieu ne bougent plus (annuler puis recréer)
-  x = x || { langue: "fr", statut: "brouillon" };
-  const annulee = x.statut === "annulee";
+  const nInscrits = confirmees.reduce((k, r) => k + r.personnes, 0);
+  const base = x || modele || { langue: "fr", statut: "brouillon" };
+  const annulee = base.statut === "annulee" && !n;
+  const publiee = !n && x.statut === "publiee";
+  const exps = ADM.exps.filter((e) => ADM_TYPES_SEANCE.includes(e.type) && (inter ? admExpValidee(e) && e.type !== "soiree" : true));
+  const expDe = (id) => ADM.exps.find((e) => e.id === id) || null;
+  let exp = expDe(base.experience_id) || (exps.length === 1 ? exps[0] : null);
+  const netExp = (e) => e && e.prix_centimes != null ? e.prix_centimes - (["soiree"].includes(e.type) ? 0 : (e.prereservation_centimes || 0)) : null;
+  const dureeBase = base.fin && base.debut ? Math.round((new Date(base.fin) - new Date(base.debut)) / 6e4) : (exp && exp.duree_minutes) || 120;
   const commencee = !n && new Date(x.debut) <= new Date(), finAbsences = !n && Date.now() < new Date(x.debut).getTime() + 7 * 864e5;
+  const titre = n ? (modele ? t("adm.dupliquerTitre") : t("adm.nouvelleSeance")) : t("adm.modifierSeance");
   window.scrollTo(0, 0);
   admZone().innerHTML =
-    '<form id="adm-form" class="adm-form" novalidate>' +
-      '<h2 class="adm-titre">' + esc(n ? t("adm.nouvelleSeance") : admTitreExp(x.experience_id) + " · " + admDate(x.debut, { weekday: "long", day: "numeric", month: "long" })) + '</h2>' +
+    '<form id="adm-form" class="adm-form adm-form-large" novalidate>' +
+      '<h2 class="adm-titre">' + esc(titre) + '</h2>' +
+      (!n ? '<div class="adm-sous">' + esc(admTitreExp(x.experience_id) + " · " + admDate(x.debut, { weekday: "short", day: "numeric", month: "short" })) + '</div>' : '') +
       (annulee ? '<div class="resa-etat">' + esc(t("adm.sAnnuleeNote")) + '</div>' : '') +
-      '<label class="adm-champ"><span>' + esc(t("adm.fiche")) + '</span>' +
-        admSelect("s-exp", [["", t("adm.choisir")]].concat(ADM.exps.filter((e) => (inter ? ["visite_guidee", "atelier"] : ["visite_guidee", "atelier", "soiree"]).includes(e.type)).map((e) => [e.id, (e.titre && e.titre.fr) || e.slug])), x.experience_id || "") + '</label>' +
+      (nInscrits && !annulee ? '<div class="adm-bandeau adm-bandeau-info"><span>' + esc(tx("adm.sInscritsPrevenus", { n: nInscrits })) + '</span></div>' : '') +
+      (inter && !exps.length && n ? '<div class="adm-bandeau"><span>' + esc(t("adm.seanceApresValidation")) + '</span></div>' : '') +
+      '<label class="adm-champ"><span>' + esc(t("adm.experience")) + '</span>' +
+        admSelect("s-exp", [["", t("adm.choisir")]].concat((n ? exps : ADM.exps.filter((e) => e.id === base.experience_id))
+          .map((e) => [e.id, ((e.titre && e.titre.fr) || e.slug) + ", " + t("adm.typeCourt." + e.type).toLowerCase()])), exp ? exp.id : "") + '</label>' +
       '<div class="adm-grille">' +
-        '<label class="adm-champ"><span>' + esc(t("adm.jour")) + '</span><input class="input-field" type="date" id="s-jour" value="' + esc(x.debut ? admJourParis(x.debut) : "") + '"></label>' +
-        '<label class="adm-champ"><span>' + esc(t("adm.heure")) + '</span><input class="input-field" type="time" id="s-heure" value="' + esc(x.debut ? admHeureParis(x.debut) : "10:00") + '"></label>' +
-        admNombre("s-duree", t("adm.duree"), x.fin && x.debut ? Math.round((new Date(x.fin) - new Date(x.debut)) / 6e4) : "") +
-        '<label class="adm-champ"><span>' + esc(t("adm.langue")) + '</span>' + admSelect("s-langue", ADM_LANGUES.map((l) => [l, LANG_META[l].nom]), x.langue) + '</label>' +
-        admNombre("s-max", t("adm.placesMax"), x.capacite_max) + admNombre("s-min", t("adm.participantsMin"), x.participants_min) +
+        '<label class="adm-champ"><span>' + esc(t("adm.jour")) + '</span><input class="input-field" type="date" id="s-jour" value="' + esc(x ? admJourParis(x.debut) : "") + '"></label>' +
+        '<label class="adm-champ"><span>' + esc(t("adm.heure")) + '</span><input class="input-field" type="time" step="900" id="s-heure" value="' + esc(base.debut ? admHeureParis(base.debut) : "10:00") + '"></label>' +
       '</div>' +
-      '<div class="adm-prix-net member-note" id="s-prix-net"></div>' +
-      admCase("s-reservee", t("adm.reserveeAdherents"), !!x.reservee_adherents) +
-      '<small class="member-note" id="s-reservee-aide"></small>' +
-      admNombre("s-adh", t("adm.tarifAdh"), x.prix_adherent_centimes == null ? "" : String(x.prix_adherent_centimes / 100).replace(".", ","), t("adm.tarifAdhAide")) +
-      (bloque ? '<div class="member-note">' + esc(t("adm.sBloquee")) + '</div>' : '') +
-      '<label class="adm-champ"><span>' + esc(t("adm.rdv")) + '</span><input class="input-field" id="s-rdv" value="' + esc(x.point_rdv || "") + '"></label>' +
-      '<label class="adm-champ"><span>' + esc(t("adm.rdvPrecis")) + '</span><input class="input-field" id="s-precis" value="' + esc(x.point_rdv_precis || "") + '"><small class="member-note">' + esc(t("adm.rdvPrecisAide")) + '</small></label>' +
-      '<label class="adm-champ"><span>' + esc(t("adm.message")) + '</span><input class="input-field" id="s-message" value="' + esc(x.message_inscrits || "") + '"></label>' +
-      (annulee || (inter && x.statut === "publiee") ? '' : admCase("s-publiee", inter ? t("adm.sDemander") : t("adm.sPublier"), inter ? x.statut === "en_attente" : x.statut === "publiee")) +
-      (inter && x.statut === "publiee" ? '<div class="member-note">' + esc(t("adm.sModifEnLigne")) + '</div>' : '') +
-      (annulee ? '' : '<button type="submit" class="cta fee" id="s-enregistrer">' + esc(t("adm.enregistrer")) + '</button>') +
+      '<label class="adm-champ"><span>' + esc(t("adm.rdv")) + '</span><input class="input-field" id="s-rdv" value="' + esc(base.point_rdv || (exp && exp.point_rdv && exp.point_rdv.fr) || "") + '"></label>' +
+      '<div class="adm-champ"><span>' + esc(t("adm.langueVisite")) + '</span>' +
+        admChoixHtml("s-langue", ADM_LANGUES.map((l) => [l, LANG_META[l].nom]), base.langue || "fr") + '</div>' +
+      admStepperHtml("s-max", t("adm.placesNombre"), base.capacite_max || (exp && exp.capacite_max) || 8, "", " ") +
+      admStepperHtml("s-min", t("adm.minimumPartir"), base.participants_min || (exp && exp.participants_min) || 1, t("adm.minimumAide")) +
+      admStepperHtml("s-duree", t("adm.dureeCourt"), dureeBase, "", t("adm.pas15")) +
+      admPrixHtml("s-prix", t(exp && exp.type === "soiree" ? "adm.prixSoireeSeance" : "adm.prixPersonne"),
+        base.prix_centimes != null ? base.prix_centimes : netExp(exp), exp && exp.type === "soiree" ? "" : t("adm.prixPersonneAide")) +
+      '<label class="adm-champ"><span>' + esc(t("adm.rdvPrecis")) + '</span><input class="input-field" id="s-precis" value="' + esc(base.point_rdv_precis || "") + '"><small class="member-note">' + esc(t("adm.rdvPrecisAide")) + '</small></label>' +
+      '<label class="adm-champ"><span>' + esc(t("adm.message")) + '</span><textarea class="input-field" id="s-message" rows="2">' + esc(base.message_inscrits || "") + '</textarea></label>' +
+      (n ? '<div class="adm-encart adm-repeter"><label class="adm-champ"><span>' + esc(t("adm.repeter")) + '</span>' +
+          admSelect("s-repeter", [["", t("adm.repeterNon")], ["7", t("adm.repeterSemaine")], ["n", t("adm.repeterJours")]], "") + '</label>' +
+          '<div class="adm-grille" id="s-repeter-detail" hidden>' +
+            '<label class="adm-champ" id="s-tous-champ" hidden><span>' + esc(t("adm.repeterTous")) + '</span><input class="input-field" id="s-tous" inputmode="numeric" value="2"></label>' +
+            '<label class="adm-champ"><span>' + esc(t("adm.repeterJusqua")) + '</span><input class="input-field" type="date" id="s-jusqua"></label>' +
+          '</div><small class="member-note" id="s-repeter-note"></small></div>' : '') +
+      (annulee ? '' :
+        '<button type="submit" class="cta ocre" id="s-publier">' + esc(publiee ? t("adm.enregistrerChangements") : t("adm.publierSeance")) + '</button>' +
+        '<div class="member-note adm-centre">' + esc(publiee ? (nInscrits ? t("adm.inscritsSerontPrevenus") : t("adm.sEnLigneNote")) : inter ? t("adm.publieeToutDeSuite") : t("adm.publieeToutDeSuiteAdmin")) + '</div>' +
+        (publiee ? '' : '<button type="button" class="cta ghost" id="s-brouillon">' + esc(t("adm.enregistrerBrouillon")) + '</button>')) +
       '<div class="resa-erreur" id="s-note" role="alert"></div>' +
+      (n ? '' : '<div class="adm-boutons"><button type="button" class="cta ghost" id="s-dupliquer">' + esc(t("adm.dupliquer")) + '</button>' +
+        (resas.length || annulee ? '' : '<button type="button" class="cta ghost adm-danger" id="s-supprimer">' + esc(t("adm.supprimerSeance")) + '</button>') + '</div>') +
       (n ? '' :
-        '<h3 class="adm-sous-titre">' + esc(tx("adm.inscritsTitre", { n: confirmees.reduce((k, r) => k + r.personnes, 0) })) + '</h3>' +
+        '<h3 class="adm-sous-titre">' + esc(tx("adm.inscritsTitre", { n: nInscrits })) + '</h3>' +
         (resas.length ? '<div class="adm-liste adm-inscrits">' + resas.map((r) => {
           const absent = r.absent_le ? t("adm.absentSignale") : "";
           const etatR = r.statut === "confirmee" ? (absent || t("adm.rConfirmee")) : t("adm.r." + r.statut);
@@ -813,31 +852,36 @@ async function peindreFormSeance(corps, x) {
             admSelect("s-motif", [["annulation_organisation", t("adm.motifOrga")], ["intervenant_empeche", t("adm.motifIntervenant")]], "annulation_organisation") +
             '<button type="button" class="cta ghost" id="s-annuler">' + esc(t("adm.annulerSeance")) + '</button>' +
             '<div class="resa-erreur" id="s-annuler-note" role="alert"></div></div>')) +
-      '<button type="button" class="cta ghost" id="s-retour">' + esc(t("adm.retourListe")) + '</button>' +
+      '<button type="button" class="cta ghost" id="s-retour">' + esc(t("adm.retour")) + '</button>' +
     '</form>';
-  if (bloque) ["s-exp", "s-jour", "s-heure", "s-langue", "s-rdv"].forEach((id) => { $("#" + id).disabled = true; });
-  // Prix net par personne réglé à l'intervenant (prix de la fiche moins les 5 € de l'adhésion offerts aux adhérents),
-  // et « Réservée aux adhérents » : toujours vrai pour une visite ou un atelier.
-  const majPrixSeance = () => {
-    const ex = ADM.exps.find((y) => y.id === (admVal("s-exp") || x.experience_id)) || {};
-    const visite = ex.type === "visite_guidee" || ex.type === "atelier";
-    const net = ex.prix_centimes == null ? null : ex.prix_centimes - (visite ? (ex.prereservation_centimes || 0) : 0);
-    $("#s-prix-net").textContent = net == null ? "" : tx(visite ? "adm.prixNet" : "adm.prixSoiree", { m: euros(net), p: euros(ex.prix_centimes) });
-    const c = $("#s-reservee");
-    if (c) { if (visite) c.checked = true; c.disabled = visite; }
-    $("#s-reservee-aide").textContent = visite ? t("adm.reserveeVisite") : t("adm.reserveeAide");
-  };
-  majPrixSeance();
-  $("#s-exp").addEventListener("change", majPrixSeance);
-  $("#s-retour").addEventListener("click", () => peindreAdmin(corps));
-  $("#s-exp").addEventListener("change", () => {   // une nouvelle séance reprend les places et le rendez-vous de la fiche
-    const e = ADM.exps.find((y) => y.id === admVal("s-exp"));
-    if (!e || !n) return;
-    if (!admVal("s-max") && e.capacite_max) $("#s-max").value = e.capacite_max;
-    if (!admVal("s-min") && e.participants_min) $("#s-min").value = e.participants_min;
-    if (!admVal("s-duree") && e.duree_minutes) $("#s-duree").value = e.duree_minutes;
-    if (!admVal("s-rdv") && e.point_rdv && e.point_rdv.fr) $("#s-rdv").value = e.point_rdv.fr;
+  if (!n) $("#s-exp").disabled = true;
+  admBrancherChoix("s-langue");
+  const maxExp = () => { const e = expDe(admVal("s-exp")); return inter && e && e.capacite_max ? e.capacite_max : 500; };
+  const majApres = () => { const el = $("#s-max-apres"); if (el) el.textContent = inter && expDe(admVal("s-exp")) ? tx("adm.maximumN", { n: maxExp() }) : ""; };
+  const places = admBrancherStepper("s-max", { pas: 1, min: Math.max(1, nInscrits), max: maxExp, change: (v) => { if (minimum.valeur() > v) minimum.fixer(v); } });
+  const minimum = admBrancherStepper("s-min", { pas: 1, min: 1, max: () => places.valeur() });
+  const duree = admBrancherStepper("s-duree", { pas: 15, min: 15, max: 24 * 60, format: dureeAffichee });
+  majApres();
+  // Une nouvelle séance reprend les places, la durée, le prix et le rendez-vous de l'expérience choisie.
+  $("#s-exp").addEventListener("change", () => {
+    const e = expDe(admVal("s-exp"));
+    if (!e) return;
+    if (e.capacite_max) places.fixer(e.capacite_max);
+    minimum.fixer(e.participants_min || 1);
+    if (e.duree_minutes) duree.fixer(e.duree_minutes);
+    if (netExp(e) != null) $("#s-prix").value = admEuros(netExp(e));
+    if (e.point_rdv && e.point_rdv.fr) $("#s-rdv").value = e.point_rdv.fr;
+    majApres();
   });
+  if (n) {
+    const majRepeter = () => {
+      const v = admVal("s-repeter");
+      $("#s-repeter-detail").hidden = !v; $("#s-tous-champ").hidden = v !== "n";
+      $("#s-repeter-note").textContent = v ? t("adm.repeterAide") : "";
+    };
+    $("#s-repeter").addEventListener("change", majRepeter);
+  }
+  $("#s-retour").addEventListener("click", () => peindreAdmin(corps));
   $$("[data-adm-absent]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm(t("adm.absentConfirmer"))) return;
     b.disabled = true;
@@ -847,6 +891,16 @@ async function peindreFormSeance(corps, x) {
       b.remove();
     } catch (e) { $("#s-absent-note").textContent = admErreur(e); b.disabled = false; }
   }));
+  if (!n) $("#s-dupliquer").addEventListener("click", () => peindreFormSeance(corps, null, Object.assign({}, x, { id: undefined, statut: "brouillon" })));
+  if ($("#s-supprimer")) $("#s-supprimer").addEventListener("click", async () => {
+    if (!confirm(t("adm.supprimerSeanceConfirmer"))) return;
+    try {
+      const r = await supaEcrire("DELETE", "seances?id=eq." + x.id, undefined, "return=representation");
+      if (!r || !r.length) throw new Error("RESERVATIONS");
+      await peindreAdmin(corps);
+      admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t("adm.seanceSupprimee")) + '</div>');
+    } catch (e) { $("#s-note").textContent = e.message === "RESERVATIONS" ? t("adm.supprimerSeanceImpossible") : admErreur(e); }
+  });
   if (!n && !annulee && !inter) $("#s-annuler").addEventListener("click", async () => {
     if (!confirm(tx("adm.annulerConfirmer", { n: confirmees.length }))) return;
     const note = $("#s-annuler-note");
@@ -857,44 +911,47 @@ async function peindreFormSeance(corps, x) {
     } catch (e) { note.textContent = admErreur(e); }
   });
   if (annulee) return;
-  $("#adm-form").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const note = $("#s-note"), b = $("#s-enregistrer");
-    const jour = admVal("s-jour"), heure = admVal("s-heure"), max = admEntier(admVal("s-max")), min = admEntier(admVal("s-min")) || 1;
-    if (!admVal("s-exp") || !/^\d{4}-\d{2}-\d{2}$/.test(jour) || !/^\d{2}:\d{2}$/.test(heure) || !max) { note.textContent = t("adm.sIncomplete"); return; }
-    const debut = admParisVersIso(jour, heure), duree = admEntier(admVal("s-duree"));
-    if (n && new Date(debut) < new Date()) { note.textContent = t("adm.sPassee"); return; }
-    // Tarif adhérent : euros saisis → centimes ; vide = pas de remise ; jamais plus que le prix normal.
-    const adhTexte = String(admVal("s-adh") || "").trim().replace(",", ".");
-    const prixAdh = adhTexte ? Math.round(parseFloat(adhTexte) * 100) : null;
-    const expSeance = ADM.exps.find((y) => y.id === (admVal("s-exp") || x.experience_id)) || {};
-    if (adhTexte && !(prixAdh >= 0)) { note.textContent = t("adm.sIncomplete"); return; }
-    if (prixAdh != null && expSeance.prix_centimes != null && prixAdh > expSeance.prix_centimes) {
-      note.textContent = tx("adm.tarifAdhErreur", { m: euros(expSeance.prix_centimes) }); return;
-    }
-    const d = { capacite_max: max, participants_min: min, point_rdv_precis: admVal("s-precis") || null, message_inscrits: admVal("s-message") || null,
-      statut: inter ? (x.statut === "publiee" ? "publiee" : admCoche("s-publiee") ? "en_attente" : "brouillon")
-        : admCoche("s-publiee") ? "publiee" : "brouillon" };
-    if (prixAdh != null || x.prix_adherent_centimes != null) d.prix_adherent_centimes = prixAdh;   // envoyé seulement s'il sert
-    if (!$("#s-reservee").disabled && ($("#s-reservee").checked || x.reservee_adherents != null)) d.reservee_adherents = $("#s-reservee").checked;
-    if (!bloque) Object.assign(d, { experience_id: admVal("s-exp"), debut, fin: duree ? new Date(new Date(debut).getTime() + duree * 6e4).toISOString() : null,
-      langue: admVal("s-langue"), point_rdv: admVal("s-rdv") || null });
-    if (bloque && d.statut !== "publiee") { note.textContent = t("adm.sDepublierInscrits"); return; }
-    b.disabled = true; note.textContent = t("member.loading");
-    try {
-      if (inter && !n && x.statut === "publiee") {   // séance en ligne : changement proposé, appliqué par l'association
-        delete d.statut;
-        await supaEcrire("POST", "propositions", { intervenant_id: ADM.moi, type: "seance", cible_id: x.id, donnees: d }, "return=minimal");
-        await renderAdmin(corps);
-        admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t("adm.propositionEnvoyee")) + '</div>');
-        return;
+  const enregistrer = async (statut) => {
+    const note = $("#s-note");
+    const jour = admVal("s-jour"), heure = admVal("s-heure"), prix = admPrixSaisi("s-prix");
+    if (!admVal("s-exp") || !/^\d{4}-\d{2}-\d{2}$/.test(jour) || !/^\d{2}:\d{2}$/.test(heure)) { note.textContent = t("adm.sIncomplete"); return; }
+    if (prix == null || isNaN(prix)) { note.textContent = t("adm.prixManquant"); return; }
+    const debut = admParisVersIso(jour, heure);
+    if ((n || new Date(debut).getTime() !== new Date(x.debut).getTime()) && new Date(debut) < new Date()) { note.textContent = t("adm.sPassee"); return; }
+    const d = { capacite_max: places.valeur(), participants_min: Math.min(minimum.valeur(), places.valeur()), langue: admChoix("s-langue") || "fr",
+      point_rdv: admVal("s-rdv") || null, point_rdv_precis: admVal("s-precis") || null, message_inscrits: admVal("s-message") || null,
+      prix_centimes: prix, debut, fin: new Date(new Date(debut).getTime() + duree.valeur() * 6e4).toISOString(), statut };
+    // Répétition : une séance par date, jusqu'à la date choisie (52 au plus), à la même heure de Paris.
+    let lignes = [d];
+    if (n && admVal("s-repeter")) {
+      const pas = admVal("s-repeter") === "7" ? 7 : admEntier(admVal("s-tous")), fin = admVal("s-jusqua");
+      if (!pas || pas < 1 || !/^\d{4}-\d{2}-\d{2}$/.test(fin) || fin <= jour) { note.textContent = t("adm.repeterIncomplet"); return; }
+      lignes = [];
+      for (let j = new Date(jour + "T12:00:00Z"); j.toISOString().slice(0, 10) <= fin && lignes.length < 52; j = new Date(j.getTime() + pas * 864e5)) {
+        const deb = admParisVersIso(j.toISOString().slice(0, 10), heure);
+        lignes.push(Object.assign({}, d, { debut: deb, fin: new Date(new Date(deb).getTime() + duree.valeur() * 6e4).toISOString() }));
       }
-      if (n) await supaEcrire("POST", "seances", d, "return=minimal");
+    }
+    if (n) lignes.forEach((l) => { l.experience_id = admVal("s-exp"); });
+    $$("#adm-form button").forEach((b) => { b.disabled = true; });
+    note.textContent = t("member.loading");
+    try {
+      if (n) await supaEcrire("POST", "seances", lignes.length === 1 ? lignes[0] : lignes, "return=minimal");
       else await supaEcrire("PATCH", "seances?id=eq." + x.id, d, "return=minimal");
-      await peindreListeSeances(corps);
-      admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t("adm.enregistre")) + '</div>');
-    } catch (e) { note.textContent = /participants_min|check/.test(e.message) ? t("adm.erreurMinMax") : admErreur(e); b.disabled = false; }
-  });
+      ADM.onglet = "seances";
+      await peindreAdmin(corps);
+      const msg = statut === "brouillon" ? t("adm.enregistre") : n ? (lignes.length > 1 ? tx("adm.seancesPubliees", { n: lignes.length }) : t("adm.seancePubliee"))
+        : nInscrits ? tx("adm.inscritsPrevenus", { n: nInscrits }) : t("adm.enregistre");
+      admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(msg) + '</div>');
+    } catch (e) {
+      note.textContent = /d'abord être validée/.test(e.message) ? t("adm.sExpNonValidee") : /déjà inscrites/.test(e.message) ? t("adm.sPlacesInscrits")
+        : /maximum pour cette/.test(e.message) ? tx("adm.maximumN", { n: maxExp() }) : /a des inscrits/.test(e.message) ? t("adm.sDepublierInscrits")
+        : /participants_min|check/.test(e.message) ? t("adm.erreurMinMax") : admErreur(e);
+      $$("#adm-form button").forEach((b) => { b.disabled = false; });
+    }
+  };
+  $("#adm-form").addEventListener("submit", (ev) => { ev.preventDefault(); enregistrer("publiee"); });
+  if ($("#s-brouillon")) $("#s-brouillon").addEventListener("click", () => enregistrer("brouillon"));
 }
 
 /* ---------- Adhésions ---------- */
@@ -1002,7 +1059,7 @@ async function peindreDemandes(corps) {
   try {
     [groupes, cands] = await Promise.all([
       supaConnecte("demandes_groupes?select=*&order=cree_le.desc&limit=100"),
-      supaConnecte("candidatures?select=*&order=cree_le.desc&limit=100"),
+      Promise.resolve([]),   // candidatures : onglet Validations (22/11)
     ]);
   } catch (e) { admZone().innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>'; return; }
   const STATUTS_G = ["nouvelle", "en_cours", "devis_envoye", "confirmee", "refusee", "close"], STATUTS_C = ["nouvelle", "acceptee", "refusee"];
@@ -1021,12 +1078,10 @@ async function peindreDemandes(corps) {
       admDate(g.cree_le, { day: "numeric", month: "short" }) + " · " + t("adm.typeDemande." + g.type) + (g.experience_id ? " · " + admTitreExp(g.experience_id) : ""),
       [g.personnes ? tx("adm.pers", { n: g.personnes }) : "", g.periode_souhaitee, g.occasion].filter(Boolean).join(" · ")])).join("") + '</div>'
       : '<div class="member-note">' + esc(t("adm.aucuneDemande")) + '</div>') +
-    '<h3 class="adm-sous-titre">' + esc(tx("adm.candidatures", { n: cands.filter((c) => c.statut === "nouvelle").length })) + '</h3>' +
-    (cands.length ? '<div class="adm-liste">' + cands.map((c) => carte(c, "candidatures", STATUTS_C, [
-      admDate(c.cree_le, { day: "numeric", month: "short" }) + " · " + t("adm.typeInt." + c.type)])).join("") + '</div>'
-      : '<div class="member-note">' + esc(t("adm.aucuneCandidature")) + '</div>') +
+    '<p class="member-note">' + esc(t("adm.candidaturesDansValidations")) + ' <button type="button" class="lien-bouton" data-adm-onglet="valider">' + esc(t("adm.validations")) + ' ›</button></p>' +
     '<div class="member-note" id="d-note" role="status"></div>';
-  ADM.nonTraitees = groupes.filter((g) => g.statut === "nouvelle").length + cands.filter((c) => c.statut === "nouvelle").length;
+  ADM.nonTraitees = groupes.filter((g) => g.statut === "nouvelle").length;
+  $$("#adm-zone [data-adm-onglet]").forEach((b) => b.addEventListener("click", () => { ADM.onglet = b.dataset.admOnglet; peindreAdmin(corps); }));
   $$("select[data-table]").forEach((sel) => sel.addEventListener("change", async () => {
     try {
       await supaEcrire("PATCH", sel.dataset.table + "?id=eq." + sel.dataset.id, { statut: sel.value }, "return=minimal");
@@ -1089,14 +1144,15 @@ async function peindreMesInscrits(corps) {
 
 /* ---------- Administration : changements proposés par les intervenants (canvas E12) ---------- */
 
-function peindreValidations(corps) {
+/** Propositions encore en attente (lieu, anciennes propositions de séance), dans l'onglet Validations. */
+function peindrePropositions(corps, zone) {
   const nomInt = (id) => (ADM.ints.find((i) => i.id === id) || {}).nom || "";
   const CHAMPS = { nom: "adm.nom", role: "adm.metier", bio: "adm.bio", photo_url: "adm.photo", instagram: "adm.instagram", langues: "adm.langues",
     debut: "adm.jour", fin: "adm.duree", langue: "adm.langue", capacite_max: "adm.placesMax", participants_min: "adm.participantsMin",
     point_rdv: "adm.rdv", point_rdv_precis: "adm.rdvPrecis", message_inscrits: "adm.message", prix_adherent_centimes: "adm.tarifAdh" };
   const valeur = (k, v) => v == null || v === "" ? "–" : k === "prix_adherent_centimes" ? euros(v) : k === "debut" || k === "fin" ? admDate(v, { weekday: "short", day: "numeric", month: "short" }) + " " + admHeure(v)
     : Array.isArray(v) ? v.join(", ") : typeof v === "object" ? (v.fr || "") : String(v);
-  admZone().innerHTML = '<div class="adm-liste">' + (ADM.props || []).map((p) =>
+  zone.innerHTML = '<div class="adm-liste">' + (ADM.props || []).map((p) =>
     '<div class="adm-ligne adm-demande"><span class="adm-ligne-corps">' +
       '<span class="adm-ligne-titre">' + esc(nomInt(p.intervenant_id)) + '</span>' +
       '<span class="adm-ligne-meta">' + esc(admDate(p.cree_le, { day: "numeric", month: "short" }) + " · " + t("adm.prop." + p.type)) + '</span>' +
@@ -1104,14 +1160,15 @@ function peindreValidations(corps) {
         '<span class="adm-message"><b>' + esc(t(CHAMPS[k])) + ' :</b> ' + (k === "photo_url" ? '<img class="adm-vignette" src="' + esc(p.donnees[k]) + '" alt="">' : esc(valeur(k, p.donnees[k]))) + '</span>').join("") +
       '<span class="adm-actions"><button type="button" class="chip active" data-valider="' + esc(p.id) + '">' + esc(t("adm.valider")) + '</button> ' +
         '<button type="button" class="chip" data-refuser="' + esc(p.id) + '">' + esc(t("adm.refuser")) + '</button></span>' +
-    '</span></div>').join("") + '</div><div class="member-note" id="v-note" role="status"></div>';
+    '</span></div>').join("") + '</div><div class="member-note" id="p-note" role="status"></div>';
   const agir = (fn, id) => async () => {
     try {
       const r = await supaEcrire("POST", "rpc/" + fn, fn === "valider_proposition" ? { p_id: id } : { p_id: id, p_motif: null });
+      ADM.onglet = "valider";
       await renderAdmin(corps);
       const msg = r && r.inscrits_a_prevenir ? tx("adm.validePrevenir", { n: r.inscrits_a_prevenir }) : t("adm.enregistre");
       admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(msg) + '</div>');
-    } catch (e) { $("#v-note").textContent = /CAPACITE|MINIMUM/.test(e.message) ? t("adm.erreurMinMax") : admErreur(e); }
+    } catch (e) { $("#p-note").textContent = /CAPACITE|MINIMUM/.test(e.message) ? t("adm.erreurMinMax") : admErreur(e); }
   };
   $$("[data-valider]").forEach((b) => b.addEventListener("click", agir("valider_proposition", b.dataset.valider)));
   $$("[data-refuser]").forEach((b) => b.addEventListener("click", agir("refuser_proposition", b.dataset.refuser)));
@@ -1235,4 +1292,330 @@ function peindreEtapeForm(corps, exp, x, etapes, codeActuel) {
       b.disabled = false;
     }
   });
+}
+
+/* ============================================================
+   LOT DU 22/11 : INTERVENANTS AUTONOMES (E11.1, E11.2, E11.6)
+   ET VALIDATIONS DE L'ASSOCIATION (E12)
+   - L'intervenant crée ses expériences (validées par l'association),
+     puis publie lui-même ses séances (répétées ou dupliquées).
+   - L'association valide les candidatures et les expériences, avec un
+     motif en cas de refus (fonction Netlify « validations ») ; elle voit
+     les notifications non envoyées et peut les renvoyer.
+   ============================================================ */
+
+const ADM_TYPES_INTERVENANT = ["visite_guidee", "atelier", "escape_game"];
+const ADM_TYPES_SEANCE = ["visite_guidee", "atelier", "soiree", "escape_game"];
+const admExpValidee = (e) => e.publie && !e.a_valider && ADM_TYPES_SEANCE.includes(e.type);
+
+/** Compteur − valeur + (E11.2, E11.6). La valeur est gardée dans data-valeur ; format : affichage. */
+function admStepperHtml(id, libelle, valeur, aide, apres) {
+  return '<div class="adm-champ"><span>' + esc(libelle) + '</span>' +
+    '<div class="adm-stepper"><button type="button" class="adm-stepper-btn" data-pas="-1" aria-label="−">−</button>' +
+      '<b class="adm-stepper-val" id="' + id + '" data-valeur="' + esc(valeur) + '" aria-live="polite"></b>' +
+      '<button type="button" class="adm-stepper-btn" data-pas="1" aria-label="+">+</button>' +
+      (apres ? '<span class="adm-stepper-apres" id="' + id + '-apres">' + esc(apres) + '</span>' : '') + '</div>' +
+    (aide ? '<small class="member-note">' + esc(aide) + '</small>' : '') + '</div>';
+}
+/** o = { pas, min, max (nombre ou fonction), format, change } */
+function admBrancherStepper(id, o) {
+  const el = document.getElementById(id);
+  const borne = (v) => Math.max(o.min, Math.min(typeof o.max === "function" ? o.max() : o.max, v));
+  const peindre = () => { el.textContent = (o.format || String)(+el.dataset.valeur); };
+  el.dataset.valeur = borne(+el.dataset.valeur || o.min);
+  peindre();
+  el.parentElement.querySelectorAll("[data-pas]").forEach((b) => b.addEventListener("click", () => {
+    el.dataset.valeur = borne(+el.dataset.valeur + (+b.dataset.pas) * o.pas);
+    peindre();
+    if (o.change) o.change(+el.dataset.valeur);
+  }));
+  return { valeur: () => +el.dataset.valeur, fixer: (v) => { el.dataset.valeur = borne(v); peindre(); } };
+}
+/** Puces à choix unique (type d'expérience, langue de la séance). */
+function admChoixHtml(id, options, valeur, inactif) {
+  return '<div class="adm-puces adm-choix" id="' + id + '" role="radiogroup">' + options.map((o) =>
+    '<button type="button" class="chip' + (o[0] === valeur ? " active" : "") + '" role="radio" aria-checked="' + (o[0] === valeur) + '" data-valeur="' + esc(o[0]) + '"' +
+      (inactif ? " disabled" : "") + '>' + esc(o[1]) + '</button>').join("") + '</div>';
+}
+function admBrancherChoix(id, change) {
+  $$("#" + id + " [data-valeur]").forEach((b) => b.addEventListener("click", () => {
+    $$("#" + id + " [data-valeur]").forEach((x) => { x.classList.toggle("active", x === b); x.setAttribute("aria-checked", x === b); });
+    if (change) change(b.dataset.valeur);
+  }));
+}
+const admChoix = (id) => { const b = document.querySelector("#" + id + " .active"); return b ? b.dataset.valeur : null; };
+/** Montant saisi en euros → centimes (vide → null). */
+function admPrixSaisi(id) {
+  const v = String(admVal(id) || "").replace(/\s|€/g, "").replace(",", ".");
+  if (!v) return null;
+  const n = Math.round(parseFloat(v) * 100);
+  return isFinite(n) && n >= 0 ? n : NaN;
+}
+const admPrixHtml = (id, libelle, centimes, aide) => '<label class="adm-champ"><span>' + esc(libelle) + '</span>' +
+  '<span class="adm-euros"><input class="input-field" id="' + id + '" inputmode="decimal" value="' + esc(centimes == null ? "" : admEuros(centimes)) + '"><span aria-hidden="true">€</span></span>' +
+  (aide ? '<small class="member-note">' + esc(aide) + '</small>' : '') + '</label>';
+/** Il y a 12 min, il y a 1 h, hier… */
+function admIlYa(iso) {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  try {
+    const f = new Intl.RelativeTimeFormat(localeResa(), { numeric: "auto" });
+    if (s < 3600) return f.format(-Math.max(1, Math.round(s / 60)), "minute");
+    if (s < 86400) return f.format(-Math.round(s / 3600), "hour");
+    return f.format(-Math.round(s / 86400), "day");
+  } catch (e) { return admDate(iso, { day: "numeric", month: "short" }); }
+}
+/** Appel de la fonction Netlify « validations » avec la session de l'admin. */
+async function admValidation(corpsReq) {
+  const s = await sessionValide();
+  if (!s) throw new Error("SESSION");
+  const res = await fetch("/.netlify/functions/validations", { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + s.access_token }, body: JSON.stringify(corpsReq) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(d.error || String(res.status)); e.code = d.error; throw e; }
+  return d;
+}
+
+/* ---------- E11.1 : tableau de bord de l'intervenant ---------- */
+
+async function peindreTableauIntervenant(corps) {
+  admChargement();
+  const debutMois = new Date(); debutMois.setDate(1); debutMois.setHours(0, 0, 0, 0);
+  const depuis = new Date(Math.min(debutMois.getTime(), Date.now() - 864e5)).toISOString();
+  let seances = [], inscrits = [];
+  try {
+    [seances, inscrits] = await Promise.all([
+      supaConnecte("seances?select=*&debut=gt." + encodeURIComponent(new Date(Date.now() - 3 * 3600e3).toISOString()) + "&order=debut.asc"),
+      supaConnecte("mes_inscrits?select=seance_id,debut,personnes,reste_sur_place_centimes&debut=gt." + encodeURIComponent(depuis)),
+    ]);
+  } catch (e) { admZone().innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>'; return; }
+  const valides = ADM.exps.filter(admExpValidee);
+  const attente = ADM.exps.filter((e) => e.a_valider), refusees = ADM.exps.filter((e) => e.refusee_le && !e.a_valider && !e.publie);
+  const titreDe = (e) => (e.titre && e.titre.fr) || e.slug;
+  const nInscrits = (id) => inscrits.filter((r) => r.seance_id === id).reduce((k, r) => k + r.personnes, 0);
+  const aVenir = seances.filter((x) => x.statut !== "annulee");
+  // Bandeau chiffré : inscrits ce mois, et à encaisser à la prochaine séance qui a des inscrits.
+  const ceMois = inscrits.filter((r) => new Date(r.debut) >= debutMois && admJourParis(r.debut).slice(0, 7) === admJourParis(new Date().toISOString()).slice(0, 7))
+    .reduce((k, r) => k + r.personnes, 0);
+  const prochaine = inscrits.filter((r) => new Date(r.debut) > new Date()).sort((a, b) => new Date(a.debut) - new Date(b.debut))[0];
+  const aEncaisser = prochaine ? inscrits.filter((r) => r.seance_id === prochaine.seance_id).reduce((k, r) => k + (r.reste_sur_place_centimes || 0), 0) : 0;
+  const etat = (x) => {
+    const n = nInscrits(x.id);
+    if (x.statut !== "publiee") return ["brouillon", t("adm.etatBrouillon")];
+    return n >= x.participants_min ? ["confirmee", t("adm.sConfirmee")] : ["attente", tx("adm.sInscritsMin", { n, min: x.participants_min })];
+  };
+  admZone().innerHTML =
+    (valides.length ? '<button type="button" class="cta ocre" id="adm-nouvelle-seance">+ ' + esc(t("adm.nouvelleSeance")) + '</button>' : '') +
+    '<button type="button" class="cta ghost" id="adm-nouvelle-exp">' + esc(t("adm.proposerExperience")) + '</button>' +
+    attente.map((e) => '<div class="adm-bandeau"><span class="adm-point" aria-hidden="true"></span><span>' + esc(tx("adm.expAttente", { t: titreDe(e) })) + '</span></div>').join("") +
+    refusees.map((e) => '<div class="adm-bandeau adm-bandeau-refus"><span>' + esc(tx("adm.expRefusee", { t: titreDe(e) })) +
+      (e.motif_refus ? ' ' + esc(tx("adm.motifEntre", { m: e.motif_refus })) : '') + '</span>' +
+      '<button type="button" class="chip" data-adm-exp="' + esc(e.id) + '">' + esc(t("adm.corriger")) + '</button></div>').join("") +
+    (!valides.length && !attente.length && !refusees.length ? '<div class="member-note">' + esc(t("adm.premiereExperience")) + '</div>' : '') +
+    '<div class="adm-titre-liste"><h2>' + esc(t("adm.prochaines1")) + ' <i>' + esc(t("adm.prochaines2")) + '</i></h2>' +
+      '<span class="cpt-mono">' + esc(tx("compte.aVenir", { n: aVenir.length })) + '</span></div>' +
+    (aVenir.length ? '<div class="adm-liste adm-seances">' + aVenir.map((x) => {
+      const e = etat(x), n = nInscrits(x.id), part = Math.min(100, Math.round(100 * n / Math.max(1, x.capacite_max)));
+      return '<button type="button" class="adm-ligne adm-seance" data-adm-seance="' + esc(x.id) + '">' +
+        '<span class="adm-jour"><span>' + esc(admDate(x.debut, { weekday: "short" })) + '</span><b>' + esc(admDate(x.debut, { day: "numeric" })) + '</b><span>' + esc(admDate(x.debut, { month: "short" })) + '</span></span>' +
+        '<span class="adm-ligne-corps"><span class="adm-ligne-titre">' + esc(admTitreExp(x.experience_id)) + '</span>' +
+          '<span class="adm-ligne-meta">' + esc([heureLisible(x.debut), LANGUE_SEANCE[x.langue] || x.langue, x.point_rdv].filter(Boolean).join(" · ")) + '</span>' +
+          '<span class="adm-etat adm-etat-' + e[0] + '">' + esc(e[1]) + '</span>' +
+          (x.statut === "publiee" ? '<span class="adm-jauge' + (n >= x.participants_min ? ' ok' : '') + '"><span style="inline-size:' + part + '%"></span></span>' : '') +
+        '</span></button>';
+    }).join("") + '</div>' : '<div class="member-note">' + esc(valides.length ? t("adm.aucuneSeance") : t("adm.seanceApresValidation")) + '</div>') +
+    '<div class="adm-chiffres"><div><b>' + esc(String(ceMois)) + '</b><span>' + esc(t("adm.inscritsMois")) + '</span></div>' +
+      '<div><b>' + esc(euros(aEncaisser)) + '</b><span>' + esc(prochaine ? tx("adm.encaisserLe", { d: admDate(prochaine.debut, { weekday: "short", day: "numeric" }) }) : t("adm.encaisserRien")) + '</span></div></div>';
+  if ($("#adm-nouvelle-seance")) $("#adm-nouvelle-seance").addEventListener("click", () => peindreFormSeance(corps, null));
+  $("#adm-nouvelle-exp").addEventListener("click", () => peindreFormExperience(corps, null));
+  $$("[data-adm-exp]").forEach((b) => b.addEventListener("click", () => peindreFormExperience(corps, ADM.exps.find((e) => e.id === b.dataset.admExp))));
+  $$("[data-adm-seance]").forEach((b) => b.addEventListener("click", () => peindreFormSeance(corps, seances.find((x) => x.id === b.dataset.admSeance))));
+}
+
+/* ---------- E11.6 : expérience décrite par l'intervenant ---------- */
+
+function peindreFormExperience(corps, e) {
+  const n = !e;
+  e = e || { type: "visite_guidee", titre: {}, description: {}, langues: ["fr"], point_rdv: {}, duree_minutes: 120, capacite_max: 8, participants_min: 1 };
+  const enLigne = !!e.publie, refusee = !!e.refusee_le && !e.a_valider && !e.publie;
+  const zone = admZone();
+  window.scrollTo(0, 0);
+  zone.innerHTML =
+    '<form id="adm-form" class="adm-form adm-form-large" novalidate>' +
+      '<h2 class="adm-titre">' + esc(n ? t("adm.nouvelleExperience") : ((e.titre && e.titre.fr) || e.slug)) + '</h2>' +
+      (n ? '<p class="espace-texte">' + esc(t("adm.expIntro")) + '</p>' : '') +
+      (e.a_valider ? '<div class="adm-bandeau"><span class="adm-point" aria-hidden="true"></span><span>' + esc(t("adm.expEnAttente")) + '</span></div>' : '') +
+      (refusee ? '<div class="adm-bandeau adm-bandeau-refus"><span>' + esc(t("adm.expACorriger")) + (e.motif_refus ? ' ' + esc(tx("adm.motifEntre", { m: e.motif_refus })) : '') + '</span></div>' : '') +
+      (enLigne ? '<div class="member-note">' + esc(t("adm.expEnLigne")) + '</div>' : '') +
+      '<div class="adm-champ"><span>' + esc(t("adm.typeExperience")) + '</span>' +
+        admChoixHtml("x-type", ADM_TYPES_INTERVENANT.map((k) => [k, t("adm.typeCourt." + k)]), e.type, enLigne) + '</div>' +
+      admTexteHtml("x-titre", t("adm.titreFiche"), e.titre) +
+      admTexteHtml("x-description", t("adm.description"), e.description, true) +
+      '<small class="member-note">' + esc(t("adm.descriptionAide")) + '</small>' +
+      admPhotoHtml("x-photo", e.photo_url) +
+      '<small class="member-note">' + esc(t("adm.photoCouvertureAide")) + '</small>' +
+      admStepperHtml("x-duree", t("adm.dureeCourt"), e.duree_minutes || 120, "", t("adm.pas15")) +
+      admStepperHtml("x-places", t("adm.placesMaxCourt"), e.capacite_max || 8) +
+      admLanguesHtml("x-langues", e.langues) +
+      admTexteHtml("x-rdv", t("adm.rdvPublic"), e.point_rdv) +
+      '<div class="adm-champ"><span>' + esc(t("adm.rdvCarte")) + '</span><div class="adm-carte" id="x-carte"></div>' +
+        '<small class="member-note" id="x-carte-note">' + esc(e.point_rdv_lat != null ? t("adm.rdvPlace") : t("adm.rdvAide")) + '</small></div>' +
+      admPrixHtml("x-prix", t("adm.prixPersonne"), e.prix_centimes == null ? null : e.prix_centimes - (e.prereservation_centimes || 0), t("adm.prixPersonneAide")) +
+      '<button type="submit" class="cta ocre" id="x-enregistrer">' + esc(n ? t("adm.envoyerValidation") : refusee ? t("adm.renvoyerValidation") : t("adm.enregistrer")) + '</button>' +
+      (n || refusee ? '<div class="member-note adm-centre">' + esc(t("adm.reponse48h")) + '</div>' : '') +
+      '<div class="resa-erreur" id="x-note" role="alert"></div>' +
+      '<button type="button" class="cta ghost" id="x-retour">' + esc(t("adm.retour")) + '</button>' +
+    '</form>';
+  if (enLigne) $$("[id^=x-titre-]").forEach((x) => { x.disabled = true; });
+  // Description : 200 caractères au plus, avec le compteur (« 123 / 200 »).
+  const desc = $("#x-description-fr");
+  desc.maxLength = 200; desc.rows = 4;
+  desc.closest("label").querySelector("span").insertAdjacentHTML("beforeend", ' <small class="adm-compteur" id="x-compteur"></small>');
+  const compter = () => { $("#x-compteur").textContent = desc.value.length + " / 200"; };
+  desc.addEventListener("input", compter); compter();
+  admBrancherChoix("x-type");
+  admBrancherLangues("x-langues");
+  admBrancherPhoto("x-photo", "fiches/" + ADM.moi);
+  const duree = admBrancherStepper("x-duree", { pas: 15, min: 15, max: 24 * 60, format: dureeAffichee });
+  const places = admBrancherStepper("x-places", { pas: 1, min: 1, max: 100 });
+  const pos = { lat: e.point_rdv_lat, lng: e.point_rdv_lng };
+  admCarte("x-carte", pos, () => { $("#x-carte-note").textContent = t("adm.rdvPlace"); });
+  $("#x-retour").addEventListener("click", () => peindreAdmin(corps));
+  $("#adm-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const note = $("#x-note"), b = $("#x-enregistrer");
+    const prix = admPrixSaisi("x-prix");
+    if (!admVal("x-titre-fr")) { note.textContent = t("adm.titreManquant"); return; }
+    if (prix == null || isNaN(prix)) { note.textContent = t("adm.prixManquant"); return; }
+    b.disabled = true; note.textContent = t("adm.traductionEnCours");
+    await admTraduireChamps(["x-titre", "x-description", "x-rdv"], false).catch(() => false);
+    const d = { description: admTraduit("x-description"), duree_minutes: duree.valeur(), capacite_max: places.valeur(),
+      participants_min: Math.min(e.participants_min || 1, places.valeur()),
+      langues: admLanguesChoisies("x-langues").length ? admLanguesChoisies("x-langues") : ["fr"],
+      photo_url: $("#x-photo").dataset.url || null, point_rdv: admTraduit("x-rdv"),
+      point_rdv_lat: pos.lat == null ? null : pos.lat, point_rdv_lng: pos.lng == null ? null : pos.lng, prix_centimes: prix };
+    if (!enLigne) { d.type = admChoix("x-type"); d.titre = admTraduit("x-titre"); }
+    if (refusee) Object.assign(d, { a_valider: true, refusee_le: null, motif_refus: null });   // renvoyée pour validation
+    note.textContent = t("member.loading");
+    try {
+      if (n) await supaEcrire("POST", "experiences", d, "return=minimal");
+      else await supaEcrire("PATCH", "experiences?id=eq." + e.id, d, "return=minimal");
+      VISITES_CACHE = null;
+      ADM.onglet = "seances";
+      await renderAdmin(corps);
+      admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(n || refusee ? t("adm.expEnvoyee") : t("adm.enregistre")) + '</div>');
+    } catch (err) {
+      note.textContent = /200 caract/.test(err.message) ? t("adm.descriptionTropLongue") : /Prix/.test(err.message) ? t("adm.prixManquant") : admErreur(err);
+      b.disabled = false;
+    }
+  });
+}
+
+/* ---------- E12 : validations de l'association ---------- */
+
+async function peindreValidations(corps) {
+  admChargement();
+  let cands = [], notifs = [], decisions = [];
+  try {
+    [cands, notifs, decisions] = await Promise.all([
+      supaConnecte("candidatures?select=*&statut=eq.nouvelle&order=cree_le.asc"),
+      supaEcrire("POST", "rpc/notifications_non_envoyees", {}).catch(() => []),
+      supaConnecte("candidatures?select=id,nom,type,statut,motif_refus,traitee_le&statut=neq.nouvelle&order=cree_le.desc&limit=20"),
+    ]);
+  } catch (e) { admZone().innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>'; return; }
+  ADM.cands = cands;
+  const exps = ADM.exps.filter((e) => e.a_valider);
+  const nomInt = (id) => (ADM.ints.find((i) => i.id === id) || {}).nom || "";
+  const actions = (genre, id) => '<span class="adm-actions adm-decision" data-genre="' + genre + '" data-id="' + esc(id) + '">' +
+    '<button type="button" class="cta ocre adm-petit" data-decider="valider">' + esc(t("adm.valider")) + '</button>' +
+    '<button type="button" class="cta ghost adm-petit" data-decider="refuser">' + esc(t("adm.refuser")) + '</button>' +
+    '<span class="adm-motif" hidden><label class="adm-champ"><span>' + esc(t("adm.motif")) + '</span>' +
+      '<textarea class="input-field" rows="3" maxlength="1000" placeholder="' + esc(t("adm.motifAide")) + '"></textarea></label>' +
+      '<button type="button" class="cta ghost adm-petit" data-decider="confirmer">' + esc(t("adm.confirmerRefus")) + '</button></span></span>';
+  const NOTIFS = ["alerte_candidature", "alerte_demande", "alerte_experience", "alerte_seances_publiees", "acces_intervenant",
+    "experience_validee", "experience_refusee", "candidature_refusee", "seance_modifiee"];
+  admZone().innerHTML =
+    (notifs.length ? '<div class="adm-encart adm-notifs"><b>' + esc(tx("adm.notifsNonEnvoyees", { n: notifs.length })) + '</b>' +
+      '<p class="member-note">' + esc(t("adm.notifsAide")) + '</p>' + notifs.map((v) =>
+        '<div class="adm-notif"><span>' + esc((NOTIFS.includes(v.type) ? t("adm.notif." + v.type) : t("adm.notifAutre")) + " · " + v.destinataire + " · " + admIlYa(v.cree_le)) +
+          (v.statut === "echec" ? '' : ' · ' + esc(t("adm.notifEssai"))) + '</span>' +
+          '<button type="button" class="chip" data-reessayer="' + esc(v.id) + '">' + esc(t("adm.reessayer")) + '</button></div>').join("") + '</div>' : '') +
+    '<h3 class="adm-sous-titre">' + esc(tx("adm.candidaturesAValider", { n: cands.length })) + '</h3>' +
+    (cands.length ? '<div class="adm-liste">' + cands.map((c) =>
+      '<div class="adm-ligne adm-demande"><span class="adm-ligne-corps">' +
+        '<span class="adm-ligne-titre">' + esc(c.nom) + ' <small class="adm-quand">' + esc(admIlYa(c.cree_le)) + '</small></span>' +
+        '<span class="adm-ligne-meta">' + esc(t("adm.typeInt." + c.type)) + '</span>' +
+        (c.message ? '<span class="adm-message">' + esc(c.message) + '</span>' : '') +
+        '<span class="adm-actions"><a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a>' + (c.telephone ? ' · <a href="tel:' + esc(c.telephone) + '">' + esc(c.telephone) + '</a>' : '') + '</span>' +
+        actions("candidature", c.id) + '</span></div>').join("") + '</div>'
+      : '<div class="member-note">' + esc(t("adm.aucuneCandidatureAValider")) + '</div>') +
+    '<h3 class="adm-sous-titre">' + esc(tx("adm.experiencesAValider", { n: exps.length })) + '</h3>' +
+    (exps.length ? '<div class="adm-liste">' + exps.map((e) =>
+      '<div class="adm-ligne adm-demande"><span class="adm-ligne-corps">' +
+        (e.photo_url ? '<img class="adm-couverture" src="' + esc(e.photo_url) + '" alt="" loading="lazy">' : '') +
+        '<span class="adm-ligne-titre">' + esc((e.titre && e.titre.fr) || e.slug) + ' <small class="adm-quand">' + esc(admIlYa(e.maj_le || e.cree_le)) + '</small></span>' +
+        '<span class="adm-ligne-meta">' + esc([nomInt(e.intervenant_id), t("adm.typeCourt." + e.type), dureeAffichee(e.duree_minutes),
+          e.capacite_max ? tx("adm.nPlaces", { n: e.capacite_max }) : "", e.prix_centimes != null ? tx("adm.parPersonne", { m: euros(e.prix_centimes) }) : ""].filter(Boolean).join(" · ")) + '</span>' +
+        (e.description && e.description.fr ? '<span class="adm-message">' + esc(e.description.fr) + '</span>' : '') +
+        (e.point_rdv && e.point_rdv.fr ? '<span class="adm-ligne-meta">' + esc(t("adm.rdv") + " : " + e.point_rdv.fr) + '</span>' : '') +
+        '<span class="adm-actions"><button type="button" class="lien-bouton" data-adm-fiche="' + esc(e.id) + '">' + esc(t("adm.ouvrirFiche")) + '</button></span>' +
+        actions("experience", e.id) + '</span></div>').join("") + '</div>'
+      : '<div class="member-note">' + esc(t("adm.aucuneExperienceAValider")) + '</div>') +
+    ((ADM.props || []).length ? '<h3 class="adm-sous-titre">' + esc(tx("adm.propositionsAValider", { n: ADM.props.length })) + '</h3><div id="adm-props"></div>' : '') +
+    (decisions.length ? '<details class="adm-trad"><summary>' + esc(t("adm.decisionsRecentes")) + '</summary><div class="adm-liste">' + decisions.map((c) =>
+      '<div class="adm-ligne"><span class="adm-ligne-corps"><span class="adm-ligne-titre">' + esc(c.nom) + '</span><span class="adm-ligne-meta">' +
+        esc([t("adm.d." + c.statut), c.traitee_le ? admDate(c.traitee_le, { day: "numeric", month: "short" }) : "", c.motif_refus].filter(Boolean).join(" · ")) + '</span></span></div>').join("") +
+      '</div></details>' : '') +
+    '<div class="member-note" id="v-note" role="status"></div>' +
+    '<p class="member-note adm-centre">' + esc(t("adm.validationsPied")) + '</p>';
+  if ($("#adm-props")) peindrePropositions(corps, $("#adm-props"));
+  $$("[data-adm-fiche]").forEach((b) => b.addEventListener("click", () => peindreFormFiche(corps, ADM.exps.find((e) => e.id === b.dataset.admFiche))));
+  $$("[data-reessayer]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try { await supaEcrire("POST", "rpc/notification_reessayer", { p_id: +b.dataset.reessayer }, "return=minimal"); b.textContent = t("adm.reessaiPrevu"); }
+    catch (e) { $("#v-note").textContent = admErreur(e); b.disabled = false; }
+  }));
+  $$(".adm-decision").forEach((bloc) => {
+    const genre = bloc.dataset.genre, id = bloc.dataset.id, motif = bloc.querySelector(".adm-motif");
+    const decider = async (refus) => {
+      const note = $("#v-note");
+      Array.from(bloc.querySelectorAll("button")).forEach((x) => { x.disabled = true; });
+      note.textContent = t("member.loading");
+      try {
+        const r = await admValidation({ action: genre + (refus ? "_refuser" : genre === "candidature" ? "_accepter" : "_valider"), id,
+          motif: refus ? motif.querySelector("textarea").value : undefined });
+        ADM.onglet = "valider";
+        VISITES_CACHE = null;
+        await renderAdmin(corps);
+        const msg = tx(refus ? "adm.refusFait" : genre === "candidature" ? "adm.candidatureAcceptee" : "adm.experienceValidee", { email: r.email || "" }) +
+          " " + (r.notifie === false ? t("adm.notifNonEnvoyee") : r.email ? tx("adm.emailEnvoye", { email: r.email }) : "");
+        admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(msg.trim()) + '</div>');
+      } catch (e) {
+        note.textContent = { COMPTE_ADMIN: t("adm.inviterAdmin"), PRIX_OU_PLACES_MANQUANTS: t("adm.erreurPrixPlaces"), SANS_INTERVENANT: t("adm.erreurSansIntervenant"),
+          RESERVE_ADMIN: t("adm.erreurDroits") }[e.code] || admErreur(e);
+        Array.from(bloc.querySelectorAll("button")).forEach((x) => { x.disabled = false; });
+      }
+    };
+    bloc.querySelector('[data-decider="valider"]').addEventListener("click", () => {
+      if (confirm(t(genre === "candidature" ? "adm.confirmerCandidature" : "adm.confirmerExperience"))) decider(false);
+    });
+    bloc.querySelector('[data-decider="refuser"]').addEventListener("click", () => { motif.hidden = false; motif.querySelector("textarea").focus(); });
+    bloc.querySelector('[data-decider="confirmer"]').addEventListener("click", () => decider(true));
+  });
+}
+
+/* ---------- Suppression d'un intervenant (admin) ---------- */
+
+async function admSupprimerIntervenant(corps, i) {
+  if (!confirm(tx("adm.supprimerIntConfirmer", { nom: i.nom }))) return;
+  const note = $("#i-suppr-note");
+  note.textContent = t("member.loading");
+  try {
+    const r = await admValidation({ action: "intervenant_supprimer", id: i.id });
+    ADM.onglet = "intervenants";
+    VISITES_CACHE = null;
+    await renderAdmin(corps);
+    admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(tx("adm.intSupprime", { nom: i.nom, n: r.experiences_retirees || 0 })) + '</div>');
+  } catch (e) {
+    note.textContent = e.code === "SEANCES_AVEC_INSCRITS" ? t("adm.supprimerIntInscrits") : e.code === "RESERVE_ADMIN" ? t("adm.erreurDroits") : admErreur(e);
+  }
 }

@@ -552,3 +552,116 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .adm-actions-inscrit { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .adm-actions-inscrit .chip { text-decoration: none; }
 .adm-prix-net { margin-top: 4px; }
+
+/* ============================================================
+   LOT DU 22/11 : Mon compte (E15.2, E15.3), connexion par code,
+   espace intervenants (E11.1, E11.2, E11.6), validations (E12)
+   ============================================================ */
+
+/* Un élément masqué reste masqué, même si sa classe lui donne un display (code, motif, répétition). */
+[hidden] { display: none !important; }
+
+/* Pilules de filtres : toujours sur une seule ligne, sur toutes les pages (défilement si besoin). */
+.filter-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.filter-chips::-webkit-scrollbar { display: none; }
+.filter-chips .chip { flex-shrink: 0; white-space: nowrap; }
+.infos-pastilles { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.infos-pastille { flex-shrink: 0; white-space: nowrap; }
+
+/* Connexion par code */
+.cx-form { display: flex; flex-direction: column; gap: 12px; margin-block-start: 16px; }
+.cx-code { display: flex; flex-direction: column; gap: 12px; }
+.cx-code-champ { font-family: var(--mono); font-size: 24px; letter-spacing: .3em; text-align: center; }
+.cx-aide { margin-block-start: 8px; }
+.cpt-eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--fee); margin-block-start: 16px; }
+.espace-titre i { font-style: italic; }
+.cpt-mono { font-family: var(--mono); font-size: 11.5px; color: var(--muted); letter-spacing: .02em; white-space: nowrap; }
+.cpt-liens { margin-block-start: 20px; }
+
+/* Mon compte : bandeau d'adhésion */
+.cpt-adh { display: flex; align-items: center; gap: 12px; inline-size: 100%; padding: 14px 16px; margin: 8px 0 22px; border-radius: 12px;
+  background: var(--panneau); border: 1px solid var(--line); color: var(--velin); text-align: start; cursor: pointer; font: inherit; }
+.cpt-adh-icone { display: grid; place-items: center; inline-size: 30px; block-size: 30px; border-radius: 50%; background: var(--ocre); color: var(--nuit); flex-shrink: 0; font-weight: 700; }
+.cpt-adh-icone svg { inline-size: 18px; block-size: 18px; }
+.cpt-adh.expiree .cpt-adh-icone { background: var(--lien); }
+.cpt-adh-corps { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.cpt-adh-carte { color: var(--fee); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.cpt-titre-liste, .adm-titre-liste { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 8px 0 12px; }
+.cpt-titre-liste h2, .adm-titre-liste h2, .cpt-vide h2 { font-family: var(--display); font-weight: 400; font-size: 26px; line-height: 1.1; margin: 0; }
+.cpt-titre-liste i, .adm-titre-liste i, .cpt-vide i { font-style: italic; }
+.cpt-liste { display: flex; flex-direction: column; gap: 12px; margin-block-end: 16px; }
+.cpt-resa { padding: 14px 16px; border-radius: 12px; background: var(--panneau); border: 1px solid var(--line); }
+.cpt-resa-haut { display: flex; gap: 14px; align-items: flex-start; }
+.cpt-resa-corps { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cpt-badge { align-self: flex-start; font-size: 11px; padding: 2px 9px; border-radius: 10px; border: 1px solid var(--p); color: var(--p); }
+.cpt-resa-titre { font-family: var(--display); font-size: 18px; line-height: 1.2; color: var(--velin); }
+.cpt-resa-meta { font-size: 12.5px; color: var(--muted); }
+.cpt-resa-bas { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-block-start: 12px; padding-block-start: 10px;
+  border-block-start: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+.cpt-voir { background: none; border: 0; color: var(--velin); font: inherit; font-weight: 600; white-space: nowrap; cursor: pointer; min-height: 40px; }
+.cpt-vide { padding: 18px 16px; border-radius: 12px; border: 1px dashed var(--bord); display: flex; flex-direction: column; gap: 12px; margin-block-end: 16px; }
+.cpt-vide p { margin: 0; color: var(--muted); }
+.cpt-gerer, .cpt-deco { display: block; margin: 18px auto 0; text-align: center; }
+.cpt-deco { color: var(--muted); }
+#screen-compte .infos-label { margin-block: 22px 8px; }
+
+/* Espace intervenants : tableau de bord (E11.1) */
+.adm-bandeau { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin: 12px 0 0; border-radius: 10px;
+  border: 1px solid var(--fee); font-size: 13.5px; line-height: 1.45; }
+.adm-bandeau .chip { margin-inline-start: auto; flex-shrink: 0; }
+.adm-bandeau-refus { border-color: var(--lien); }
+.adm-bandeau-info { border-style: dashed; border-color: var(--bord); }
+.adm-point { inline-size: 8px; block-size: 8px; margin-block-start: 6px; border-radius: 50%; background: var(--fee); flex-shrink: 0; }
+.adm-seance .adm-ligne-corps { gap: 4px; }
+.adm-etat-confirmee { border-color: #6DBE74; background: #27733A; color: var(--velin); align-self: flex-start; }
+.adm-etat-attente { border-color: var(--bord); color: var(--velin); align-self: flex-start; }
+.adm-seance .adm-etat-brouillon { align-self: flex-start; }
+.adm-jauge { display: block; block-size: 3px; border-radius: 2px; background: var(--line); margin-block-start: 6px; overflow: hidden; }
+.adm-jauge span { display: block; block-size: 100%; background: var(--vermillon); }
+.adm-jauge.ok span { background: #6DBE74; }
+.adm-chiffres { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 20px; }
+.adm-chiffres div { padding: 14px; border-radius: 12px; background: var(--panneau); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.adm-chiffres b { font-family: var(--display); font-weight: 400; font-size: 26px; }
+.adm-chiffres span { font-size: 12px; color: var(--muted); }
+
+/* Formulaires E11.2, E11.6 : compteurs, choix, prix */
+.adm-stepper { display: flex; align-items: center; gap: 14px; }
+.adm-stepper-btn { inline-size: 44px; block-size: 44px; border-radius: 50%; border: 1px solid var(--bord); background: transparent; color: var(--velin);
+  font-size: 20px; line-height: 1; cursor: pointer; }
+.adm-stepper-val { font-family: var(--mono); font-size: 20px; min-inline-size: 84px; text-align: center; font-weight: 500; white-space: nowrap; }
+.adm-stepper-apres { font-size: 12.5px; color: var(--muted); }
+.adm-choix { flex-wrap: wrap; }
+.adm-choix .chip { min-height: 40px; padding: 0 14px; font-size: 13px; }
+.adm-choix .chip:disabled { opacity: .5; }
+.adm-euros { position: relative; display: block; }
+.adm-euros input { padding-inline-end: 34px; }
+.adm-euros span { position: absolute; inset-inline-end: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+.adm-compteur { float: inline-end; font-family: var(--mono); font-size: 11px; color: var(--muted); font-weight: 400; }
+.adm-centre { text-align: center; }
+.adm-boutons { display: flex; flex-wrap: wrap; gap: 10px; }
+.adm-boutons .cta { flex: 1 1 160px; }
+.adm-danger { border-color: var(--lien); color: var(--lien); }
+.adm-repeter { display: flex; flex-direction: column; gap: 10px; }
+
+/* Validations (E12) */
+.adm-petit { min-height: 40px; padding: 0 16px; font-size: 13px; inline-size: auto; }
+.adm-decision { display: flex; flex-wrap: wrap; gap: 8px; margin-block-start: 10px; align-items: center; }
+.adm-motif { display: flex; flex-direction: column; gap: 8px; inline-size: 100%; }
+.adm-quand { font-family: var(--mono); font-size: 10.5px; color: var(--muted); font-weight: 400; margin-inline-start: 6px; }
+.adm-couverture { inline-size: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; margin-block-end: 8px; }
+.adm-notifs { border-color: var(--lien); border-style: solid; }
+.adm-notif { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-block-start: 1px solid var(--line); font-size: 12.5px; }
+.adm-notif .chip { flex-shrink: 0; }
+
+/* Sur ordinateur : l'espace et Mon compte s'élargissent (les intervenants y gèrent leurs expériences et séances). */
+@media (min-width: 900px) {
+  #screen-espace .screen-inner, #screen-compte .screen-inner { max-width: 1040px; padding-inline: 32px; }
+  #screen-espace .adm-form { max-width: 720px; }
+  #screen-espace .adm-form-large { max-width: 760px; }
+  #screen-espace .adm-liste { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+  #screen-espace .adm-liste.adm-inscrits { grid-template-columns: 1fr; }
+  #screen-espace #adm-zone > .cta, #screen-compte .cta { max-width: 420px; }
+  #screen-compte .cpt-liste { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #screen-compte #compte-body { display: block; }
+  .adm-chiffres { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

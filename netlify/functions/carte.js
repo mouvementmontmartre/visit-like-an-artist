@@ -11,7 +11,16 @@
                                  toujours identique (21/11 : seul l'adhérent
                                  peut afficher sa carte)
    - "code"    { email, code }  → code bon : la carte et son jeton (ce
-                                 téléphone), avec l'email vérifié
+                                 téléphone) si l'adresse est adhérente, et la
+                                 session de l'espace si elle a un compte
+                                 d'intervenant ou d'association (22/11 :
+                                 connexion unique par code pour tout le monde)
+   - "connexion" { jeton }     → lien de connexion d'un email (7 jours, une
+                                 fois) : même réponse que « code »
+   - "reservations" { jeton }  → Mon compte (E15.2) : expériences réservées à
+                                 venir de l'adresse de la carte
+   - "ouvrir"  { jeton, reservation_id } → lien personnel d'une réservation
+                                 (« Voir »)
    - "lien"    { email, langue } → envoie par email un lien vers la
                                  carte (si l'adresse est adhérente)
    - "adherer" { nom, email, telephone, langue, accord_adhesion } (E15)
@@ -35,8 +44,32 @@ const crypto = require("crypto");
 const {
   SITE_URL, envoyerBrevo, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE,
   json, sha256hex, nouveauJeton, jetonValide, emailValide,
-  rpc, table, stripe, stripePost, enregistrerSession, sessionAdhesion,
+  rpc, table, stripe, stripePost, enregistrerSession, sessionAdhesion, sessionPour,
 } = require("../lib/commun");
+
+/** Adresse prouvée (code ou lien d'email) : carte si adhérente, session de l'espace si elle a un compte. */
+async function connecte(email, jetonDeja) {
+  const jeton = jetonDeja || nouveauJeton();
+  const carte = await carteSiAdherent(email, jeton);
+  const compte = await rpc("compte_par_email", { p_email: email });
+  let session = null;
+  if (compte && compte.role) {
+    try { session = await sessionPour(email); } catch (e) { console.error("carte session espace", e.message); }
+  }
+  if (!carte && !session) return json(404, { error: "Aucune adhésion", code: "AUCUNE" });
+  return json(200, Object.assign({ email, role: compte ? compte.role : null, session },
+    carte ? { jeton, carte } : {}));
+}
+
+/** Lien de carte pour une adresse adhérente (déjà créé par la vérification du code, sinon ici). */
+async function carteSiAdherent(email, jeton) {
+  let carte = await rpc("carte_par_jeton", { p_jeton_hash: sha256hex(jeton) });
+  if (!carte) {
+    const etat = await rpc("carte_creer_lien", { p_email: email, p_jeton_hash: sha256hex(jeton), p_origine: "code" }).catch(() => null);
+    if (etat === "cree") carte = await rpc("carte_par_jeton", { p_jeton_hash: sha256hex(jeton) });
+  }
+  return carte || null;
+}
 
 const TEXTES = {
   fr: {
@@ -65,12 +98,12 @@ const TEXTES = {
 /** Email du code de vérification (FR, EN, ES). */
 async function envoyerCode(email, code, langue) {
   const tx = {
-    fr: { sujet: "Votre code ArtDive : " + code, intro: "Voici votre code pour afficher votre carte de membre du Mouvement Montmartre :",
-          fin: "Il est valable 15 minutes. Si vous n'avez rien demandé, ignorez cet email : personne ne peut afficher votre carte sans ce code." },
-    en: { sujet: "Your ArtDive code: " + code, intro: "Here is your code to show your Mouvement Montmartre member card:",
-          fin: "It is valid for 15 minutes. If you did not ask for it, ignore this email: nobody can show your card without this code." },
-    es: { sujet: "Tu código ArtDive: " + code, intro: "Este es tu código para ver tu tarjeta de socio del Mouvement Montmartre:",
-          fin: "Es válido 15 minutos. Si no lo has pedido, ignora este email: nadie puede ver tu tarjeta sin este código." },
+    fr: { sujet: "Votre code ArtDive : " + code, intro: "Voici votre code pour vous connecter à ArtDive (Mon compte, carte de membre, espace intervenants) :",
+          fin: "Il est valable 15 minutes. Si vous n'avez rien demandé, ignorez cet email : personne ne peut se connecter à votre compte sans ce code." },
+    en: { sujet: "Your ArtDive code: " + code, intro: "Here is your code to sign in to ArtDive (My account, member card, hosts' area):",
+          fin: "It is valid for 15 minutes. If you did not ask for it, ignore this email: nobody can sign in to your account without this code." },
+    es: { sujet: "Tu código ArtDive: " + code, intro: "Este es tu código para conectarte a ArtDive (Mi cuenta, tarjeta de socio, espacio de anfitriones):",
+          fin: "Es válido 15 minutos. Si no lo has pedido, ignora este email: nadie puede conectarse a tu cuenta sin este código." },
   }[["fr", "en", "es"].includes(langue) ? langue : "fr"];
   const html = '<div style="font-family:Arial,sans-serif;font-size:16px;line-height:1.5;color:#14100E;max-width:480px">' +
     "<p>" + tx.intro + '</p><p style="font-size:32px;letter-spacing:.2em;font-weight:bold">' + code + '</p><p style="font-size:13px;color:#5A4E44">' +
@@ -152,11 +185,31 @@ exports.handler = async (event) => {
     if (p.action === "code") {
       const email = String(p.email || "").trim().toLowerCase(), code = String(p.code || "").replace(/\s/g, "");
       if (!emailValide(email) || !/^\d{6}$/.test(code)) return json(400, { error: "CODE_INVALIDE", code: "INVALIDE" });
-      const jeton = nouveauJeton();
-      const etat = await rpc("carte_code_verifier", { p_email: email, p_code_hash: sha256hex(email + ":" + code), p_jeton_hash: sha256hex(jeton) });
+      const jetonVerif = nouveauJeton();
+      const etat = await rpc("carte_code_verifier", { p_email: email, p_code_hash: sha256hex(email + ":" + code), p_jeton_hash: sha256hex(jetonVerif) });
       if (etat !== "ok") return json(etat === "invalide" ? 400 : etat === "trop_essais" ? 429 : 410, { error: etat, code: String(etat).toUpperCase() });
-      const carte = await rpc("carte_par_jeton", { p_jeton_hash: sha256hex(jeton) });
-      return carte ? json(200, { jeton, carte, email }) : json(404, { error: "Aucune adhésion", code: "AUCUNE" });
+      return connecte(email, jetonVerif);   // lien de carte déjà créé si l'adresse est adhérente
+    }
+
+    // Lien de connexion directe des emails aux intervenants (accès, expérience validée).
+    if (p.action === "connexion") {
+      if (!jetonValide(p.jeton)) return json(400, { error: "Lien invalide", code: "EXPIRE" });
+      const r = await rpc("connexion_lien_utiliser", { p_jeton_hash: sha256hex(p.jeton) });
+      if (!r || r.etat !== "ok") return json(410, { error: "Lien expiré", code: r && r.etat === "utilise" ? "UTILISE" : "EXPIRE" });
+      return connecte(r.email);
+    }
+
+    // Mon compte (E15.2) : réservations à venir de l'adresse vérifiée par la carte de ce téléphone.
+    if (p.action === "reservations") {
+      if (!jetonValide(p.jeton)) return json(400, { error: "Lien invalide" });
+      const liste = await rpc("reservations_a_venir", { p_jeton_hash: sha256hex(p.jeton) });
+      return json(200, { reservations: liste || [] });
+    }
+
+    if (p.action === "ouvrir") {
+      if (!jetonValide(p.jeton) || !/^[0-9a-f-]{36}$/.test(String(p.reservation_id || ""))) return json(400, { error: "Lien invalide" });
+      const jeton = await rpc("lien_reservation_compte", { p_jeton_hash: sha256hex(p.jeton), p_reservation_id: p.reservation_id });
+      return jeton ? json(200, { jeton }) : json(404, { error: "Réservation introuvable" });
     }
 
     if (p.action === "adherer") {
