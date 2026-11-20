@@ -9,6 +9,7 @@
    - SUPABASE_SECRET_KEY    clé secrète Supabase (sb_secret_… ou service_role)
    - BREVO_API_KEY          clé API Brevo (envoi des emails)
    - SUPABASE_URL, SITE_URL, EMAIL_EXPEDITEUR, EMAIL_REPONSE : facultatives
+   - STRIPE_PRIX_ADHESION   facultative : prix de l'abonnement d'adhésion (par défaut 5 €/an)
    ============================================================ */
 
 const crypto = require("crypto");
@@ -18,7 +19,11 @@ const SITE_URL = (process.env.SITE_URL || "https://artdive.app").replace(/\/$/, 
 const EMAIL_EXPEDITEUR = process.env.EMAIL_EXPEDITEUR || "bonjour@artdive.app";
 /* Version des CGV en vigueur (date). À changer à chaque nouvelle version publiée dans cgv.html :
    chaque réservation garde la version acceptée. */
-const CGV_VERSION = "2026-11-20";
+const CGV_VERSION = "2026-11-21";
+/* Version du texte accepté à l'adhésion (statuts, règlement, confidentialité), gardée au registre. */
+const ADHESION_VERSION = "adhesion-2026-11-21";
+/* Abonnement d'adhésion : « Adhésion annuelle », 5 € par an (produit prod_QtJ7IT1fz5OdTm). */
+const PRIX_ADHESION = process.env.STRIPE_PRIX_ADHESION || "price_1UcTj6Ctjp0QuQA6wHW2K8zR";
 const NOM_EXPEDITEUR = "Mouvement Montmartre";
 /* Les réponses des destinataires arrivent ici (artdive.app n'a pas de boîte mail). */
 const EMAIL_REPONSE = process.env.EMAIL_REPONSE || "mouvementmontmartre@gmail.com";
@@ -27,7 +32,7 @@ const EMAIL_REPONSE = process.env.EMAIL_REPONSE || "mouvementmontmartre@gmail.co
    Montmartre). On reconnaît l'adhésion par le PRODUIT, pas par le prix :
    les anciens tarifs (12 €, 5 €) et les futurs restent pris en compte. */
 const PRODUITS_ADHESION = {
-  prod_QtJ7IT1fz5OdTm: "adhesion",     // « Adhésion à l'année », abonnement annuel (5 € x quantité, ancien 12 €)
+  prod_QtJ7IT1fz5OdTm: "adhesion",     // « Adhésion annuelle », abonnement 5 €/an (anciens abonnements à 12 € passés à 5 € au renouvellement, 21/11)
   prod_TOOZOTIr3wJsYq: "adhesion",     // « Adhésion à l'année », paiement ponctuel (valable un an)
   prod_Oxr9yYcyaqlt6J: "bienfaiteur",  // « Bienfaiteur de Montmartre », abonnement mensuel (mécénat)
 };
@@ -252,16 +257,23 @@ async function formuleSession(session) {
   return null;
 }
 
-/** Enregistre l'adhésion d'une session Checkout payée. Renvoie { email } ou null. */
+/** Enregistre l'adhésion d'une session Checkout payée. Renvoie { email, id } ou null.
+    Adhésion prise dans l'app : téléphone, langue et consentement (date, version) vont au registre. */
 async function enregistrerSession(session) {
   if (session.payment_status !== "paid" && session.payment_status !== "no_payment_required") return null;
   const formule = await formuleSession(session);
   if (!formule) return null;
-  const nom = nomDeSession(session);
+  const meta = session.metadata || {};
+  const nom = meta.nom || nomDeSession(session);
   if (session.mode === "subscription" && session.subscription) {
     const sub = await stripe("subscriptions/" + idDe(session.subscription), { "expand[]": "customer" });
     const r = await enregistrerAbonnement(sub, nom);
-    return r ? { email: r.email } : null;
+    if (r && meta.type === "adhesion") {
+      await rpc("noter_adherent", { p_email: r.email, p_nom: nom, p_telephone: meta.telephone || null,
+        p_customer: idDe(sub.customer), p_subscription: sub.id, p_langue: meta.langue || null,
+        p_consentement_le: meta.consentement_le || null, p_consentement_version: meta.consentement_version || null });
+    }
+    return r ? { email: r.email, id: r.id } : null;
   }
   if (session.mode === "payment" && session.payment_intent) {
     const email = String((session.customer_details && session.customer_details.email) || "").trim().toLowerCase();
@@ -270,13 +282,52 @@ async function enregistrerSession(session) {
       p_payment_intent: idDe(session.payment_intent), p_customer: idDe(session.customer),
       p_email: email, p_nom: nom, p_formule: formule, p_paye_le: iso(session.created),
     });
-    return { email: r.email };
+    return { email: r.email, id: r.id };
   }
   return null;
 }
 
+/** Session Stripe d'adhésion (abonnement 5 €/an, E8.0 et E15). La case « statuts, règlement,
+    confidentialité » est gardée avec sa date et sa version (registre, au retour du webhook).
+    reservationId : place retenue pendant le paiement (la réservation se termine dans l'app). */
+async function sessionAdhesion({ email, nom, telephone, langue, reservationId, seanceId }) {
+  const l = ["fr", "en", "es"].includes(langue) ? langue : "fr";
+  const meta = { type: "adhesion", nom: String(nom || "").slice(0, 120), telephone: String(telephone || "").slice(0, 30),
+    langue: l, consentement_le: new Date().toISOString(), consentement_version: ADHESION_VERSION };
+  if (reservationId) Object.assign(meta, { reservation_retenue: reservationId, seance_id: seanceId || "" });
+  const params = {
+    mode: "subscription", locale: l, customer_email: email,
+    "line_items[0][price]": PRIX_ADHESION, "line_items[0][quantity]": "1",
+    expires_at: String(Math.floor(Date.now() / 1000) + 30 * 60),
+    success_url: SITE_URL + "/?adhesion={CHECKOUT_SESSION_ID}" + (reservationId ? "&resa=" + reservationId : ""),
+    cancel_url: SITE_URL + (reservationId ? "/?reservation_abandonnee=1" : "/#membre"),
+  };
+  for (const [k, v] of Object.entries(meta)) {
+    params["metadata[" + k + "]"] = v;
+    params["subscription_data[metadata][" + k + "]"] = v;
+  }
+  return stripePost("checkout/sessions", params, reservationId ? "adhesion-" + reservationId : undefined);
+}
+
+/** Carte de l'adhésion en cours (abonnement) pour les frais hors session : { customer, pm } ou null. */
+async function carteAdhesion(email) {
+  const c = await rpc("adhesion_carte", { p_email: email });
+  if (!c || !c.stripe_customer) return null;
+  let pm = null;
+  if (c.stripe_subscription) {
+    const sub = await stripe("subscriptions/" + c.stripe_subscription).catch(() => null);
+    pm = sub && idDe(sub.default_payment_method);
+  }
+  if (!pm) {
+    const cus = await stripe("customers/" + c.stripe_customer).catch(() => null);
+    pm = cus && cus.invoice_settings && idDe(cus.invoice_settings.default_payment_method);
+  }
+  return pm ? { customer: c.stripe_customer, pm } : null;
+}
+
 module.exports = {
-  SITE_URL, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE, CGV_VERSION, PRODUITS_ADHESION, LIENS_PONCTUELS,
+  SITE_URL, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE, CGV_VERSION, ADHESION_VERSION, PRIX_ADHESION,
+  PRODUITS_ADHESION, LIENS_PONCTUELS, sessionAdhesion, carteAdhesion,
   json, sha256hex, nouveauJeton, jetonValide, emailValide,
   rpc, table, authAdmin, appelant, envoyerBrevo, stripe, stripePost, signatureStripeValide,
   idDe, iso, periode, nomDeSession, formuleAbonnement, enregistrerAbonnement, enregistrerSession,

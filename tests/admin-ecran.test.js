@@ -180,7 +180,7 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   v("date figée quand il y a des inscrits", await pg.$eval("#s-jour", (x) => x.disabled));
   pg.once("dialog", (d) => d.accept());
   await pg.click('[data-adm-absent="r1"]');
-  v("absence signalée par la fonction de la base, frais annoncés", await attendre(pg, "#s-absent-note", "Frais de 10") && st.rpc.some((r) => r.nom === "signaler_absence" && r.args.p_reservation_id === "r1" && r.auth === "Bearer JETON-ADMIN"));
+  v("absence signalée par la fonction de la base, frais annoncés", await attendre(pg, "#s-absent-note", "prévu demain") && st.rpc.some((r) => r.nom === "signaler_absence" && r.args.p_reservation_id === "r1" && r.auth === "Bearer JETON-ADMIN"));
   pg.once("dialog", (d) => d.accept());
   await pg.selectOption("#s-motif", "intervenant_empeche");
   await pg.click("#s-annuler");
@@ -240,7 +240,7 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   v("mes inscrits : prénom, téléphone, reste à encaisser", await attendre(pg, "#adm-zone", "Camille D.") && await attendre(pg, "#adm-zone", "à encaisser sur place"));
   pg.once("dialog", (d) => d.accept());
   await pg.click('[data-adm-absent="r-9"]');
-  v("l'intervenant signale un absent", await attendre(pg, "#s-absent-note", "Frais de 10") && st.rpc.some((r) => r.nom === "signaler_absence" && r.args.p_reservation_id === "r-9"));
+  v("l'intervenant signale un absent", await attendre(pg, "#s-absent-note", "prévu demain") && st.rpc.some((r) => r.nom === "signaler_absence" && r.args.p_reservation_id === "r-9"));
   await pg.click('[data-adm-onglet="intervenants"]');
   v("ma fiche : ni type, ni publication, ni invitation", await attendre(pg, "#adm-form", "publiés après validation") && (await pg.$("#i-publie")) === null && (await pg.$("#i-inviter")) === null);
   await pg.fill("#i-role-fr", "historien de l'art"); await pg.click("#i-enregistrer");

@@ -6,6 +6,8 @@
      passé, et renvoie un lien personnel + le récapitulatif ;
    - "voir"    { jeton }      : récapitulatif d'une réservation ;
    - "annuler" { jeton }      : « Je ne peux plus venir ».
+   - "present" { jeton }      : « Je me suis présenté(e) » après un
+     signalement d'absence, avant le prélèvement du lendemain midi (E9.6).
    Le jeton (lien reçu par email) est le seul moyen d'agir sur une
    réservation ; seule son empreinte est en base.
    ============================================================ */
@@ -55,6 +57,19 @@ exports.handler = async (event) => {
       await toutTraiter().catch(() => {});        // frais et emails sans attendre la tâche planifiée
       const resa = await rpc("reservation_par_jeton", { p_jeton_hash: sha256hex(p.jeton) });
       return json(200, { annulation: r, reservation: resa });
+    }
+
+    if (p.action === "present") {
+      if (!jetonValide(p.jeton)) return json(400, { error: "Lien invalide" });
+      let r;
+      try { r = await rpc("signaler_presence", { p_jeton_hash: sha256hex(p.jeton) }); }
+      catch (e) {
+        if ((e.message || "").includes("LIEN_INVALIDE")) return json(404, { error: "LIEN_INVALIDE", code: "LIEN_INVALIDE" });
+        throw e;
+      }
+      await toutTraiter().catch(() => {});        // l'association et l'intervenant sont prévenus tout de suite
+      const resa = await rpc("reservation_par_jeton", { p_jeton_hash: sha256hex(p.jeton) });
+      return json(200, { presence: r, reservation: resa });
     }
 
     return json(400, { error: "Action inconnue" });

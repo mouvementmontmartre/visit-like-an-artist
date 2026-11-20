@@ -3,7 +3,8 @@
    voir netlify.toml)
    1. libère les places bloquées dont le paiement n'a pas abouti ;
    2. annule les séances dont le minimum n'est pas atteint 48 h avant ;
-   3. prépare les rappels 36 h avant ;
+   3. prépare les rappels 36 h avant, et les relances d'adhésion
+      30 et 7 jours avant l'échéance ;
    4. traite les files : remboursements, frais, emails.
    Tout est sans doublon : relancer la tâche ne refait rien deux fois.
    Ne renvoie que des totaux (aucune donnée personnelle).
@@ -15,7 +16,7 @@ const { toutTraiter } = require("../lib/reservations");
 exports.handler = async () => {
   const bilan = {};
   for (const [nom, fn] of [["liberees", "liberer_reservations_expirees"], ["minimums", "verifier_minimums"],
-                           ["rappels", "preparer_rappels"]]) {
+                           ["rappels", "preparer_rappels"], ["relances", "preparer_relances_adhesion"]]) {
     try { bilan[nom] = await rpc(fn, {}); } catch (e) { bilan[nom] = { erreur: e.message }; console.error("taches", fn, e.message); }
   }
   Object.assign(bilan, await toutTraiter());

@@ -94,8 +94,9 @@ async function traiterFrais(limite = 20) {
           amount: String(f.montant_centimes), currency: "eur",
           customer: f.stripe_customer, payment_method: f.stripe_payment_method,
           off_session: "true", confirm: "true",
-          description: "Frais d'annulation tardive ou d'absence, au profit de l'association Mouvement Montmartre, réservation " + f.reference,
-          "metadata[frais_reservation_id]": f.id, receipt_email: f.email,
+          description: (f.motif === "absence" ? "Frais d'absence" : "Frais d'annulation tardive") +
+            ", au profit de l'association Mouvement Montmartre, réservation " + f.reference,
+          "metadata[frais_reservation_id]": f.id, "metadata[type]": "frais_" + (f.motif || "annulation_tardive"), receipt_email: f.email,
         }, "frais-" + f.id);
       }
       if (rep.ok && rep.data.status === "succeeded") {
@@ -136,6 +137,8 @@ async function traiterCartes(limite = 20) {
   const lot = await rpc("cartes_a_retirer", { p_limite: limite });
   let retirees = 0, erreurs = 0;
   for (const c of lot || []) {
+    // Carte de l'abonnement d'adhésion : jamais retirée de Stripe (l'adhésion se renouvelle avec).
+    if (c.carte_adhesion) { await rpc("carte_retiree", { p_reservation_id: c.id }); retirees++; continue; }
     const rep = await stripePost("payment_methods/" + encodeURIComponent(c.stripe_payment_method) + "/detach", {}, "detach-" + c.id)
       .catch((e) => ({ ok: false, data: { error: { message: e.message } } }));
     const err = (rep.data && rep.data.error) || {};

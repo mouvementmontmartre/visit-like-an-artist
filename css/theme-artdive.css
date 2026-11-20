@@ -533,3 +533,22 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .adm-a-traiter { display: block; width: 100%; text-align: start; cursor: pointer; font: inherit; }
 .logo-accueil { display: inline-flex; align-items: center; min-height: 44px; }
 .resa-adherent, .resa-indice { margin-top: 14px; }
+
+/* ---------- Lot du 21/11 : adhésion (E8.0, E15), réservation adhérent (E8.1, E8.2), code, intervenants ---------- */
+.adh-prix { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; }
+.adh-prix b { font-family: var(--display); font-weight: 600; font-size: 44px; line-height: 1; }
+.adh-prix span { color: var(--muted); font-size: 14px; }
+.adh-phrase { font-size: 15px; line-height: 1.5; margin: 0; }
+.resa-code { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--fee); border-radius: 12px; padding: 14px; margin-top: 14px; }
+.resa-code[hidden], #membre-code-zone[hidden], #adh-e15[hidden], #resa-code-saisie[hidden] { display: none; }
+#membre-code-zone, #adh-e15 { display: flex; flex-direction: column; gap: 10px; }
+.mb-code { font-family: var(--mono); font-size: 22px; letter-spacing: .3em; text-align: center; }
+.resa-carte-adh { display: flex; flex-direction: column; gap: 2px; border-radius: 10px; padding: 12px 14px; background: rgba(0,0,0,.18); font-size: 13px; }
+.resa-carte-adh span { color: var(--muted); }
+.resa-adherent { margin-top: 14px; }
+.resa-adh-titre { font-weight: 600; }
+.resa-bon { margin: 0; padding-inline-start: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.mb-prix-texte { font-size: 13px; line-height: 1.5; color: #D9CFBF; margin: 0; }
+.adm-actions-inscrit { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.adm-actions-inscrit .chip { text-decoration: none; }
+.adm-prix-net { margin-top: 4px; }

@@ -6,8 +6,18 @@
    - "session" { session_id }  → au retour du paiement d'adhésion :
                                  vérifie le paiement auprès de Stripe,
                                  enregistre l'adhésion, crée un jeton
+   - "email"   { email, langue } → envoie un code à 6 chiffres (15 min) à
+                                 l'adresse, si elle a une adhésion ; réponse
+                                 toujours identique (21/11 : seul l'adhérent
+                                 peut afficher sa carte)
+   - "code"    { email, code }  → code bon : la carte et son jeton (ce
+                                 téléphone), avec l'email vérifié
    - "lien"    { email, langue } → envoie par email un lien vers la
                                  carte (si l'adresse est adhérente)
+   - "adherer" { nom, email, telephone, langue, accord_adhesion } (E15)
+                               → paiement de l'adhésion (abonnement 5 €/an)
+   - "portail" { jeton }       → « Gérer mon abonnement » : portail client
+                                 Stripe (résiliation, carte)
 
    Sécurité :
    - la liste des adhérents ne sort jamais de la base ; on ne renvoie
@@ -21,10 +31,11 @@
      ni écrit dans les journaux.
    ============================================================ */
 
+const crypto = require("crypto");
 const {
-  SITE_URL, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE,
+  SITE_URL, envoyerBrevo, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE,
   json, sha256hex, nouveauJeton, jetonValide, emailValide,
-  rpc, stripe, enregistrerSession,
+  rpc, table, stripe, stripePost, enregistrerSession, sessionAdhesion,
 } = require("../lib/commun");
 
 const TEXTES = {
@@ -50,6 +61,22 @@ const TEXTES = {
     fin: "Si no has pedido este enlace, ignora este email.",
   },
 };
+
+/** Email du code de vérification (FR, EN, ES). */
+async function envoyerCode(email, code, langue) {
+  const tx = {
+    fr: { sujet: "Votre code ArtDive : " + code, intro: "Voici votre code pour afficher votre carte de membre du Mouvement Montmartre :",
+          fin: "Il est valable 15 minutes. Si vous n'avez rien demandé, ignorez cet email : personne ne peut afficher votre carte sans ce code." },
+    en: { sujet: "Your ArtDive code: " + code, intro: "Here is your code to show your Mouvement Montmartre member card:",
+          fin: "It is valid for 15 minutes. If you did not ask for it, ignore this email: nobody can show your card without this code." },
+    es: { sujet: "Tu código ArtDive: " + code, intro: "Este es tu código para ver tu tarjeta de socio del Mouvement Montmartre:",
+          fin: "Es válido 15 minutos. Si no lo has pedido, ignora este email: nadie puede ver tu tarjeta sin este código." },
+  }[["fr", "en", "es"].includes(langue) ? langue : "fr"];
+  const html = '<div style="font-family:Arial,sans-serif;font-size:16px;line-height:1.5;color:#14100E;max-width:480px">' +
+    "<p>" + tx.intro + '</p><p style="font-size:32px;letter-spacing:.2em;font-weight:bold">' + code + '</p><p style="font-size:13px;color:#5A4E44">' +
+    tx.fin + "</p><p>" + NOM_EXPEDITEUR + "</p></div>";
+  await envoyerBrevo(email, { sujet: tx.sujet, html, texte: tx.intro + "\n\n" + code + "\n\n" + tx.fin }, ["carte-code"]);
+}
 
 async function envoyerEmail(email, lien, langue) {
   const tx = TEXTES[langue] || TEXTES.fr;
@@ -87,7 +114,9 @@ exports.handler = async (event) => {
     if (p.action === "voir") {
       if (!jetonValide(p.jeton)) return json(400, { error: "Lien invalide" });
       const carte = await rpc("carte_par_jeton", { p_jeton_hash: sha256hex(p.jeton) });
-      return carte ? json(200, { carte }) : json(404, { error: "Carte introuvable" });
+      // L'email (vérifié : le jeton ne s'obtient qu'avec le code ou le paiement) sert à réserver en adhérent sur ce téléphone.
+      const email = carte ? await rpc("carte_email", { p_jeton_hash: sha256hex(p.jeton) }).catch(() => null) : null;
+      return carte ? json(200, { carte, email }) : json(404, { error: "Carte introuvable" });
     }
 
     if (p.action === "session") {
@@ -104,20 +133,52 @@ exports.handler = async (event) => {
       const etat = await rpc("carte_creer_lien", { p_email: r.email, p_jeton_hash: sha256hex(jeton), p_origine: "paiement" });
       if (etat !== "cree") return json(400, { error: "Carte indisponible" });
       const carte = await rpc("carte_par_jeton", { p_jeton_hash: sha256hex(jeton) });
-      return json(200, { jeton, carte });
+      return json(200, { jeton, carte, email: r.email });
     }
 
-    // Carte affichée directement à partir de l'email (décision du 19/11 : plus de lien par email).
-    // Limite : 3 essais par adresse et par heure (carte_creer_lien).
+    // Code de vérification (21/11) : seul l'adhérent, qui reçoit le code, peut afficher sa carte.
+    // Même réponse que l'adresse soit adhérente ou non, ou que la limite (3 codes par heure) soit atteinte.
     if (p.action === "email") {
+      if (!process.env.BREVO_API_KEY) return json(503, { error: "Envoi des emails pas encore configuré." });
       const email = String(p.email || "").trim().toLowerCase();
       if (!emailValide(email)) return json(400, { error: "Email invalide" });
+      const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+      const etat = await rpc("carte_code_creer", { p_email: email, p_code_hash: sha256hex(email + ":" + code) });
+      if (etat === "cree") await envoyerCode(email, code, p.langue);
+      else await new Promise((r) => setTimeout(r, 250 + Math.floor(Math.random() * 400)));
+      return json(200, { ok: true });
+    }
+
+    if (p.action === "code") {
+      const email = String(p.email || "").trim().toLowerCase(), code = String(p.code || "").replace(/\s/g, "");
+      if (!emailValide(email) || !/^\d{6}$/.test(code)) return json(400, { error: "CODE_INVALIDE", code: "INVALIDE" });
       const jeton = nouveauJeton();
-      const etat = await rpc("carte_creer_lien", { p_email: email, p_jeton_hash: sha256hex(jeton), p_origine: "email" });
-      if (etat === "trop_de_demandes") return json(429, { error: "Trop de demandes" });
-      if (etat !== "cree") return json(404, { error: "Aucune adhésion" });
+      const etat = await rpc("carte_code_verifier", { p_email: email, p_code_hash: sha256hex(email + ":" + code), p_jeton_hash: sha256hex(jeton) });
+      if (etat !== "ok") return json(etat === "invalide" ? 400 : etat === "trop_essais" ? 429 : 410, { error: etat, code: String(etat).toUpperCase() });
       const carte = await rpc("carte_par_jeton", { p_jeton_hash: sha256hex(jeton) });
-      return carte ? json(200, { jeton, carte }) : json(404, { error: "Aucune adhésion" });
+      return carte ? json(200, { jeton, carte, email }) : json(404, { error: "Aucune adhésion", code: "AUCUNE" });
+    }
+
+    if (p.action === "adherer") {
+      const email = String(p.email || "").trim().toLowerCase(), nom = String(p.nom || "").trim().slice(0, 120);
+      if (!emailValide(email) || !nom) return json(400, { error: "PARAMETRES", code: "PARAMETRES" });
+      if (p.accord_adhesion !== true) return json(400, { error: "ACCORD_ADHESION", code: "ACCORD_ADHESION" });
+      const deja = await rpc("adhesion_pour_reservation", { p_email: email });
+      if (deja && deja.adherent) return json(409, { error: "DEJA_ADHERENT", code: "DEJA_ADHERENT" });
+      const s = await sessionAdhesion({ email, nom, telephone: String(p.telephone || "").trim(), langue: p.langue });
+      if (!s.ok) { console.error("carte adherer", s.data && s.data.error && s.data.error.message); return json(502, { error: "STRIPE", code: "STRIPE" }); }
+      return json(200, { url: s.data.url });
+    }
+
+    if (p.action === "portail") {
+      if (!jetonValide(p.jeton)) return json(400, { error: "Lien invalide" });
+      const l = (await table("GET", "cartes_liens?select=email&revoque_le=is.null&jeton_hash=eq." + sha256hex(p.jeton)))[0];
+      if (!l) return json(404, { error: "Carte introuvable" });
+      const c = await rpc("adhesion_carte", { p_email: l.email });
+      if (!c || !c.stripe_customer) return json(404, { error: "SANS_ABONNEMENT", code: "SANS_ABONNEMENT" });
+      const s = await stripePost("billing_portal/sessions", { customer: c.stripe_customer, return_url: SITE_URL + "/#membre" });
+      if (!s.ok) { console.error("carte portail", s.data && s.data.error && s.data.error.message); return json(502, { error: "STRIPE", code: "STRIPE" }); }
+      return json(200, { url: s.data.url });
     }
 
     if (p.action === "lien") {

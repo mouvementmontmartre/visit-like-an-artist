@@ -48,11 +48,27 @@ const T = {
     rembourse: (m) => "Vous êtes remboursé intégralement de " + m + ". Le remboursement apparaît sur votre compte sous 5 à 10 jours.",
     tardif_sujet: (d) => "Réservation impossible, vous êtes remboursé : " + d,
     tardif_texte: "Votre paiement est arrivé après la fin du délai de réservation, et la dernière place a été prise entre-temps.",
+    tardif_sujet_0: (d) => "Réservation impossible : " + d,
+    tardif_texte_0: "Votre réservation a été terminée après la fin du délai de 15 minutes, et la dernière place a été prise entre-temps. Rien n'a été prélevé : choisissez une autre date dans ArtDive.",
     frais_sujet: "Frais d'absence ou d'annulation tardive",
     frais_texte: (m) => m + " de frais d'annulation tardive ou d'absence ont été prélevés sur votre carte au profit de l'association Mouvement Montmartre, conformément aux conditions acceptées lors de la réservation.",
     frais_payer_sujet: "Frais d'annulation tardive à régler",
     frais_payer_texte: (m) => "Votre banque demande une validation pour le prélèvement de " + m + " de frais d'annulation tardive ou d'absence. Merci de le régler avec le bouton ci-dessous.",
     bouton_payer: "Régler les frais",
+    absence_sujet: (d) => "Votre absence à « " + d + " »",
+    absence_titre: (n) => "Bonjour " + n + ", nous ne vous avons pas vu.",
+    absence_texte: (v, q, g) => "Vous étiez inscrit(e) à la visite " + v + ", le " + q + ", et " + (g || "l'intervenant") + " a signalé votre absence.",
+    absence_prevu: "Prélèvement prévu demain",
+    absence_detail: (n, f, plafond) => n + " personne" + (n > 1 ? "s" : "") + " × " + f + (plafond ? ", dans la limite du solde de la séance" : "") + ", prélevés sur la carte enregistrée au profit de l'association Mouvement Montmartre, comme indiqué dans les conditions acceptées à la réservation.",
+    absence_contester: "Vous étiez bien là, ou vous aviez prévenu ? Dites-le-nous avant demain 12 h : le prélèvement sera annulé.",
+    absence_bouton: "Je me suis présenté(e)",
+    absence_echec: "Si le prélèvement n'aboutit pas, nous vous enverrons un lien pour régler le montant dû. Mouvement Montmartre · Paris 18e.",
+    relance_sujet: (j) => j <= 7 ? "Votre adhésion arrive à échéance dans 7 jours" : "Votre adhésion arrive à échéance dans un mois",
+    relance_auto: (f) => "Votre adhésion au Mouvement Montmartre sera renouvelée automatiquement le " + f + " pour 5 €, pour 12 mois. Vous n'avez rien à faire.",
+    relance_resilier: "Vous pouvez la résilier à tout moment avant cette date, sans frais : ouvrez votre carte de membre dans ArtDive, puis « Gérer mon abonnement ».",
+    relance_fin: (f) => "Votre adhésion au Mouvement Montmartre se termine le " + f + ". Pour garder vos avantages (réservation des visites et ateliers, évènements privés), renouvelez-la pour 5 € par an.",
+    relance_bouton: "Ouvrir ma carte de membre",
+    relance_numero: "Membre n°",
     fin: "À bientôt sur la Butte,",
     signature: "Mouvement Montmartre",
   },
@@ -83,11 +99,27 @@ const T = {
     rembourse: (m) => "You are fully refunded " + m + ". The refund shows on your account within 5 to 10 days.",
     tardif_sujet: (d) => "Booking not possible, you are refunded: " + d,
     tardif_texte: "Your payment arrived after the booking time limit, and the last spot was taken in the meantime.",
+    tardif_sujet_0: (d) => "Booking not possible: " + d,
+    tardif_texte_0: "Your booking was completed after the 15-minute limit, and the last spot was taken in the meantime. Nothing was charged: choose another date in ArtDive.",
     frais_sujet: "No-show or late cancellation fee",
     frais_texte: (m) => "A late cancellation or no-show fee of " + m + " has been charged to your card for the Mouvement Montmartre association, as agreed when booking.",
     frais_payer_sujet: "Late cancellation fee to pay",
     frais_payer_texte: (m) => "Your bank asks for a confirmation to charge the late cancellation or no-show fee of " + m + ". Please pay it with the button below.",
     bouton_payer: "Pay the fee",
+    absence_sujet: (d) => "You missed \"" + d + "\"",
+    absence_titre: (n) => "Hello " + n + ", we did not see you.",
+    absence_texte: (v, q, g) => "You were booked on " + v + ", " + q + ", and " + (g || "your host") + " reported that you did not come.",
+    absence_prevu: "Charge planned tomorrow",
+    absence_detail: (n, f, plafond) => n + (n > 1 ? " people" : " person") + " × " + f + (plafond ? ", up to the balance of the session" : "") + ", charged to the saved card for the Mouvement Montmartre association, as stated in the terms accepted when booking.",
+    absence_contester: "You were there, or you had let us know? Tell us before tomorrow 12 pm: the charge will be cancelled.",
+    absence_bouton: "I was there",
+    absence_echec: "If the charge fails, we will send you a link to pay the amount due. Mouvement Montmartre · Paris 18th.",
+    relance_sujet: (j) => j <= 7 ? "Your membership ends in 7 days" : "Your membership ends in a month",
+    relance_auto: (f) => "Your Mouvement Montmartre membership will renew automatically on " + f + " for €5, for 12 months. You have nothing to do.",
+    relance_resilier: "You can cancel it at any time before that date, free of charge: open your member card in ArtDive, then \"Manage my subscription\".",
+    relance_fin: (f) => "Your Mouvement Montmartre membership ends on " + f + ". To keep your benefits (booking tours and workshops, private events), renew it for €5 a year.",
+    relance_bouton: "Open my member card",
+    relance_numero: "Member no.",
     fin: "See you soon on the Butte,",
     signature: "Mouvement Montmartre",
   },
@@ -118,11 +150,27 @@ const T = {
     rembourse: (m) => "Se te reembolsan íntegramente " + m + ". El reembolso aparece en tu cuenta en 5 a 10 días.",
     tardif_sujet: (d) => "Reserva imposible, se te reembolsa: " + d,
     tardif_texte: "Tu pago llegó después del plazo de reserva y la última plaza se ocupó mientras tanto.",
+    tardif_sujet_0: (d) => "Reserva imposible: " + d,
+    tardif_texte_0: "Tu reserva se completó después del plazo de 15 minutos y la última plaza se ocupó mientras tanto. No se ha cobrado nada: elige otra fecha en ArtDive.",
     frais_sujet: "Gastos de ausencia o de cancelación tardía",
     frais_texte: (m) => "Se han cobrado en tu tarjeta " + m + " de gastos de cancelación tardía o de ausencia a favor de la asociación Mouvement Montmartre, según las condiciones aceptadas al reservar.",
     frais_payer_sujet: "Gastos de cancelación tardía por pagar",
     frais_payer_texte: (m) => "Tu banco pide una validación para cobrar " + m + " de gastos de cancelación tardía o de ausencia. Págalos con el botón de abajo.",
     bouton_payer: "Pagar los gastos",
+    absence_sujet: (d) => "Tu ausencia en «" + d + "»",
+    absence_titre: (n) => "Hola " + n + ", no te vimos.",
+    absence_texte: (v, q, g) => "Estabas inscrito(a) en " + v + ", el " + q + ", y " + (g || "el anfitrión") + " ha señalado tu ausencia.",
+    absence_prevu: "Cobro previsto mañana",
+    absence_detail: (n, f, plafond) => n + (n > 1 ? " personas" : " persona") + " × " + f + (plafond ? ", sin superar el saldo de la sesión" : "") + ", cobrados en la tarjeta guardada a favor de la asociación Mouvement Montmartre, según las condiciones aceptadas al reservar.",
+    absence_contester: "¿Sí estuviste, o habías avisado? Dínoslo antes de mañana a las 12 h: el cobro se cancelará.",
+    absence_bouton: "Sí estuve",
+    absence_echec: "Si el cobro no se realiza, te enviaremos un enlace para pagar el importe debido. Mouvement Montmartre · París 18.",
+    relance_sujet: (j) => j <= 7 ? "Tu membresía termina en 7 días" : "Tu membresía termina en un mes",
+    relance_auto: (f) => "Tu membresía del Mouvement Montmartre se renovará automáticamente el " + f + " por 5 €, por 12 meses. No tienes que hacer nada.",
+    relance_resilier: "Puedes cancelarla en cualquier momento antes de esa fecha, sin gastos: abre tu tarjeta de socio en ArtDive y luego «Gestionar mi suscripción».",
+    relance_fin: (f) => "Tu membresía del Mouvement Montmartre termina el " + f + ". Para conservar tus ventajas (reserva de visitas y talleres, eventos privados), renuévala por 5 € al año.",
+    relance_bouton: "Abrir mi tarjeta de socio",
+    relance_numero: "Socio n.º",
     fin: "Hasta pronto en la Butte,",
     signature: "Mouvement Montmartre",
   },
@@ -138,7 +186,7 @@ const cadre = (corps) => '<div style="font-family:Arial,sans-serif;font-size:16p
 /** Le texte brut est tiré du HTML : un seul contenu à maintenir. */
 const versTexte = (html) => html
   .replace(/<a href="([^"]+)"[^>]*>([^<]+)<\/a>/g, "$2 : $1")
-  .replace(/<\/(p|tr|h2)>/g, "\n").replace(/<br>/g, "\n").replace(/<td[^>]*>/g, " ")
+  .replace(/<\/(p|tr|h2|div)>/g, "\n").replace(/<br>/g, "\n").replace(/<td[^>]*>/g, " ")
   .replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
   .replace(/\n{3,}/g, "\n\n").trim();
 
@@ -172,7 +220,7 @@ function rediger(envoi) {
   const reste = estVisite(d) && d.reste_sur_place_centimes > 0
     ? "<p><b>" + esc(t.reste(euros(d.reste_sur_place_centimes, l), d.intervenant)) + "</b></p>" : "";
   const mot = d.message_inscrits ? "<p><b>" + esc(t.mot) + "</b><br>" + esc(d.message_inscrits) + "</p>" : "";
-  const fin = "<p>" + esc(t.fin) + "<br>" + esc(t.signature) + "</p>";
+  const fin = "<p>" + esc(t.fin) + "<br>" + esc(t.signature) + "</p>", fin_ = fin;
   let sujet, corps, pieces;
 
   switch (envoi.type) {
@@ -202,14 +250,34 @@ function rediger(envoi) {
         (d.paye_en_ligne_centimes > 0 ? "<p>" + esc(t.rembourse(euros(d.paye_en_ligne_centimes, l))) + "</p>" : "") + recap + fin;
       break;
     case "paiement_tardif":
-      sujet = t.tardif_sujet(nomVisite);
-      corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p><p>" + esc(t.tardif_texte) + "</p>" +
+      sujet = d.paye_en_ligne_centimes > 0 ? t.tardif_sujet(nomVisite) : t.tardif_sujet_0(nomVisite);
+      corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p><p>" + esc(d.paye_en_ligne_centimes > 0 ? t.tardif_texte : t.tardif_texte_0) + "</p>" +
         (d.paye_en_ligne_centimes > 0 ? "<p>" + esc(t.rembourse(euros(d.paye_en_ligne_centimes, l))) + "</p>" : "") + fin;
       break;
     case "frais_preleves":
       sujet = t.frais_sujet;
       corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p><p>" + esc(t.frais_texte(euros(d.frais_centimes, l))) + "</p>" + recap + fin;
       break;
+    case "absence": {
+      const frais = d.frais_centimes || 0, n = d.personnes || 1;
+      sujet = t.absence_sujet(nomVisite);
+      corps = "<p><b>" + esc(t.absence_titre(d.nom || "")) + "</b></p><p>" + esc(t.absence_texte(nomVisite, debut, d.intervenant)) + "</p>" +
+        '<div style="background:#F3EBDD;border-radius:12px;padding:14px 16px;margin:12px 0"><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#7A5B1F">' +
+        esc(t.absence_prevu) + '</div><div style="font-size:30px;margin:4px 0">' + esc(euros(frais, l)) + '</div><div style="font-size:14px;color:#5A4E44">' +
+        esc(t.absence_detail(n, fraisPers, frais < (d.frais_par_personne_centimes || 1000) * n)) + "</div></div>" +
+        "<p>" + esc(t.absence_contester) + "</p>" + (lienResa ? bouton(lienResa, t.absence_bouton) : "") +
+        '<p style="font-size:13px;color:#5A4E44">' + esc(t.absence_echec) + "</p>";
+      break;
+    }
+    case "relance_adhesion": {
+      const fin = d.fin ? new Intl.DateTimeFormat(LOCALES[l] || "fr-FR", { timeZone: "Europe/Paris", day: "numeric", month: "long", year: "numeric" }).format(new Date(d.fin)) : "";
+      sujet = t.relance_sujet(d.jours);
+      corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p>" +
+        (d.renouvelable ? "<p>" + esc(t.relance_auto(fin)) + "</p><p>" + esc(t.relance_resilier) + "</p>" : "<p>" + esc(t.relance_fin(fin)) + "</p>") +
+        bouton(SITE_URL + "/#membre", t.relance_bouton) +
+        (d.numero ? '<p style="font-size:13px;color:#5A4E44">' + esc(t.relance_numero) + " " + esc(d.numero) + "</p>" : "") + fin_;
+      break;
+    }
     case "frais_a_payer":
       sujet = t.frais_payer_sujet;
       corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p><p>" + esc(t.frais_payer_texte(euros(d.frais_centimes, l))) + "</p>" +
@@ -228,6 +296,14 @@ function rediger(envoi) {
       sujet = "Annulation : " + titre(d, "fr") + ", " + quand(d.debut, "fr");
       corps = "<p>" + esc(d.nom) + " (" + esc(d.personnes) + " pers.) ne viendra pas. La place est de nouveau disponible.</p>" +
         (d.frais_centimes > 0 ? "<p>Annulation tardive : " + esc(euros(d.frais_centimes, "fr")) + " de frais seront prélevés au profit de l'association (non reversés à l'intervenant).</p>" : "") +
+        '<table style="border-collapse:collapse">' + ligne("Visite", titre(d, "fr")) + ligne("Date", quand(d.debut, "fr")) +
+        ligne("Référence", d.reference) + "</table>";
+      break;
+    case "alerte_presence":
+      sujet = "Absence contestée : " + titre(d, "fr") + ", " + quand(d.debut, "fr");
+      corps = "<p>" + esc(d.nom) + " (" + esc(d.personnes) + " pers.) indique s'être présenté(e) ou avoir prévenu. Le prélèvement de " +
+        esc(euros(d.frais_annules_centimes || 0, "fr")) + " prévu pour absence est annulé.</p>" +
+        "<p>En cas de désaccord, répondez à cet email pour en parler avec l'association.</p>" +
         '<table style="border-collapse:collapse">' + ligne("Visite", titre(d, "fr")) + ligne("Date", quand(d.debut, "fr")) +
         ligne("Référence", d.reference) + "</table>";
       break;

@@ -116,7 +116,12 @@ const CONFIG = {
   /* ---- LIENS EXTERNES ---- */
   liens: {
     ajouterEvenement: "https://tally.so/r/Y5vaVv",           // formulaire Tally d'ajout à l'agenda
-    adhesion: "https://buy.stripe.com/7sY5kC7kdfaygOU9mbawo0C",             // adhésion annuelle renouvelable (Stripe)
+    adhesion: "https://buy.stripe.com/7sY5kC7kdfaygOU9mbawo0C",             // ancien lien d'adhésion (l'app ouvre désormais son propre paiement, 21/11)
+    // Case d'adhésion (« J'accepte les statuts, le règlement et la politique de confidentialité ») :
+    // adresses des documents à renseigner par l'association ; vide = texte sans lien.
+    statuts: "",
+    reglement: "",
+    confidentialite: "",
     siteWeb: "https://montmartrefestival.com",                // site du festival
     siteAssociation: "https://www.mouvementmontmartre.org",   // site de l'association
     instagram: "https://www.instagram.com/mouvement.montmartre/",

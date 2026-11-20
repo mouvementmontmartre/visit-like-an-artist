@@ -16,7 +16,7 @@ process.env.SUPABASE_SECRET_KEY = "sb_secret_faux";
 process.env.BREVO_API_KEY = "xkeysib-faux";
 
 /* ---------- faux Stripe ---------- */
-const ST = { sessions: {}, pis: {}, setis: {}, refunds: [], idem: {}, appels: [] };
+const ST = { sessions: {}, pis: {}, setis: {}, subs: {}, refunds: [], idem: {}, appels: [] };
 let n = 0;
 const nouvelId = (p) => p + "_test_" + (++n);
 let stripeEnPanne = false;
@@ -104,6 +104,8 @@ global.fetch = async (url, init = {}) => {
     if ((m = chemin.match(/^checkout\/sessions\/([^/]+)$/))) return ST.sessions[m[1]] ? reponse(200, ST.sessions[m[1]]) : reponse(404, { error: { message: "No such" } });
     if ((m = chemin.match(/^payment_intents\/([^/]+)$/))) return ST.pis[m[1]] ? reponse(200, ST.pis[m[1]]) : reponse(404, { error: { message: "No such" } });
     if ((m = chemin.match(/^setup_intents\/([^/]+)$/))) return ST.setis[m[1]] ? reponse(200, ST.setis[m[1]]) : reponse(404, { error: { message: "No such" } });
+    if ((m = chemin.match(/^subscriptions\/([^/]+)$/))) return ST.subs[m[1]] ? reponse(200, ST.subs[m[1]]) : reponse(404, { error: { message: "No such" } });
+    if ((m = chemin.match(/^customers\/([^/]+)$/))) return reponse(200, { id: m[1], invoice_settings: { default_payment_method: null } });
     return reponse(404, { error: { message: "inconnu" } });
   }
   if (url.startsWith("https://mepcwassmoespzzsdjxf.supabase.co/")) { const [s, d] = await supabaseRepond(url, init); return reponse(s, d); }
@@ -146,41 +148,69 @@ function verifier(nom, cond, detail) {
     "insert into public.seances (experience_id, debut, point_rdv, point_rdv_precis, message_inscrits, statut, participants_min, capacite_max) values ($1, now() + make_interval(hours => $2), 'Square', 'Devant le kiosque', 'Je porte un chapeau <gris>', 'publiee', $3, $4) returning id",
     [x, h, min, cap])).rows[0].id;
   const sLoin = await seance(120), sProche = await seance(20, 1), sMin = await seance(40, 4), sPetite = await seance(100, 1, 1);
-  const base = { personnes: 2, nom: "Camille <b>Durand</b>", email: "Camille@Exemple.invalid", telephone: "0612345678", langue: "fr", consentements: { cgv: true, non_remboursable: true, sans_retractation: true, prelevement: true } };
+  const base = { personnes: 2, nom: "Camille <b>Durand</b>", email: "Camille@Exemple.invalid", telephone: "0612345678", langue: "fr", consentements: { conditions: true } };
+  // Depuis le 21/11 : visites et ateliers réservés aux adhérents. Un adhérent prouve son adresse par
+  // le jeton de sa carte (obtenu avec le code reçu par email, ou au retour du paiement de l'adhésion).
+  const jetons = {};
+  async function membre(email, opts = {}) {
+    const e = email.trim().toLowerCase();
+    if (!jetons[e]) {
+      await db.query("insert into public.adhesions (email, nom, source, debut, valide_jusqua, stripe_customer, stripe_subscription) values ($1, 'Essai', $2, now() - interval '1 day', now() + interval '200 days', $3, $4)",
+        [e, opts.sub ? "stripe_abonnement" : "manuelle", opts.customer || null, opts.sub || null]);
+      jetons[e] = crypto.randomBytes(32).toString("base64url");
+      await db.query("insert into public.cartes_liens (jeton_hash, email, origine) values ($1, $2, 'code')", [crypto.createHash("sha256").update(jetons[e]).digest("hex"), e]);
+    }
+    return jetons[e];
+  }
+  async function reserverMembre(extra) {
+    const corps = Object.assign({}, base, extra);
+    corps.jeton = await membre(corps.email);
+    return post(reserver, corps);
+  }
+  async function reserverEtCarte(extra, pm) {
+    await reserverMembre(extra);
+    const se = Object.values(ST.sessions).pop();
+    enregistrerCarte(se.id, pm);
+    await evenement("checkout.session.completed", { id: se.id, metadata: se.metadata });
+    return se;
+  }
 
   // ---- reserver ----
   let r = await post(reserver, Object.assign({}, base, { seance_id: "pas-un-uuid" }));
   verifier("reserver : paramètres invalides refusés", r.statusCode === 400);
-  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, consentements: { cgv: true, non_remboursable: true, sans_retractation: true } }));
-  verifier("reserver : sans accord pour les frais, refus clair (cases)", r.statusCode === 400 && lire(r).code === "ACCORD_FRAIS_REQUIS", lire(r));
-  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, consentements: { cgv: true, prelevement: true, sans_retractation: true } }));
-  verifier("reserver : sans la case « non remboursable », refus", r.statusCode === 400 && lire(r).code === "CONSENTEMENTS_MANQUANTS", lire(r));
-  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, consentements: { cgv: "oui", non_remboursable: 1, sans_retractation: true, prelevement: true } }));
-  verifier("reserver : une case qui n'est pas vraiment cochée (true) ne compte pas", r.statusCode === 400 && lire(r).code === "CGV_NON_ACCEPTEES", lire(r));
-  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, consentements: { cgv: true, non_remboursable: true, sans_retractation: true } }));
-  verifier("reserver : sans accord pour les frais, refus clair", r.statusCode === 400 && lire(r).code === "ACCORD_FRAIS_REQUIS", lire(r));
-  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, telephone: "" }));
-  verifier("reserver : téléphone obligatoire pour une visite", r.statusCode === 400 && lire(r).code === "TELEPHONE_REQUIS");
+  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, email: "passant@exemple.invalid" }));
+  verifier("reserver : un non-adhérent passe par l'adhésion (ADHESION_REQUISE)", r.statusCode === 403 && lire(r).code === "ADHESION_REQUISE", lire(r));
+  await membre(base.email);
   r = await post(reserver, Object.assign({}, base, { seance_id: sLoin }));
+  verifier("reserver : adresse d'un adhérent sans sa carte → code demandé, personne ne réserve à sa place", r.statusCode === 403 && lire(r).code === "VERIFICATION_REQUISE", lire(r));
+  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, jeton: "x".repeat(43) }));
+  verifier("reserver : jeton inconnu → code demandé", r.statusCode === 403 && lire(r).code === "VERIFICATION_REQUISE");
+  r = await reserverMembre({ seance_id: sLoin, consentements: {} });
+  verifier("reserver : sans la case « conditions de réservation », refus", r.statusCode === 400 && lire(r).code === "CONDITIONS_NON_ACCEPTEES", lire(r));
+  r = await reserverMembre({ seance_id: sLoin, consentements: { conditions: "oui" } });
+  verifier("reserver : une case qui n'est pas vraiment cochée (true) ne compte pas", r.statusCode === 400 && lire(r).code === "CONDITIONS_NON_ACCEPTEES", lire(r));
+  r = await reserverMembre({ seance_id: sLoin, telephone: "" });
+  verifier("reserver : téléphone obligatoire pour une visite", r.statusCode === 400 && lire(r).code === "TELEPHONE_REQUIS");
+  r = await reserverMembre({ seance_id: sLoin });
   const sess1 = Object.values(ST.sessions).pop();
-  verifier("reserver : adresse de paiement Stripe renvoyée", r.statusCode === 200 && lire(r).url === sess1.url, lire(r));
-  verifier("reserver : 10 € à payer (2 × 5 €), prix venu de la base", sess1.params["line_items[0][price_data][unit_amount]"] === "1000");
-  verifier("reserver : carte gardée pour les frais, avec la mention", sess1.params["payment_intent_data[setup_future_usage]"] === "off_session" && /24 h/.test(sess1.params["custom_text[submit][message]"]));
+  verifier("reserver : adhérent sans carte d'abonnement → Stripe enregistre une carte, sans débit (setup)", r.statusCode === 200 && lire(r).url === sess1.url && sess1.params.mode === "setup" && lire(r).carte_a_enregistrer === true, lire(r));
+  verifier("reserver : client Stripe créé, métadonnées type et réservation", /^cus_/.test(sess1.params.customer) && sess1.params["metadata[type]"] === "carte_reservation");
   verifier("reserver : expiration 30 min, retour vers artdive.app", Number(sess1.params.expires_at) - Date.now() / 1000 > 1700 && sess1.params.success_url === "https://artdive.app/?reservation={CHECKOUT_SESSION_ID}");
   const resa1 = sess1.metadata.reservation_id;
-  verifier("reserver : places bloquées en attente du paiement", (await ligne("select statut from public.reservations where id = $1", [resa1])).statut === "en_attente");
-  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, personnes: 9 }));
+  const p1 = await ligne("select statut, paye_en_ligne_centimes, reste_sur_place_centimes, prix_unitaire_centimes, adherent from public.reservations where id = $1", [resa1]);
+  verifier("reserver : 0 € en ligne, prix net 45 € × 2 réglé sur place (prix de la base)", p1.statut === "en_attente" && p1.paye_en_ligne_centimes === 0 && p1.reste_sur_place_centimes === 9000 && p1.prix_unitaire_centimes === 4500 && p1.adherent, p1);
+  r = await reserverMembre({ seance_id: sLoin, personnes: 9 });
   verifier("reserver : plus assez de places → complet", r.statusCode === 409 && lire(r).code === "COMPLET", lire(r));
   stripeEnPanne = true;
-  r = await post(reserver, Object.assign({}, base, { seance_id: sLoin, personnes: 1, email: "panne@exemple.invalid" }));
+  r = await reserverMembre({ seance_id: sLoin, personnes: 1, email: "panne@exemple.invalid" });
   stripeEnPanne = false;
   verifier("reserver : Stripe en panne → places libérées aussitôt", r.statusCode === 502 && (await ligne("select statut from public.reservations where email = 'panne@exemple.invalid'")).statut === "expiree");
 
-  // ---- paiement → webhook ----
-  payer(sess1.id);
+  // ---- carte enregistrée → webhook ----
+  enregistrerCarte(sess1.id, "pm_carte");
   r = await evenement("checkout.session.completed", { id: sess1.id, metadata: sess1.metadata });
   const a = await ligne("select * from public.reservations where id = $1", [resa1]);
-  verifier("webhook : réservation confirmée, carte gardée", r.statusCode === 200 && a.statut === "confirmee" && a.stripe_payment_method === "pm_carte", a && a.statut);
+  verifier("webhook : réservation confirmée, carte gardée, aucun paiement", r.statusCode === 200 && a.statut === "confirmee" && a.stripe_payment_method === "pm_carte" && !(await ligne("select 1 from public.paiements where reservation_id = $1", [resa1])), a && a.statut);
   const conf = mails("confirmation")[0];
   verifier("email de confirmation envoyé tout de suite, au client", conf && conf.to[0].email === "camille@exemple.invalid");
   verifier("confirmation : récapitulatif, reste sur place, monnaie, frais", conf && /90\s€/.test(conf.textContent) && /monnaie/.test(conf.textContent) && /10\s€ par personne/.test(conf.textContent) && /au profit de l'association/.test(conf.textContent) && /Devant le kiosque/.test(conf.textContent), conf && conf.textContent);
@@ -189,7 +219,7 @@ function verifier(nom, cond, detail) {
   verifier("confirmation : bouton « Je ne peux plus venir » avec lien personnel", !!m1);
   verifier("confirmation : fichier calendrier joint", conf && conf.attachment && /BEGIN:VEVENT/.test(Buffer.from(conf.attachment[0].content, "base64").toString()));
   verifier("confirmation : rappel « pas de droit de rétractation » et lien vers les CGV datées", conf && /L221-28/.test(conf.textContent) && conf.htmlContent.includes("https://artdive.app/cgv.html") && conf.htmlContent.includes(require(path.join(DEPOT, "netlify/lib/commun.js")).CGV_VERSION));
-  verifier("cases cochées et version des CGV gardées", (await ligne("select consentements ?& array['cgv','non_remboursable','sans_retractation','prelevement'] as ok, cgv_version from public.reservations where id = $1", [resa1])).ok === true);
+  verifier("case « conditions » et version des CGV gardées", (await ligne("select consentements ? 'conditions' as ok, cgv_version from public.reservations where id = $1", [resa1])).ok === true);
   verifier("pas de long tiret dans les emails", !brevo.some((m) => /—/.test(m.subject + m.htmlContent)));
   verifier("alertes : association et guide prévenus", mails("alerte_inscription").map((m) => m.to[0].email).sort().join() === "guide@exemple.invalid,mouvementmontmartre@gmail.com");
   verifier("le lien personnel n'est plus stocké après l'envoi", !(await ligne("select 1 from public.envois where statut = 'envoye' and donnees ? 'jeton'")));
@@ -199,16 +229,13 @@ function verifier(nom, cond, detail) {
 
   // Réservations faites tôt : Mia (séance sous le minimum), Rose (garde la séance proche au-dessus du minimum).
   for (const [sid, mail] of [[sMin, "mia@exemple.invalid"], [sProche, "rose@exemple.invalid"]]) {
-    await post(reserver, Object.assign({}, base, { seance_id: sid, personnes: 1, email: mail }));
-    const se = Object.values(ST.sessions).pop(); payer(se.id);
-    await evenement("checkout.session.completed", { id: se.id, metadata: se.metadata });
+    await reserverEtCarte({ seance_id: sid, personnes: 1, email: mail });
   }
-  const sess4 = { id: Object.values(ST.sessions).find((se) => se.params.customer_email === "mia@exemple.invalid").id };
 
   // ---- retour sur l'app ----
   r = await post(reservation, { action: "session", session_id: sess1.id });
   const ret = lire(r);
-  verifier("retour du paiement : lien et récapitulatif sans email ni téléphone", r.statusCode === 200 && /^[0-9a-f]{64}$/.test(ret.jeton) && ret.reservation.statut === "confirmee" && !("email" in ret.reservation) && !("telephone" in ret.reservation), ret);
+  verifier("retour de Stripe : lien et récapitulatif sans email ni téléphone", r.statusCode === 200 && /^[0-9a-f]{64}$/.test(ret.jeton) && ret.reservation.statut === "confirmee" && !("email" in ret.reservation) && !("telephone" in ret.reservation), ret);
   r = await post(reservation, { action: "voir", jeton: m1 && m1[1] });
   verifier("le lien de l'email ouvre la réservation", r.statusCode === 200 && lire(r).reservation.peut_annuler === true);
   r = await post(reservation, { action: "voir", jeton: "0".repeat(64) });
@@ -218,30 +245,27 @@ function verifier(nom, cond, detail) {
   r = await post(reservation, { action: "annuler", jeton: m1[1] });
   verifier("annulation 5 jours avant : sans frais", r.statusCode === 200 && lire(r).annulation.frais_centimes === 0, lire(r));
   verifier("annulation : email au client et alertes au guide et à l'association", mails("annulation_client").length === 1 && mails("alerte_annulation").length === 2);
-  verifier("annulation : aucun remboursement (5 € gardés), aucun prélèvement", ST.refunds.length === 0 && !ST.appels.some((c) => c.chemin === "payment_intents"));
+  verifier("annulation : aucun remboursement, aucun prélèvement", ST.refunds.length === 0 && !ST.appels.some((c) => c.chemin === "payment_intents"));
   r = await post(reservation, { action: "annuler", jeton: m1[1] });
   const det = ST.appels.find((c) => c.chemin === "payment_methods/pm_carte/detach");
-  verifier("annulation sans frais : carte retirée de Stripe aussitôt (CGV 10.4)", det && /^detach-/.test(det.cle) && (await ligne("select stripe_payment_method, carte_retiree_le from public.reservations where id = $1", [resa1])).carte_retiree_le !== null, det);
+  verifier("annulation sans frais : carte de la réservation retirée de Stripe aussitôt (CGV 10.4)", det && /^detach-/.test(det.cle) && (await ligne("select carte_retiree_le from public.reservations where id = $1", [resa1])).carte_retiree_le !== null, det);
   verifier("annuler deux fois : sans effet", r.statusCode === 200 && lire(r).annulation.deja_annulee === true);
 
   // ---- annulation tardive : frais prélevés ----
-  await post(reserver, Object.assign({}, base, { seance_id: sProche, email: "tard@exemple.invalid" }));
-  const sess2 = Object.values(ST.sessions).pop(); payer(sess2.id, "pm_tard");
-  await evenement("checkout.session.completed", { id: sess2.id, metadata: sess2.metadata });
+  await reserverEtCarte({ seance_id: sProche, email: "tard@exemple.invalid" }, "pm_tard");
   const m2 = mails("confirmation").pop().htmlContent.match(/#reservation=([0-9a-f]{64})/);
   r = await post(reservation, { action: "annuler", jeton: m2[1] });
   verifier("annulation 20 h avant : 20 € de frais (2 × 10 €)", lire(r).annulation.frais_centimes === 2000, lire(r));
   const pf = ST.appels.find((c) => c.chemin === "payment_intents");
-  verifier("frais prélevés sur la carte gardée, hors session, avec clé anti-doublon", pf && pf.f.payment_method === "pm_tard" && pf.f.off_session === "true" && pf.f.amount === "2000" && /^frais-/.test(pf.cle), pf);
+  verifier("frais prélevés sur la carte gardée, hors session, anti-doublon, au profit de l'association", pf && pf.f.payment_method === "pm_tard" && pf.f.off_session === "true" && pf.f.amount === "2000" && /^frais-/.test(pf.cle) &&
+    /association/.test(pf.f.description) && pf.f["metadata[type]"] === "frais_annulation_tardive", pf);
   verifier("frais : reçu envoyé au client", mails("frais_preleves").length === 1 && /20\s€/.test(mails("frais_preleves")[0].textContent));
   await post(taches, {});
   verifier("frais prélevés : carte retirée ensuite", ST.appels.some((c) => c.chemin === "payment_methods/pm_tard/detach"));
   verifier("tâche relancée : pas de deuxième prélèvement", ST.appels.filter((c) => c.chemin === "payment_intents").length === 1);
 
   // ---- la banque demande une validation : lien de paiement ----
-  await post(reserver, Object.assign({}, base, { seance_id: sProche, personnes: 1, email: "auth@exemple.invalid" }));
-  const sess3 = Object.values(ST.sessions).pop(); payer(sess3.id, "pm_auth");
-  await evenement("checkout.session.completed", { id: sess3.id, metadata: sess3.metadata });
+  await reserverEtCarte({ seance_id: sProche, personnes: 1, email: "auth@exemple.invalid" }, "pm_auth");
   const m3 = mails("confirmation").pop().htmlContent.match(/#reservation=([0-9a-f]{64})/);
   fraisReponse = "authentication_required";
   await post(reservation, { action: "annuler", jeton: m3[1] });
@@ -252,61 +276,79 @@ function verifier(nom, cond, detail) {
   await evenement("checkout.session.completed", { id: sessFrais.id, metadata: sessFrais.metadata, payment_status: "paid", payment_intent: "pi_frais_lien" });
   verifier("frais réglés par le lien : notés comme prélevés", (await ligne("select frais_statut from public.reservations where email = 'auth@exemple.invalid'")).frais_statut === "preleve");
 
-  // ---- minimum non atteint : séance annulée, remboursement ----
+  // ---- minimum non atteint : séance annulée, inscrite prévenue (l'adhésion n'est pas remboursée) ----
   const bilan = lire(await post(taches, {}));
-  const remb = ST.refunds.find((x) => x.payment_intent === ST.sessions[sess4.id].payment_intent);
-  verifier("tâche : séance sous le minimum annulée, inscrite remboursée de 5 €", remb && remb.amount === 500 && (await ligne("select statut from public.seances where id = $1", [sMin])).statut === "annulee", bilan);
-  verifier("remboursement : clé anti-doublon remb-<id>", ST.appels.some((c) => c.chemin === "refunds" && /^remb-/.test(c.cle)));
+  verifier("tâche : séance sous le minimum annulée 48 h avant", (await ligne("select statut from public.seances where id = $1", [sMin])).statut === "annulee", bilan);
   verifier("séance annulée : email au client, alerte guide et association", mails("seance_annulee").some((m) => m.to[0].email === "mia@exemple.invalid") && mails("alerte_seance_annulee").length === 2);
-  verifier("réservation marquée remboursée", (await ligne("select statut from public.reservations where email = 'mia@exemple.invalid'")).statut === "remboursee");
-  const nbRemb = ST.refunds.length;
-  await post(taches, {});
-  verifier("tâche relancée : pas de deuxième remboursement", ST.refunds.length === nbRemb);
+  verifier("séance annulée : rien n'avait été payé, aucun remboursement ni frais", (await ligne("select statut, frais_statut from public.reservations where email = 'mia@exemple.invalid'")).statut === "annulee" && ST.refunds.length === 0);
+  verifier("email d'annulation sans mention de remboursement", !/rembours/i.test(mails("seance_annulee").find((m) => m.to[0].email === "mia@exemple.invalid").textContent));
 
-  // ---- paiement abandonné, paiement tardif ----
-  await post(reserver, Object.assign({}, base, { seance_id: sPetite, personnes: 1, email: "lent@exemple.invalid" }));
+  // ---- carte enregistrée trop tard, abandon ----
+  await reserverMembre({ seance_id: sPetite, personnes: 1, email: "lent@exemple.invalid" });
   const sess5 = Object.values(ST.sessions).pop();
   await db.query("update public.reservations set bloque_jusqua = now() - interval '1 minute' where email = 'lent@exemple.invalid'");
-  await post(reserver, Object.assign({}, base, { seance_id: sPetite, personnes: 1, email: "rapide@exemple.invalid" }));
-  const sess6 = Object.values(ST.sessions).pop(); payer(sess6.id);
-  await evenement("checkout.session.completed", { id: sess6.id, metadata: sess6.metadata });
-  payer(sess5.id);
+  await reserverEtCarte({ seance_id: sPetite, personnes: 1, email: "rapide@exemple.invalid" });
+  enregistrerCarte(sess5.id);
   await evenement("checkout.session.completed", { id: sess5.id, metadata: sess5.metadata });
   const lent = await ligne("select statut, annulee_par from public.reservations where email = 'lent@exemple.invalid'");
-  verifier("paiement après le blocage, dernière place prise : annulé et remboursé", lent.annulee_par === "paiement_tardif" && ST.refunds.some((x) => x.payment_intent === ST.sessions[sess5.id].payment_intent), lent);
-  verifier("paiement tardif : email d'explication", mails("paiement_tardif").some((m) => m.to[0].email === "lent@exemple.invalid"));
-  await post(reserver, Object.assign({}, base, { seance_id: sLoin, personnes: 1, email: "abandon@exemple.invalid" }));
+  verifier("carte enregistrée après le blocage, dernière place prise : réservation annulée, rien à rembourser", lent.annulee_par === "paiement_tardif" && ST.refunds.length === 0, lent);
+  verifier("trop tard : email d'explication sans remboursement", mails("paiement_tardif").some((m) => m.to[0].email === "lent@exemple.invalid" && !/rembours/i.test(m.textContent + m.subject)));
+  await reserverMembre({ seance_id: sLoin, personnes: 1, email: "abandon@exemple.invalid" });
   const sess7 = Object.values(ST.sessions).pop();
   await evenement("checkout.session.expired", { id: sess7.id, metadata: sess7.metadata });
-  verifier("paiement abandonné : place libérée", (await ligne("select statut from public.reservations where email = 'abandon@exemple.invalid'")).statut === "expiree");
+  verifier("Stripe abandonné : place libérée", (await ligne("select statut from public.reservations where email = 'abandon@exemple.invalid'")).statut === "expiree");
 
   // ---- anglais ----
-  await post(reserver, Object.assign({}, base, { seance_id: sLoin, personnes: 1, email: "en@exemple.invalid", langue: "en" }));
-  const sess8 = Object.values(ST.sessions).pop(); payer(sess8.id);
-  await evenement("checkout.session.completed", { id: sess8.id, metadata: sess8.metadata });
+  await reserverEtCarte({ seance_id: sLoin, personnes: 1, email: "en@exemple.invalid", langue: "en" });
   const en = mails("confirmation").pop();
   verifier("email en anglais pour une réservation en anglais", /Your spot is booked: Painters walk/.test(en.subject) && /bring cash/.test(en.textContent), en.subject);
 
-  // ---- Adhérent : pré-réservation offerte, carte enregistrée sans débit, tarif adhérent de la séance ----
-  await db.query("insert into public.adhesions (email, nom, source, debut, valide_jusqua) values ('ada@exemple.invalid', 'Ada', 'manuelle', now() - interval '1 day', now() + interval '200 days')");
+  // ---- Carte de l'abonnement d'adhésion : confirmation immédiate, sans Stripe Checkout ----
+  ST.subs.sub_ada = { id: "sub_ada", customer: "cus_ada", default_payment_method: "pm_abo", status: "active" };
+  await membre("ada@exemple.invalid", { customer: "cus_ada", sub: "sub_ada" });
   const sAdh = await seance(150);
-  await db.query("update public.seances set prix_adherent_centimes = 4500 where id = $1", [sAdh]);
-  r = await post(reserver, { action: "adherent", email: " Ada@Exemple.invalid " });
-  verifier("adhérent : reconnu par son email (formulaire)", r.statusCode === 200 && lire(r).adherent === true && !("nom" in lire(r)), lire(r));
-  r = await post(reserver, { action: "adherent", email: "personne@exemple.invalid" });
-  verifier("adhérent : email inconnu, pas adhérent", r.statusCode === 200 && lire(r).adherent === false);
-  r = await post(reserver, Object.assign({}, base, { seance_id: sAdh, email: "Ada@Exemple.invalid", consentements: { cgv: true, sans_retractation: true, prelevement: true } }));
-  const sessAdh = Object.values(ST.sessions).pop();
-  verifier("adhérent : session Stripe « setup » (aucun débit), client Stripe créé", r.statusCode === 200 && sessAdh.params.mode === "setup" && /^cus_/.test(sessAdh.params.customer) && lire(r).adherent === true, lire(r));
-  const resaAdh = sessAdh.metadata.reservation_id;
-  const ra = await ligne("select paye_en_ligne_centimes, reste_sur_place_centimes, prix_unitaire_centimes, adherent from public.reservations where id = $1", [resaAdh]);
-  verifier("adhérent : 0 € en ligne, tarif adhérent 45 € × 2 sur place", ra.paye_en_ligne_centimes === 0 && ra.reste_sur_place_centimes === 9000 && ra.prix_unitaire_centimes === 4500 && ra.adherent, JSON.stringify(ra));
-  enregistrerCarte(sessAdh.id);
-  r = await post(reservation, { action: "session", session_id: sessAdh.id });
-  verifier("adhérent : carte enregistrée → réservation confirmée", r.statusCode === 200 && lire(r).reservation.statut === "confirmee" && lire(r).reservation.adherent === true, lire(r));
-  const rb = await ligne("select stripe_payment_method, stripe_setup_intent, (select count(*)::int from public.paiements where reservation_id = $1) as n from public.reservations where id = $1", [resaAdh]);
-  verifier("adhérent : carte gardée pour les frais, aucun paiement enregistré", rb.stripe_payment_method === "pm_adh" && /^seti_/.test(rb.stripe_setup_intent) && rb.n === 0, JSON.stringify(rb));
-  verifier("adhérent : frais plafonnés au solde (2 × 10 € ≤ 90 €)", (await ligne("select interne.frais_dus($1) as f", [resaAdh])).f === 2000);
+  await db.query("update public.seances set prix_adherent_centimes = 4000 where id = $1", [sAdh]);
+  r = await post(reserver, { action: "adherent", jeton: jetons["ada@exemple.invalid"] });
+  verifier("adhérent : reconnu par le jeton de sa carte (jamais par un email tapé)", r.statusCode === 200 && lire(r).adherent === true && lire(r).email === "ada@exemple.invalid" && lire(r).carte === true && !("nom" in lire(r)), lire(r));
+  r = await post(reserver, { action: "adherent", email: "ada@exemple.invalid" });
+  verifier("adhérent : un email seul ne révèle rien", r.statusCode === 200 && lire(r).adherent === false && !("numero" in lire(r)));
+  const nbSessions = Object.keys(ST.sessions).length;
+  r = await reserverMembre({ seance_id: sAdh, email: "Ada@Exemple.invalid" });
+  verifier("adhérent avec abonnement : réservation confirmée tout de suite, sans page Stripe", r.statusCode === 200 && lire(r).confirmee === true && /^[0-9a-f]{64}$/.test(lire(r).jeton) && lire(r).reservation.statut === "confirmee" && Object.keys(ST.sessions).length === nbSessions, lire(r));
+  const rAdh = await ligne("select id, stripe_payment_method, stripe_customer, reste_sur_place_centimes, prix_unitaire_centimes from public.reservations where email = 'ada@exemple.invalid'");
+  verifier("adhérent : carte de l'abonnement gardée pour les frais, tarif de la séance (40 €)", rAdh.stripe_payment_method === "pm_abo" && rAdh.stripe_customer === "cus_ada" && rAdh.prix_unitaire_centimes === 4000 && rAdh.reste_sur_place_centimes === 8000, rAdh);
+  verifier("adhérent : confirmation envoyée tout de suite", mails("confirmation").some((m) => m.to[0].email === "ada@exemple.invalid"));
+  await db.query("update public.seances set statut = 'annulee' where id = $1", [sAdh]);
+  await post(taches, {});
+  verifier("carte de l'abonnement jamais retirée de Stripe (l'adhésion se renouvelle avec)", !ST.appels.some((c) => c.chemin === "payment_methods/pm_abo/detach") &&
+    (await ligne("select carte_retiree_le from public.reservations where id = $1", [rAdh.id])).carte_retiree_le !== null);
+
+  // ---- Non-adhérent (E8.0) : place retenue, adhésion payée, puis la réservation se termine ----
+  r = await post(reserver, { action: "adhesion", seance_id: sLoin, personnes: 1, nom: "Nina", email: "Nina@Exemple.invalid", telephone: "0600000000", langue: "fr" });
+  verifier("adhésion : sans la case statuts, refus", r.statusCode === 400 && lire(r).code === "ACCORD_ADHESION");
+  r = await post(reserver, { action: "adhesion", seance_id: sLoin, personnes: 1, nom: "Nina", email: "Nina@Exemple.invalid", telephone: "0600000000", langue: "fr", accord_adhesion: true });
+  const sessN = Object.values(ST.sessions).pop();
+  verifier("adhésion : place retenue 15 min et paiement de l'abonnement (5 €/an)", r.statusCode === 200 && /^[0-9a-f-]{36}$/.test(lire(r).reservation_id) &&
+    sessN.params.mode === "subscription" && sessN.params["line_items[0][price]"] === require(path.join(DEPOT, "netlify/lib/commun.js")).PRIX_ADHESION &&
+    sessN.params["metadata[type]"] === "adhesion" && sessN.params["metadata[reservation_retenue]"] === lire(r).reservation_id &&
+    sessN.params["metadata[consentement_version]"] && sessN.params["metadata[telephone]"] === "0600000000" &&
+    sessN.params.success_url.includes("&resa=" + lire(r).reservation_id) && !("metadata[reservation_id]" in sessN.params), sessN.params);
+  const resaN = lire(r).reservation_id;
+  verifier("adhésion : la place compte dans la jauge pendant le paiement", (await ligne("select statut, attente_adhesion from public.reservations where id = $1", [resaN])).attente_adhesion === true);
+  r = await post(reserver, { action: "finaliser", reservation_id: resaN, email: "nina@exemple.invalid", consentements: { conditions: true } });
+  verifier("finaliser sans la carte (jeton) : refusé", r.statusCode === 403 && lire(r).code === "VERIFICATION_REQUISE");
+  ST.subs.sub_nina = { id: "sub_nina", customer: "cus_nina", default_payment_method: "pm_nina", status: "active" };
+  await membre("nina@exemple.invalid", { customer: "cus_nina", sub: "sub_nina" });   // = adhésion payée + carte ouverte au retour
+  r = await post(reserver, { action: "finaliser", reservation_id: resaN, email: "nina@exemple.invalid", jeton: jetons["nina@exemple.invalid"], consentements: {} });
+  verifier("finaliser sans la case conditions : refusé", r.statusCode === 400 && lire(r).code === "CONDITIONS_NON_ACCEPTEES");
+  r = await post(reserver, { action: "finaliser", reservation_id: resaN, email: "nina@exemple.invalid", jeton: jetons["nina@exemple.invalid"], consentements: { conditions: true } });
+  verifier("finaliser : réservation confirmée avec la carte de l'adhésion", r.statusCode === 200 && lire(r).reservation.statut === "confirmee", lire(r));
+  r = await post(reserver, { action: "adhesion", seance_id: sLoin, personnes: 1, nom: "Nina", email: "nina@exemple.invalid", accord_adhesion: true });
+  verifier("adhésion : déjà adhérent → code à demander (pas de deuxième adhésion)", r.statusCode === 409 && lire(r).code === "DEJA_ADHERENT");
+
+  // ---- « Je me suis présenté(e) » ----
+  r = await post(reservation, { action: "present", jeton: "0".repeat(64) });
+  verifier("présence : lien inconnu refusé", r.statusCode === 404);
 
   console.log("\n" + ok + " réussis, " + ko + " en échec");
   await db.end();

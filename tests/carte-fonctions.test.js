@@ -245,21 +245,29 @@ function verifier(nom, cond, detail) {
   r = await post(carte, { action: "lien", email: "pas-un-email" });
   verifier("lien : email invalide refusé", r.statusCode === 400);
 
-  // Carte affichée directement (action « email », 19/11)
-  await db.query("delete from public.cartes_liens where email = 'camille@exemple.invalid'");
-  const avantEmail = brevo.length;
-  r = await post(carte, { action: "email", email: " Camille@Exemple.invalid " });
-  verifier("email : adhérente → carte et jeton rendus, aucun email", r.statusCode === 200 && lire(r).carte.valide === true && /^[A-Za-z0-9_-]{43}$/.test(lire(r).jeton) && brevo.length === avantEmail);
-  r = await post(carte, { action: "voir", jeton: lire(r).jeton });
-  verifier("email : le jeton rendu rouvre la carte", r.statusCode === 200);
+  // Code de vérification (21/11) : seul l'adhérent, qui reçoit le code, affiche sa carte.
+  let avantCode = brevo.length;
+  r = await post(carte, { action: "email", email: " Camille@Exemple.invalid ", langue: "fr" });
+  const mailCode = brevo[brevo.length - 1];
+  const codeRecu = mailCode && (mailCode.textContent.match(/\b(\d{6})\b/) || [])[1];
+  verifier("code : adhérente → un code à 6 chiffres part par email, rien d'autre n'est rendu", r.statusCode === 200 && brevo.length === avantCode + 1 &&
+    !!codeRecu && !("carte" in lire(r)) && !("jeton" in lire(r)), mailCode && mailCode.subject);
+  avantCode = brevo.length;
   r = await post(carte, { action: "email", email: "inconnu@exemple.invalid" });
-  verifier("email : non adhérent → 404", r.statusCode === 404);
-  await post(carte, { action: "email", email: "camille@exemple.invalid" });
-  await post(carte, { action: "email", email: "camille@exemple.invalid" });
-  r = await post(carte, { action: "email", email: "camille@exemple.invalid" });
-  verifier("email : au-delà de 3 par heure → 429", r.statusCode === 429);
+  verifier("code : non adhérent → même réponse, aucun email", r.statusCode === 200 && lire(r).ok === true && brevo.length === avantCode);
+  r = await post(carte, { action: "code", email: "camille@exemple.invalid", code: codeRecu === "000000" ? "111111" : "000000" });
+  verifier("code : mauvais code refusé, pas de carte", r.statusCode === 400 && !("carte" in lire(r)));
+  r = await post(carte, { action: "code", email: "camille@exemple.invalid", code: codeRecu });
+  verifier("code : bon code → carte, jeton et email vérifié", r.statusCode === 200 && lire(r).carte.valide === true && /^[A-Za-z0-9_-]{43}$/.test(lire(r).jeton) && lire(r).email === "camille@exemple.invalid");
+  const jetonCode = lire(r).jeton;
+  r = await post(carte, { action: "code", email: "camille@exemple.invalid", code: codeRecu });
+  verifier("code : un code ne sert qu'une fois", r.statusCode === 410);
+  r = await post(carte, { action: "voir", jeton: jetonCode });
+  verifier("code : le jeton rouvre la carte, avec l'email", r.statusCode === 200 && lire(r).email === "camille@exemple.invalid");
+  r = await post(carte, { action: "code", email: "camille@exemple.invalid", code: "12345" });
+  verifier("code : format invalide refusé", r.statusCode === 400);
   r = await post(carte, { action: "email", email: "pas-un-email" });
-  verifier("email : email invalide refusé", r.statusCode === 400);
+  verifier("code : email invalide refusé", r.statusCode === 400);
 
   // Import
   r = await importer({ httpMethod: "GET", queryStringParameters: {}, headers: {} });

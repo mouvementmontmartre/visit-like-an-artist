@@ -382,7 +382,12 @@
         <p class="member-note" data-i18n="member.linkHelp">Entrez l'adresse email de votre adhésion pour afficher votre carte.</p>
         <label class="mb-label" for="membre-email" data-i18n="member.emailLabel">Votre email d'adhésion</label>
         <input class="input-field" id="membre-email" type="email" inputmode="email" autocomplete="email" placeholder="prenom@exemple.fr" data-i18n-placeholder="member.emailExemple">
-        <button class="cta fee" id="membre-check" type="submit" data-i18n="member.sendLink">Afficher ma carte</button>
+        <button class="cta fee" id="membre-check" type="submit" data-i18n="member.recevoirCode">Recevoir mon code</button>
+        <div id="membre-code-zone" hidden>
+          <label class="mb-label" for="membre-code" data-i18n="member.codeLabel">Code reçu par email</label>
+          <input class="input-field mb-code" id="membre-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" placeholder="000000">
+          <button class="cta fee" id="membre-valider" type="button" data-i18n="member.sendLink">Afficher ma carte</button>
+        </div>
         <div id="membre-form-note" role="status" aria-live="polite"></div>
       </form>
       <div id="membre-pas-encore">
@@ -390,13 +395,21 @@
         <div class="mb-encart">
           <h2 class="mb-titre"><span data-i18n="member.pourquoi1">Pourquoi</span> <i data-i18n="member.pourquoi2">adhérer ?</i></h2>
           <ul class="mb-avantages">
-            <li data-i18n="member.benefit1">Accès au réseau d'artistes, d'espaces d'art et d'organisations culturelles</li>
-            <li data-i18n="member.benefit2">Invitations à des événements</li>
+            <li data-i18n="member.benefit1">Réservation des visites guidées et des ateliers, avec 5 € de frais offerts par personne</li>
+            <li data-i18n="member.benefit2">Accès aux évènements privés réservés aux membres</li>
             <li data-i18n="member.benefit3">Publication gratuite sur l'agenda</li>
-            <li data-i18n="member.benefit4">Tarif réduit sur les visites guidées et certains événements</li>
+            <li data-i18n="member.benefit4">Accès au réseau d'artistes, d'espaces d'art et d'organisations culturelles</li>
             <li data-i18n="member.benefit5">Soutien à la création locale</li>
           </ul>
-          <a class="cta ocre" style="text-decoration:none;" href="" id="membre-adherer" target="_blank" rel="noopener" data-i18n="cta.join">Adhérer</a>
+          <p class="mb-prix-texte"><b data-i18n="member.prixAn">5 € par an</b><span data-i18n="member.prixTexte">, actif tout de suite pour 12 mois. Renouvelé automatiquement, résiliable à tout moment.</span></p>
+          <div id="adh-e15" hidden>
+            <label class="resa-champ"><span data-i18n="resa.name">Nom et prénom</span><input class="input-field" id="adh-nom" autocomplete="name"></label>
+            <label class="resa-champ"><span data-i18n="resa.email">Email (pour la confirmation)</span><input class="input-field" id="adh-email" type="email" inputmode="email" autocomplete="email"></label>
+            <label class="resa-champ"><span data-i18n="resa.phone">Téléphone</span><input class="input-field" id="adh-tel" type="tel" inputmode="tel" autocomplete="tel"></label>
+          </div>
+          <div id="adh-e15-case"></div>
+          <button type="button" class="cta ocre" id="membre-adherer" data-i18n="member.adherer5">Adhérer pour 5 € par an</button>
+          <div class="resa-erreur" id="adh-e15-note" role="alert"></div>
           <a class="lien-bouton mb-don" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener" data-i18n="cta.donate">Faire un don</a>
         </div>
       </div>

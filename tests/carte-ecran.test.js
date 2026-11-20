@@ -38,7 +38,7 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   v("lien email : la carte s'affiche", await attendre(pg, "#membre-result", "Camille Durand"));
   v("lien email : le jeton disparaît de l'adresse", !pg.url().includes(JETON), pg.url());
   v("lien email : le formulaire est caché", await pg.$eval("#membre-form", (f) => f.hidden));
-  v("lien email : textes de la carte", await attendre(pg, "#membre-result", "Valable jusqu'au 10 juin 2027"));
+  v("lien email : textes de la carte", await attendre(pg, "#membre-result", "Camille Durand") && await attendre(pg, "#membre-result", "Adhésion en cours"));
   const garde = await pg.evaluate(() => JSON.parse(localStorage.getItem("carteMembre")));
   v("la carte est gardée sur le téléphone", garde && garde.jeton === "A".repeat(43) && garde.carte.nom === "Camille Durand");
   await pg.screenshot({ path: OUT + "/carte-valide.png" });
@@ -64,31 +64,31 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   v("retour de paiement : serveur en retard → message d'attente", await attendre(pg, "#membre-result", "Paiement reçu"));
   await ctx.close();
 
-  // 3. Carte affichée à partir de l'email (plus de lien par email, 19/11)
+  // 3. Code de vérification (21/11) : seul l'adhérent, qui reçoit le code, affiche sa carte.
   appels = [];
-  ({ pg, ctx, erreurs } = await page((c) => c.action === "email" ? [200, { jeton: "J".repeat(43), carte: carte() }] : c.action === "voir" ? [200, { carte: carte() }] : [404, {}]));
+  ({ pg, ctx, erreurs } = await page((c) => c.action === "email" ? [200, { ok: true }]
+    : c.action === "code" ? (c.code === "123456" ? [200, { jeton: "J".repeat(43), carte: carte({ numero: "MM-0042", renouvelable: true }), email: "camille@exemple.invalid" }] : [400, { code: "INVALIDE" }])
+    : c.action === "voir" ? [200, { carte: carte({ numero: "MM-0042", renouvelable: true }), email: "camille@exemple.invalid" }] : [404, {}]));
   await pg.goto("http://localhost:8765/");
   await pg.waitForTimeout(2500);
   await pg.evaluate(() => openTarget("membre"));
   v("formulaire placé avant « Pourquoi adhérer »", await pg.evaluate(() => !!(document.querySelector("#membre-form").compareDocumentPosition(document.querySelector("#membre-pas-encore")) & Node.DOCUMENT_POSITION_FOLLOWING)));
   await pg.fill("#membre-email", "pas-un-email");
   await pg.click("#membre-check");
-  v("demande : email invalide signalé", await attendre(pg, "#membre-form-note", "adresse email valide"));
+  v("code : email invalide signalé", await attendre(pg, "#membre-form-note", "adresse email valide"));
   await pg.fill("#membre-email", " Camille@Exemple.invalid ");
   await pg.click("#membre-check");
-  v("demande : carte affichée directement", await pg.waitForSelector("#membre-oublier", { timeout: 4000 }).then(() => true, () => false));
-  v("demande : email envoyé en minuscules", appels.some((a) => a.action === "email" && a.email === "camille@exemple.invalid"), JSON.stringify(appels));
-  await pg.screenshot({ path: OUT + "/demande.png" });
-  await ctx.close();
-  ({ pg, ctx } = await page(() => [404, {}]));
-  await pg.goto("http://localhost:8765/"); await pg.waitForTimeout(2500);
-  await pg.evaluate(() => openTarget("membre")); await pg.fill("#membre-email", "a@exemple.invalid"); await pg.click("#membre-check");
-  v("demande : pas d'adhésion → message clair", await attendre(pg, "#membre-form-note", "Aucune adhésion en cours"));
-  await ctx.close();
-  ({ pg, ctx } = await page(() => [429, {}]));
-  await pg.goto("http://localhost:8765/"); await pg.waitForTimeout(2500);
-  await pg.evaluate(() => openTarget("membre")); await pg.fill("#membre-email", "a@exemple.invalid"); await pg.click("#membre-check");
-  v("demande : trop d'essais signalé", await attendre(pg, "#membre-form-note", "Trop d'essais"));
+  v("code : message neutre, le champ du code apparaît, pas de carte", await attendre(pg, "#membre-form-note", "Si cette adresse a une adhésion") &&
+    await pg.$eval("#membre-code-zone", (z) => !z.hidden) && (await pg.$("#membre-oublier")) === null);
+  v("code : demandé en minuscules", appels.some((a) => a.action === "email" && a.email === "camille@exemple.invalid"), JSON.stringify(appels));
+  await pg.fill("#membre-code", "000000"); await pg.click("#membre-valider");
+  v("code : mauvais code refusé, pas de carte", await attendre(pg, "#membre-form-note", "pas le bon") && (await pg.$("#membre-oublier")) === null);
+  await pg.fill("#membre-code", "123456"); await pg.click("#membre-valider");
+  v("code : bon code → carte affichée avec son numéro de membre", await pg.waitForSelector("#membre-oublier", { timeout: 4000 }).then(() => true, () => false) && await attendre(pg, "#membre-result", "MM-0042"));
+  v("code : renouvellement indiqué et « Gérer mon abonnement »", await attendre(pg, "#membre-result", "renouvelée le") && (await pg.$("#membre-portail")) !== null);
+  const gardee = await pg.evaluate(() => JSON.parse(localStorage.getItem("carteMembre")));
+  v("code : la carte est gardée avec l'email vérifié", gardee && gardee.email === "camille@exemple.invalid" && gardee.jeton === "J".repeat(43));
+  await pg.screenshot({ path: OUT + "/demande.png", fullPage: true });
   await ctx.close();
 
   // 4. Carte expirée, en anglais
@@ -96,7 +96,7 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   await pg.addInitScript(() => { try { localStorage.setItem("lang", "en"); } catch (e) {} });
   await pg.goto("http://localhost:8765/#carte=" + JETON);
   const en = await attendre(pg, "#membre-result", "Expired since");
-  v("expirée (anglais) : « Expired since » et bouton de renouvellement", en && (await pg.$('#membre-result a[href="https://buy.stripe.com/7sY5kC7kdfaygOU9mbawo0C"]')) !== null, await pg.$eval("#membre-result", (e) => e.textContent));
+  v("expirée (anglais) : « Expired since » et bouton pour adhérer de nouveau", en && (await pg.$("#membre-renouveler")) !== null, await pg.$eval("#membre-result", (e) => e.textContent));
   await pg.screenshot({ path: OUT + "/carte-expiree-en.png" });
   await ctx.close();
 

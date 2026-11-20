@@ -2144,6 +2144,953 @@ create policy "artdive videos : intervenant envoie dans son dossier" on storage.
               and split_part(name, '/', 1) = 'intervenants'
               and split_part(name, '/', 2) = (select interne.mon_intervenant_id())::text);
 
+-- ============================================================
+-- 11. ADHÉRENTS ET RÉSERVATION RÉSERVÉE AUX ADHÉRENTS (21/11)
+-- (mêmes instructions que maj-09 à maj-12)
+-- ============================================================
+
+-- ---- Registre des adhérents (maj-09, décision du 21/11) ----
+-- Une ligne par personne : numéro de membre attribué une fois pour toutes
+-- (MM-0001…), nom, email, téléphone, identifiants Stripe, preuve du
+-- consentement (date, version du texte, email). Le début, la fin et le
+-- statut se lisent dans « adhesions » (une ligne par période payée).
+create sequence public.adherents_numero_seq;
+create table public.adherents (
+  id            uuid primary key default gen_random_uuid(),
+  numero        text not null unique
+                default 'MM-' || lpad(nextval('public.adherents_numero_seq')::text, 4, '0'),
+  email         text not null unique check (email = lower(email) and length(email) <= 254),
+  nom           text check (length(nom) <= 120),
+  telephone     text check (length(telephone) <= 30),
+  langue        text not null default 'fr',
+  stripe_customer     text,
+  stripe_subscription text,
+  consentement_le      timestamptz,
+  consentement_version text,
+  consentement_email   text,
+  cree_le       timestamptz not null default now(),
+  maj_le        timestamptz not null default now(),
+  anonymise_le  timestamptz
+);
+create trigger adherents_maj before update on public.adherents
+  for each row execute function interne.touche_maj();
+alter table public.adherents enable row level security;
+create policy "admin lit" on public.adherents for select to authenticated
+  using ((select interne.est_admin()));
+
+-- Crée ou complète la fiche d'un adhérent (jamais d'effacement : une valeur vide ne remplace rien).
+create function interne.adherent_noter(
+  p_email text, p_nom text default null, p_telephone text default null,
+  p_customer text default null, p_subscription text default null, p_langue text default null,
+  p_consentement_le timestamptz default null, p_consentement_version text default null
+) returns public.adherents
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  a public.adherents;
+  v_email text := lower(btrim(coalesce(p_email, '')));
+begin
+  if v_email !~ '^[^\s@]+@[^\s@]+\.[^\s@]+$' then return null; end if;
+  insert into public.adherents (email, nom, telephone, langue, stripe_customer, stripe_subscription,
+                                consentement_le, consentement_version, consentement_email)
+  values (v_email, nullif(btrim(coalesce(p_nom, '')), ''), nullif(btrim(coalesce(p_telephone, '')), ''),
+          coalesce(nullif(p_langue, ''), 'fr'), p_customer, p_subscription,
+          p_consentement_le, p_consentement_version, case when p_consentement_le is not null then v_email end)
+  on conflict (email) do update set
+    nom                 = coalesce(public.adherents.nom, excluded.nom),
+    telephone           = coalesce(excluded.telephone, public.adherents.telephone),
+    langue              = case when p_langue is not null then excluded.langue else public.adherents.langue end,
+    stripe_customer     = coalesce(excluded.stripe_customer, public.adherents.stripe_customer),
+    stripe_subscription = coalesce(excluded.stripe_subscription, public.adherents.stripe_subscription),
+    consentement_le      = coalesce(excluded.consentement_le, public.adherents.consentement_le),
+    consentement_version = coalesce(excluded.consentement_version, public.adherents.consentement_version),
+    consentement_email   = coalesce(excluded.consentement_email, public.adherents.consentement_email)
+  returning * into a;
+  return a;
+end $$;
+
+-- Chaque adhésion enregistrée (webhook, import, ajout manuel) a sa fiche au registre.
+create function interne.adhesions_vers_registre() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  perform interne.adherent_noter(new.email, new.nom, null, new.stripe_customer, new.stripe_subscription);
+  return new;
+end $$;
+create trigger adhesions_registre after insert or update of email, nom, stripe_customer, stripe_subscription
+  on public.adhesions for each row execute function interne.adhesions_vers_registre();
+
+-- Reprise des adhésions déjà en base : numéros dans l'ordre d'arrivée (première adhésion).
+insert into public.adherents (numero, email, nom, stripe_customer, stripe_subscription)
+select 'MM-' || lpad((row_number() over (order by x.premier, x.email))::text, 4, '0'),
+       x.email, x.nom, x.customer, x.subscription
+  from (select email, min(debut) as premier,
+               (array_agg(nom order by debut desc) filter (where nom is not null))[1] as nom,
+               (array_agg(stripe_customer order by debut desc) filter (where stripe_customer is not null))[1] as customer,
+               (array_agg(stripe_subscription order by debut desc) filter (where stripe_subscription is not null))[1] as subscription
+          from public.adhesions group by email) x
+on conflict (email) do nothing;
+select setval('public.adherents_numero_seq', greatest((select count(*) from public.adherents), 1),
+              (select count(*) from public.adherents) > 0);
+
+-- Serveur : fiche complétée au paiement (téléphone, consentement).
+create function public.noter_adherent(
+  p_email text, p_nom text, p_telephone text, p_customer text, p_subscription text, p_langue text,
+  p_consentement_le timestamptz, p_consentement_version text
+) returns jsonb
+language sql set search_path = ''
+as $$
+  select jsonb_build_object('numero', a.numero, 'email', a.email)
+    from interne.adherent_noter(p_email, p_nom, p_telephone, p_customer, p_subscription, p_langue,
+                                p_consentement_le, p_consentement_version) a;
+$$;
+
+-- Admin : le registre (écran Adhésions, export CSV).
+create function public.registre_adherents() returns table (
+  numero text, nom text, email text, telephone text, debut timestamptz, fin timestamptz,
+  statut text, formule text, renouvellement_auto boolean, consentement_le timestamptz, consentement_version text
+)
+language plpgsql stable security definer set search_path = ''
+as $$
+begin
+  if not interne.est_admin() then raise exception 'RESERVE_ADMIN'; end if;
+  return query
+  select a.numero, a.nom, a.email, a.telephone,
+         min(h.debut) filter (where h.statut <> 'remboursee'),
+         max(h.valide_jusqua) filter (where h.statut <> 'remboursee'),
+         case when a.anonymise_le is not null then 'anonymise'
+              when max(h.valide_jusqua) filter (where h.statut <> 'remboursee') > now() then 'actif'
+              else 'expire' end,
+         case when bool_or(h.formule = 'bienfaiteur' and h.valide_jusqua > now()) then 'bienfaiteur' else 'adhesion' end,
+         coalesce(bool_or(h.source = 'stripe_abonnement' and h.statut = 'active' and h.valide_jusqua > now()), false),
+         a.consentement_le, a.consentement_version
+    from public.adherents a
+    left join public.adhesions h on h.email = a.email
+   group by a.id
+   order by a.numero;
+end $$;
+
+-- Conservation (RGPD) : 3 ans après la fin de la dernière adhésion, la fiche
+-- est anonymisée (nom, email, téléphone) ; le numéro et les dates restent pour
+-- les comptes de l'association. Lancé chaque mois.
+create function public.anonymiser_adherents_anciens() returns integer
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  a record;
+  n integer := 0;
+  v_anon text;
+begin
+  for a in
+    select ad.id, ad.email from public.adherents ad
+     where ad.anonymise_le is null
+       and coalesce((select max(h.valide_jusqua) from public.adhesions h where h.email = ad.email), ad.cree_le)
+           < now() - interval '3 years'
+  loop
+    v_anon := 'anonyme-' || a.id || '@anonyme.invalid';
+    delete from public.cartes_liens where email = a.email;
+    -- La fiche d'abord : la mise à jour des adhésions retrouve ainsi la fiche anonyme (déclencheur du registre).
+    update public.adherents set email = v_anon, nom = null, telephone = null, consentement_email = null,
+           stripe_customer = null, stripe_subscription = null, anonymise_le = now()
+     where id = a.id;
+    update public.adhesions set email = v_anon, nom = null, note = null, stripe_customer = null where email = a.email;
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
+-- La carte montre aussi le numéro de membre et si l'adhésion se renouvelle seule.
+create or replace function public.carte_par_jeton(p_jeton_hash text) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare
+  l public.cartes_liens;
+  r record;
+  v_numero text;
+begin
+  select * into l from public.cartes_liens
+   where jeton_hash = p_jeton_hash and revoque_le is null;
+  if not found then return null; end if;
+
+  select
+    (array_agg(nom order by (statut = 'active') desc, valide_jusqua desc) filter (where nom is not null))[1] as nom,
+    max(valide_jusqua) filter (where statut <> 'remboursee') as valide_jusqua,
+    min(debut) filter (where statut <> 'remboursee') as membre_depuis,
+    bool_or(formule = 'bienfaiteur' and statut <> 'remboursee' and valide_jusqua > now()) as bienfaiteur,
+    coalesce(bool_or(source = 'stripe_abonnement' and statut = 'active' and valide_jusqua > now()), false) as renouvelable
+  into r
+  from public.adhesions where email = l.email;
+
+  if r.valide_jusqua is null then return null; end if;
+  select numero into v_numero from public.adherents where email = l.email;
+  update public.cartes_liens set dernier_usage = now() where jeton_hash = l.jeton_hash;
+  return jsonb_build_object(
+    'nom', r.nom,
+    'formule', case when r.bienfaiteur then 'bienfaiteur' else 'adhesion' end,
+    'membre_depuis', r.membre_depuis,
+    'valide_jusqua', r.valide_jusqua,
+    'valide', r.valide_jusqua > now(),
+    'numero', v_numero,
+    'renouvelable', r.renouvelable);
+end $$;
+
+-- Formulaire de réservation : adhésion valable, numéro de membre, date de fin.
+create or replace function public.adhesion_pour_reservation(p_email text) returns jsonb
+language sql stable set search_path = ''
+as $$
+  select jsonb_build_object('adherent', x.v is not null, 'valide_jusqua', x.v,
+         'numero', case when x.v is not null then (select numero from public.adherents
+                                                   where email = lower(btrim(coalesce(p_email, '')))) end)
+    from (select interne.adhesion_valide_jusqua(p_email) as v) x;
+$$;
+
+-- Carte de l'adhésion (prélèvements hors session) : client et abonnement Stripe de l'adhésion en cours.
+create function public.adhesion_carte(p_email text) returns jsonb
+language sql stable set search_path = ''
+as $$
+  select jsonb_build_object('stripe_customer', h.stripe_customer, 'stripe_subscription', h.stripe_subscription)
+    from public.adhesions h
+   where h.email = lower(btrim(coalesce(p_email, ''))) and h.statut <> 'remboursee'
+     and h.valide_jusqua > now() and h.stripe_customer is not null
+   order by (h.stripe_subscription is not null) desc, h.valide_jusqua desc
+   limit 1;
+$$;
+
+-- Import des anciens adhérents (règle du 21/11) : une adhésion déjà finie est
+-- gardée active jusqu'au 31/12/2026, le temps de passer à l'abonnement.
+create function public.prolonger_anciens_adherents(p_ids uuid[], p_jusqua timestamptz) returns integer
+language plpgsql set search_path = ''
+as $$
+declare n integer;
+begin
+  update public.adhesions set valide_jusqua = p_jusqua
+   where id = any(p_ids) and statut <> 'remboursee' and valide_jusqua < p_jusqua;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+revoke all on table public.adherents from public, anon, authenticated;
+revoke all on sequence public.adherents_numero_seq from public, anon, authenticated;
+grant all on table public.adherents to service_role;
+grant all on sequence public.adherents_numero_seq to service_role;
+grant select on table public.adherents to authenticated;
+revoke all on function interne.adherent_noter(text, text, text, text, text, text, timestamptz, text),
+  interne.adhesions_vers_registre(), public.noter_adherent(text, text, text, text, text, text, timestamptz, text),
+  public.registre_adherents(), public.anonymiser_adherents_anciens(), public.adhesion_carte(text),
+  public.prolonger_anciens_adherents(uuid[], timestamptz) from public, anon, authenticated;
+grant execute on function interne.adherent_noter(text, text, text, text, text, text, timestamptz, text),
+  interne.adhesions_vers_registre(), public.noter_adherent(text, text, text, text, text, text, timestamptz, text),
+  public.registre_adherents(), public.anonymiser_adherents_anciens(), public.adhesion_carte(text),
+  public.prolonger_anciens_adherents(uuid[], timestamptz) to service_role;
+grant execute on function public.registre_adherents() to authenticated;
+
+-- ---- Relances avant l'échéance de l'adhésion (maj-10) ----
+-- Un email 30 jours puis 7 jours avant la fin de l'adhésion en cours :
+-- « renouvelée automatiquement le … » (abonnement) ou « à renouveler » (autre).
+-- Chaque relance est notée pour la date de fin concernée : un
+-- renouvellement (nouvelle date de fin) remet les relances à zéro.
+alter table public.adhesions
+  add column relance_30_pour timestamptz,
+  add column relance_7_pour  timestamptz;
+
+create function public.preparer_relances_adhesion() returns integer
+language plpgsql set search_path = ''
+as $$
+declare
+  h record;
+  n integer := 0;
+  v_jours integer;
+begin
+  for h in
+    select distinct on (x.email) x.*, ad.numero, ad.nom as nom_registre, ad.langue
+      from public.adhesions x
+      left join public.adherents ad on ad.email = x.email
+     where x.statut <> 'remboursee' and x.formule = 'adhesion'
+       and x.valide_jusqua > now() and x.valide_jusqua <= now() + interval '30 days'
+       and x.email !~ '@anonyme\.invalid$'
+     order by x.email, x.valide_jusqua desc
+  loop
+    -- Une autre adhésion du même email va plus loin : rien à rappeler.
+    if exists (select 1 from public.adhesions y where y.email = h.email and y.statut <> 'remboursee'
+                 and y.valide_jusqua > h.valide_jusqua) then continue; end if;
+    v_jours := case when h.valide_jusqua <= now() + interval '7 days' then 7 else 30 end;
+    if v_jours = 30 and h.relance_30_pour is not distinct from h.valide_jusqua then continue; end if;
+    if v_jours = 7 and h.relance_7_pour is not distinct from h.valide_jusqua then continue; end if;
+    insert into public.envois (type, destinataire, langue, donnees)
+    values ('relance_adhesion', h.email, coalesce(h.langue, 'fr'), jsonb_build_object(
+      'nom', coalesce(h.nom_registre, h.nom), 'numero', h.numero, 'fin', h.valide_jusqua, 'jours', v_jours,
+      'renouvelable', h.source = 'stripe_abonnement' and h.statut = 'active'));
+    update public.adhesions set
+      relance_30_pour = case when v_jours = 30 then h.valide_jusqua else relance_30_pour end,
+      relance_7_pour  = case when v_jours = 7 then h.valide_jusqua else relance_7_pour end
+     where id = h.id;
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
+revoke all on function public.preparer_relances_adhesion() from public, anon, authenticated;
+grant execute on function public.preparer_relances_adhesion() to service_role;
+
+-- ---- Séances réservées aux adhérents (maj-11, E11.2) ----
+-- Visites guidées et ateliers le sont toujours ; la case sert aux autres
+-- séances (évènements privés de l'association).
+alter table public.seances add column reservee_adherents boolean not null default false;
+
+create or replace view public.seances_publiques with (security_barrier = true) as
+select s.id, s.experience_id, s.debut, s.fin, s.langue,
+       s.capacite_max, s.participants_min, s.point_rdv, s.statut,
+       coalesce(r.inscrits, 0)::integer                             as inscrits,
+       greatest(s.capacite_max - coalesce(r.prises, 0), 0)::integer as places_restantes,
+       coalesce(r.inscrits, 0) >= s.participants_min                as confirmee,
+       s.prix_adherent_centimes,
+       s.reservee_adherents or e.type in ('visite_guidee', 'atelier') as reservee_adherents
+from public.seances s
+join public.experiences e on e.id = s.experience_id and e.publie and e.actif
+left join lateral (
+  select sum(personnes) filter (where statut = 'confirmee') as inscrits,
+         sum(personnes) filter (where statut = 'confirmee'
+              or (statut = 'en_attente' and bloque_jusqua > now())) as prises
+  from public.reservations where seance_id = s.id
+) r on true
+where s.statut in ('publiee', 'annulee')
+  and s.debut > now() - interval '1 day';
+
+-- Proposition d'un intervenant sur une séance en ligne : la case peut en faire partie.
+create or replace function public.valider_proposition(p_id uuid) returns jsonb
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  p public.propositions;
+  d jsonb;
+  s public.seances;
+  e public.experiences;
+  v_lieu uuid;
+  v_inscrits integer := 0;
+  v_prises integer;
+  v_capacite integer;
+  v_min integer;
+  v_a_prevenir boolean := false;
+begin
+  if not interne.est_admin() then raise exception 'RESERVE_ADMIN'; end if;
+  select * into p from public.propositions where id = p_id for update;
+  if not found or p.statut <> 'en_attente' then raise exception 'PROPOSITION_INDISPONIBLE'; end if;
+  d := p.donnees;
+
+  if p.type = 'fiche' then
+    update public.intervenants set
+      nom       = coalesce(nullif(btrim(d->>'nom'), ''), nom),
+      role      = case when jsonb_typeof(d->'role') = 'object' then d->'role' else role end,
+      bio       = case when jsonb_typeof(d->'bio') = 'object' then d->'bio' else bio end,
+      photo_url = case when d ? 'photo_url' then d->>'photo_url' else photo_url end,
+      video_url = case when d ? 'video_url' then d->>'video_url' else video_url end,
+      instagram = case when d ? 'instagram' then d->>'instagram' else instagram end,
+      langues   = case when jsonb_typeof(d->'langues') = 'array'
+                       then array(select jsonb_array_elements_text(d->'langues')) else langues end
+    where id = p.intervenant_id;
+
+  elsif p.type = 'lieu' then
+    select lieu_id into v_lieu from public.intervenants where id = p.intervenant_id;
+    if v_lieu is null then raise exception 'AUCUN_LIEU_LIE'; end if;
+    update public.lieux set
+      description = case when jsonb_typeof(d->'description') = 'object' then d->'description' else description end,
+      site      = case when d ? 'site' then d->>'site' else site end,
+      instagram = case when d ? 'instagram' then d->>'instagram' else instagram end,
+      facebook  = case when d ? 'facebook' then d->>'facebook' else facebook end,
+      telephone = case when d ? 'telephone' then d->>'telephone' else telephone end,
+      photo_url = case when d ? 'photo_url' then d->>'photo_url' else photo_url end
+    where id = v_lieu;
+
+  else  -- séance
+    select * into s from public.seances where id = p.cible_id for update;
+    if not found then raise exception 'SEANCE_INTROUVABLE'; end if;
+    select * into e from public.experiences where id = s.experience_id;
+    if e.intervenant_id is distinct from p.intervenant_id then raise exception 'SEANCE_D_UN_AUTRE'; end if;
+
+    v_prises := interne.places_prises(s.id);
+    v_capacite := coalesce((d->>'capacite_max')::integer, s.capacite_max);
+    if v_capacite > e.capacite_max or v_capacite < greatest(v_prises, 1) then
+      raise exception 'CAPACITE_INVALIDE';
+    end if;
+    v_min := coalesce((d->>'participants_min')::integer, s.participants_min);
+    if v_min < 1 or v_min > v_capacite then raise exception 'MINIMUM_INVALIDE'; end if;
+    select coalesce(sum(personnes), 0) into v_inscrits
+      from public.reservations where seance_id = s.id and statut = 'confirmee';
+    v_a_prevenir := v_inscrits > 0 and (
+         (d ? 'debut' and (d->>'debut')::timestamptz is distinct from s.debut)
+      or (d ? 'point_rdv' and d->>'point_rdv' is distinct from s.point_rdv)
+      or (d ? 'point_rdv_precis' and d->>'point_rdv_precis' is distinct from s.point_rdv_precis));
+
+    update public.seances set
+      debut  = case when d ? 'debut' then (d->>'debut')::timestamptz else debut end,
+      fin    = case when d ? 'fin' then (d->>'fin')::timestamptz else fin end,
+      langue = coalesce(d->>'langue', langue),
+      capacite_max = v_capacite,
+      participants_min = v_min,
+      point_rdv        = case when d ? 'point_rdv' then d->>'point_rdv' else point_rdv end,
+      point_rdv_precis = case when d ? 'point_rdv_precis' then d->>'point_rdv_precis' else point_rdv_precis end,
+      message_inscrits = case when d ? 'message_inscrits' then d->>'message_inscrits' else message_inscrits end,
+      prix_adherent_centimes = case when d ? 'prix_adherent_centimes'
+                                    then (d->>'prix_adherent_centimes')::integer else prix_adherent_centimes end,
+      reservee_adherents = case when d ? 'reservee_adherents'
+                                then (d->>'reservee_adherents')::boolean else reservee_adherents end
+    where id = s.id;
+  end if;
+
+  update public.propositions
+     set statut = 'validee', traitee_le = now(), traitee_par = (select auth.uid())
+   where id = p.id;
+  insert into public.journal_admin (acteur, action, cible_table, cible_id, details)
+  values ((select auth.uid()), 'proposition_validee', 'propositions', p.id,
+          jsonb_build_object('type', p.type, 'cible_id', p.cible_id,
+                             'inscrits_a_prevenir', case when v_a_prevenir then v_inscrits else 0 end));
+
+  -- inscrits_a_prevenir > 0 : l'étape 5 enverra l'email avec l'option de remboursement.
+  return jsonb_build_object('statut', 'validee',
+    'inscrits_a_prevenir', case when v_a_prevenir then v_inscrits else 0 end);
+end $$;
+
+-- ---- Réservation réservée aux adhérents (maj-12, décision du 21/11) ----
+-- Visites guidées, ateliers et séances « réservées aux adhérents » : il
+-- faut une adhésion en cours. Un non-adhérent retient sa place 15 minutes
+-- (E8.0), paie l'adhésion (abonnement 5 €/an), puis termine sa réservation.
+-- L'adhérent ne paie rien en ligne : le reste se règle sur place, sa carte
+-- (celle de l'abonnement, sinon une carte enregistrée sans débit) sert aux
+-- frais d'absence ou d'annulation à moins de 24 h. Deux cases au plus dans
+-- tout le parcours : adhésion (registre) et conditions de réservation.
+-- Absence : email, prélèvement le lendemain midi, contestable avant.
+alter table public.reservations
+  add column attente_adhesion boolean not null default false,
+  add column frais_prevu_le timestamptz,
+  add column absence_contestee_le timestamptz,
+  alter column cgv_acceptees_le drop not null,
+  add constraint reservations_conditions_acceptees
+    check (cgv_acceptees_le is not null or statut in ('en_attente', 'expiree'));
+
+-- Séance qui exige une adhésion.
+create function interne.seance_pour_adherents(p_seance public.seances, p_exp public.experiences) returns boolean
+language sql immutable set search_path = ''
+as $$ select p_exp.type in ('visite_guidee', 'atelier') or p_seance.reservee_adherents; $$;
+
+-- Prix par personne réglé sur place par un adhérent : prix de la fiche moins
+-- les 5 € (adhésion), ou le tarif adhérent de la séance s'il est plus bas.
+create function interne.prix_adherent(p_seance public.seances, p_exp public.experiences) returns integer
+language sql immutable set search_path = ''
+as $$
+  select least(coalesce(p_seance.prix_adherent_centimes, p_exp.prix_centimes - coalesce(p_exp.prereservation_centimes, 0)),
+               p_exp.prix_centimes - coalesce(p_exp.prereservation_centimes, 0));
+$$;
+
+create or replace function public.reserver_places(
+  p_seance_id uuid, p_personnes integer, p_nom text, p_email text,
+  p_telephone text default null, p_langue text default 'fr',
+  p_consentements jsonb default '{}', p_cgv_version text default null
+) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare
+  s public.seances;
+  e public.experiences;
+  r public.reservations;
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  v_tel   text := nullif(btrim(coalesce(p_telephone, '')), '');
+  v_prises integer;
+  v_unitaire integer;
+  v_total integer;
+  v_en_ligne integer;
+  v_frais boolean;
+  v_visite boolean;
+  v_adherent boolean;
+  v_accords jsonb;
+begin
+  -- Une seule case : les conditions de réservation (frais, rétractation, âge, non-remboursement y sont).
+  select coalesce(jsonb_object_agg(k, now()), '{}'::jsonb) into v_accords
+    from jsonb_each(coalesce(p_consentements, '{}'::jsonb)) as c(k, v)
+   where v = 'true'::jsonb and k = 'conditions';
+  if not v_accords ? 'conditions' then raise exception 'CONDITIONS_NON_ACCEPTEES'; end if;
+  if coalesce(p_cgv_version, '') = '' then raise exception 'CGV_VERSION_MANQUANTE'; end if;
+
+  select * into s from public.seances where id = p_seance_id for update;
+  if not found or s.statut <> 'publiee' or s.debut <= now() then
+    raise exception 'SEANCE_INDISPONIBLE';
+  end if;
+  select * into e from public.experiences where id = s.experience_id;
+  if not (e.publie and e.actif) then raise exception 'SEANCE_INDISPONIBLE'; end if;
+  v_visite := e.type in ('visite_guidee', 'atelier');
+
+  if p_personnes is null or p_personnes < 1 or p_personnes > s.capacite_max then
+    raise exception 'NOMBRE_INVALIDE';
+  end if;
+  if e.telephone_obligatoire and v_tel is null then raise exception 'TELEPHONE_REQUIS'; end if;
+
+  v_adherent := interne.adhesion_valide_jusqua(v_email) is not null;
+  if interne.seance_pour_adherents(s, e) and not v_adherent then raise exception 'ADHESION_REQUISE'; end if;
+  v_frais := v_visite and e.frais_annulation_tardive_centimes > 0;
+
+  v_prises := interne.places_prises(s.id);
+  if v_prises + p_personnes > s.capacite_max then
+    raise exception 'COMPLET' using detail = (s.capacite_max - v_prises)::text;
+  end if;
+
+  v_unitaire := case when v_visite then interne.prix_adherent(s, e) else e.prix_centimes end;
+  v_total := v_unitaire * p_personnes;
+  v_en_ligne := case when v_visite then 0 else v_total end;
+
+  insert into public.reservations
+    (seance_id, experience_id, nom, email, telephone, langue, personnes, statut, bloque_jusqua,
+     prix_unitaire_centimes, total_centimes, paye_en_ligne_centimes, reste_sur_place_centimes,
+     cgv_acceptees_le, accord_frais_le, cgv_version, consentements, adherent)
+  values
+    (s.id, e.id, btrim(p_nom), v_email, v_tel, coalesce(p_langue, 'fr'), p_personnes,
+     'en_attente', now() + interval '15 minutes',
+     v_unitaire, v_total, v_en_ligne, v_total - v_en_ligne, now(),
+     case when v_frais then now() end, p_cgv_version, v_accords, v_adherent)
+  returning * into r;
+
+  return jsonb_build_object(
+    'reservation_id', r.id, 'reference', r.reference,
+    'a_payer_centimes', r.paye_en_ligne_centimes,
+    'reste_sur_place_centimes', r.reste_sur_place_centimes,
+    'bloque_jusqua', r.bloque_jusqua,
+    'garder_carte', v_frais, 'age_minimum', e.age_minimum, 'adherent', v_adherent,
+    'frais_centimes', case when v_frais then least(e.frais_annulation_tardive_centimes * p_personnes, v_total - v_en_ligne) else 0 end,
+    'experience_type', e.type, 'experience_titre', e.titre, 'debut', s.debut);
+end $$;
+
+-- E8.0 : un non-adhérent retient sa place 15 minutes le temps de payer son adhésion.
+-- Aucune condition n'est encore acceptée : elles le seront à la fin (finaliser).
+create function public.retenir_pour_adhesion(
+  p_seance_id uuid, p_personnes integer, p_nom text, p_email text,
+  p_telephone text default null, p_langue text default 'fr'
+) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare
+  s public.seances;
+  e public.experiences;
+  r public.reservations;
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  v_prises integer;
+  v_unitaire integer;
+begin
+  if v_email !~ '^[^\s@]+@[^\s@]+\.[^\s@]+$' or length(btrim(coalesce(p_nom, ''))) not between 1 and 120 then
+    raise exception 'PARAMETRES';
+  end if;
+  select * into s from public.seances where id = p_seance_id for update;
+  if not found or s.statut <> 'publiee' or s.debut <= now() then raise exception 'SEANCE_INDISPONIBLE'; end if;
+  select * into e from public.experiences where id = s.experience_id;
+  if not (e.publie and e.actif) then raise exception 'SEANCE_INDISPONIBLE'; end if;
+  -- Visites et ateliers seulement (une soirée réservée aux adhérents se paie en ligne : adhérer d'abord).
+  if e.type not in ('visite_guidee', 'atelier') then raise exception 'ADHESION_INUTILE'; end if;
+  if interne.adhesion_valide_jusqua(v_email) is not null then raise exception 'DEJA_ADHERENT'; end if;
+  if p_personnes is null or p_personnes < 1 or p_personnes > s.capacite_max then raise exception 'NOMBRE_INVALIDE'; end if;
+  v_prises := interne.places_prises(s.id);
+  if v_prises + p_personnes > s.capacite_max then
+    raise exception 'COMPLET' using detail = (s.capacite_max - v_prises)::text;
+  end if;
+  v_unitaire := interne.prix_adherent(s, e);
+  insert into public.reservations
+    (seance_id, experience_id, nom, email, telephone, langue, personnes, statut, bloque_jusqua,
+     prix_unitaire_centimes, total_centimes, paye_en_ligne_centimes, reste_sur_place_centimes, attente_adhesion)
+  values
+    (s.id, e.id, btrim(p_nom), v_email, nullif(btrim(coalesce(p_telephone, '')), ''), coalesce(p_langue, 'fr'), p_personnes,
+     'en_attente', now() + interval '15 minutes', v_unitaire, v_unitaire * p_personnes, 0, v_unitaire * p_personnes, true)
+  returning * into r;
+  return jsonb_build_object('reservation_id', r.id, 'reference', r.reference, 'bloque_jusqua', r.bloque_jusqua);
+end $$;
+
+-- Après le paiement de l'adhésion : la place retenue devient une réservation
+-- (case « conditions » cochée, adhésion vérifiée, places revérifiées si le délai est passé).
+create function public.finaliser_reservation_adherent(
+  p_reservation_id uuid, p_email text, p_consentements jsonb, p_cgv_version text
+) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare
+  r public.reservations;
+  s public.seances;
+  e public.experiences;
+  v_frais boolean;
+begin
+  if not (coalesce(p_consentements, '{}'::jsonb) -> 'conditions') = 'true'::jsonb then
+    raise exception 'CONDITIONS_NON_ACCEPTEES';
+  end if;
+  if coalesce(p_cgv_version, '') = '' then raise exception 'CGV_VERSION_MANQUANTE'; end if;
+  select seance_id into r.seance_id from public.reservations where id = p_reservation_id;
+  if not found then raise exception 'RESERVATION_INTROUVABLE'; end if;
+  select * into s from public.seances where id = r.seance_id for update;
+  select * into r from public.reservations where id = p_reservation_id for update;
+  if r.email <> lower(btrim(coalesce(p_email, ''))) or not r.attente_adhesion then raise exception 'RESERVATION_INTROUVABLE'; end if;
+  if r.statut not in ('en_attente', 'expiree') then raise exception 'RESERVATION_INTROUVABLE'; end if;
+  if interne.adhesion_valide_jusqua(r.email) is null then raise exception 'ADHESION_REQUISE'; end if;
+  if s.statut <> 'publiee' or s.debut <= now() then raise exception 'SEANCE_INDISPONIBLE'; end if;
+  if (r.statut = 'expiree' or r.bloque_jusqua <= now())
+     and interne.places_prises(s.id) + r.personnes > s.capacite_max then
+    raise exception 'COMPLET';
+  end if;
+  select * into e from public.experiences where id = r.experience_id;
+  v_frais := e.type in ('visite_guidee', 'atelier') and e.frais_annulation_tardive_centimes > 0;
+  update public.reservations set
+    statut = 'en_attente', bloque_jusqua = now() + interval '15 minutes', annulee_par = null,
+    attente_adhesion = false, adherent = true,
+    cgv_acceptees_le = now(), cgv_version = p_cgv_version,
+    consentements = jsonb_build_object('conditions', now()),
+    accord_frais_le = case when v_frais then now() end
+  where id = r.id returning * into r;
+  return jsonb_build_object(
+    'reservation_id', r.id, 'reference', r.reference,
+    'a_payer_centimes', r.paye_en_ligne_centimes, 'reste_sur_place_centimes', r.reste_sur_place_centimes,
+    'bloque_jusqua', r.bloque_jusqua, 'garder_carte', v_frais, 'adherent', true,
+    'experience_type', e.type, 'experience_titre', e.titre, 'debut', s.debut);
+end $$;
+
+-- Confirmation : une réservation sans paiement se confirme avec une carte
+-- (celle de l'adhésion, ou une carte enregistrée sans débit).
+create or replace function public.confirmer_reservation(
+  p_reservation_id uuid, p_stripe_session_id text, p_stripe_payment_intent text,
+  p_montant_centimes integer, p_stripe_customer text default null,
+  p_stripe_payment_method text default null, p_stripe_setup_intent text default null
+) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare
+  r public.reservations;
+  s public.seances;
+  e public.experiences;
+  v_ok boolean := true;
+  v_jeton text;
+begin
+  select seance_id into r.seance_id from public.reservations where id = p_reservation_id;
+  if not found then raise exception 'RESERVATION_INTROUVABLE'; end if;
+  select * into s from public.seances where id = r.seance_id for update;
+  select * into r from public.reservations where id = p_reservation_id for update;
+
+  if r.stripe_payment_intent is not null or r.stripe_setup_intent is not null or r.statut = 'confirmee' then
+    return jsonb_build_object('statut', r.statut, 'deja_traitee', true, 'reference', r.reference);
+  end if;
+  if r.attente_adhesion or r.cgv_acceptees_le is null then raise exception 'CONDITIONS_NON_ACCEPTEES'; end if;
+  if p_montant_centimes is distinct from r.paye_en_ligne_centimes then
+    raise exception 'MONTANT_INCOHERENT';
+  end if;
+  if (r.paye_en_ligne_centimes > 0 and p_stripe_payment_intent is null)
+     or (r.paye_en_ligne_centimes = 0 and p_stripe_setup_intent is null and p_stripe_payment_method is null) then
+    raise exception 'PAIEMENT_INCOMPLET';
+  end if;
+
+  if s.statut <> 'publiee' or s.debut <= now() or r.statut not in ('en_attente', 'expiree') then
+    v_ok := false;
+  elsif r.statut = 'expiree' or r.bloque_jusqua <= now() then
+    v_ok := interne.places_prises(s.id) + r.personnes <= s.capacite_max;
+  end if;
+
+  select * into e from public.experiences where id = r.experience_id;
+  if p_montant_centimes > 0 then
+    insert into public.paiements
+      (reservation_id, experience_id, experience_type, localite_id, intervenant_id,
+       montant_centimes, stripe_session_id, stripe_payment_intent)
+    values
+      (r.id, e.id, e.type, e.localite_id, e.intervenant_id,
+       p_montant_centimes, p_stripe_session_id, p_stripe_payment_intent);
+  end if;
+
+  update public.reservations
+     set stripe_session_id = p_stripe_session_id,
+         stripe_payment_intent = p_stripe_payment_intent,
+         stripe_setup_intent = p_stripe_setup_intent,
+         stripe_customer = p_stripe_customer,
+         stripe_payment_method = case when accord_frais_le is not null then p_stripe_payment_method end,
+         bloque_jusqua = null,
+         statut = case when v_ok then 'confirmee' else 'annulee' end,
+         confirmee_le = case when v_ok then now() end,
+         annulee_le = case when v_ok then null else now() end,
+         annulee_par = case when v_ok then null else 'paiement_tardif' end,
+         motif_annulation = case when v_ok then null else 'Confirmation arrivée après la fin du blocage, plus de place.' end
+   where id = r.id;
+
+  if v_ok then
+    v_jeton := interne.lien_reservation(r.id);
+    perform interne.envoyer('confirmation', r.email, r.langue, r.id, jsonb_build_object('jeton', v_jeton));
+    perform interne.alerter('alerte_inscription', r.id);
+    return jsonb_build_object('statut', 'confirmee', 'deja_traitee', false, 'reference', r.reference);
+  end if;
+
+  perform interne.rembourser(r.id, 'paiement_tardif');
+  perform interne.envoyer('paiement_tardif', r.email, r.langue, r.id);
+  return jsonb_build_object('statut', 'annulee', 'deja_traitee', false, 'a_rembourser', p_montant_centimes > 0);
+end $$;
+
+-- Lien personnel d'une réservation confirmée sans passer par Stripe (carte de l'adhésion).
+create function public.lien_reservation_par_id(p_reservation_id uuid) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare r public.reservations;
+begin
+  select * into r from public.reservations where id = p_reservation_id;
+  if not found then return null; end if;
+  return jsonb_build_object('jeton', interne.lien_reservation(r.id), 'statut', r.statut);
+end $$;
+
+-- Données des emails : date prévue du prélèvement d'absence.
+create or replace function interne.donnees_reservation(p_id uuid) returns jsonb
+language sql stable set search_path = ''
+as $$
+  select jsonb_build_object(
+    'reference', r.reference, 'nom', r.nom, 'email', r.email, 'telephone', r.telephone,
+    'personnes', r.personnes,
+    'paye_en_ligne_centimes', r.paye_en_ligne_centimes,
+    'reste_sur_place_centimes', r.reste_sur_place_centimes,
+    'total_centimes', r.total_centimes,
+    'prix_unitaire_centimes', r.prix_unitaire_centimes,
+    'frais_centimes', r.frais_centimes,
+    'frais_prevu_le', r.frais_prevu_le,
+    'adherent', r.adherent,
+    'type', e.type, 'titre', e.titre, 'duree_minutes', e.duree_minutes,
+    'frais_par_personne_centimes', e.frais_annulation_tardive_centimes,
+    'cgv_version', r.cgv_version,
+    'debut', s.debut, 'fin', s.fin, 'langue_seance', s.langue,
+    'point_rdv', s.point_rdv, 'point_rdv_precis', s.point_rdv_precis,
+    'message_inscrits', s.message_inscrits,
+    'intervenant', i.nom)
+  from public.reservations r
+  join public.seances s on s.id = r.seance_id
+  join public.experiences e on e.id = r.experience_id
+  left join public.intervenants i on i.id = e.intervenant_id
+  where r.id = p_id;
+$$;
+
+-- Absence (E9.6, E11.3) : marquée après l'heure de la séance, par l'intervenant
+-- de la séance (ou l'admin). Email tout de suite, prélèvement le lendemain à
+-- midi (heure de Paris), annulable par « Je me suis présenté(e) » avant.
+create or replace function public.signaler_absence(p_reservation_id uuid) returns jsonb
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  r public.reservations;
+  s public.seances;
+  e public.experiences;
+  v_frais integer := 0;
+  v_prevu timestamptz;
+begin
+  select * into r from public.reservations where id = p_reservation_id for update;
+  if not found then raise exception 'RESERVATION_INTROUVABLE'; end if;
+  select * into s from public.seances where id = r.seance_id;
+  select * into e from public.experiences where id = r.experience_id;
+  if not (interne.est_admin() or e.intervenant_id = interne.mon_intervenant_id()) then
+    raise exception 'RESERVE_INTERVENANT';
+  end if;
+  if r.statut <> 'confirmee' then raise exception 'NON_CONFIRMEE'; end if;
+  if now() < s.debut then raise exception 'SEANCE_PAS_COMMENCEE'; end if;
+  if now() > s.debut + interval '7 days' then raise exception 'TROP_TARD'; end if;
+  if r.absent_le is not null then return jsonb_build_object('deja_signale', true); end if;
+
+  v_frais := interne.frais_dus(r.id);
+  v_prevu := (date_trunc('day', now() at time zone 'Europe/Paris') + interval '1 day 12 hours') at time zone 'Europe/Paris';
+  update public.reservations set absent_le = now(), frais_centimes = v_frais,
+         frais_statut = case when v_frais > 0 then 'a_prelever' else 'aucun' end,
+         frais_prevu_le = case when v_frais > 0 then v_prevu end
+   where id = r.id;
+  if v_frais > 0 then
+    perform interne.envoyer('absence', r.email, r.langue, r.id,
+      jsonb_build_object('jeton', interne.lien_reservation(r.id), 'frais_centimes', v_frais, 'frais_prevu_le', v_prevu));
+  end if;
+  insert into public.journal_admin (acteur, action, cible_table, cible_id, details)
+  values ((select auth.uid()), 'absence_signalee', 'reservations', r.id, jsonb_build_object('frais_centimes', v_frais));
+  return jsonb_build_object('deja_signale', false, 'frais_centimes', v_frais,
+                            'frais_prevu_le', case when v_frais > 0 then v_prevu end);
+end $$;
+
+-- « Je me suis présenté(e) » : avant l'heure du prélèvement, les frais sont annulés
+-- et l'association et l'intervenant sont prévenus.
+create function public.signaler_presence(p_jeton_hash text) returns jsonb
+language plpgsql set search_path = ''
+as $$
+declare
+  v_id uuid;
+  r public.reservations;
+begin
+  select reservation_id into v_id from public.reservations_liens where jeton_hash = p_jeton_hash;
+  if not found then raise exception 'LIEN_INVALIDE'; end if;
+  select * into r from public.reservations where id = v_id for update;
+  if r.absent_le is null then return jsonb_build_object('statut', 'non_absent'); end if;
+  if r.absence_contestee_le is not null then return jsonb_build_object('statut', 'deja_signale'); end if;
+  if r.frais_statut <> 'a_prelever' or r.frais_prevu_le is null or r.frais_prevu_le <= now() then
+    return jsonb_build_object('statut', 'trop_tard');
+  end if;
+  update public.reservations set frais_statut = 'aucun', frais_centimes = 0, frais_prevu_le = null,
+         absence_contestee_le = now()
+   where id = r.id;
+  perform interne.alerter('alerte_presence', r.id, jsonb_build_object('frais_annules_centimes', r.frais_centimes));
+  return jsonb_build_object('statut', 'annule');
+end $$;
+
+-- File des frais : une absence n'est prélevée qu'à l'heure prévue.
+create or replace function public.frais_a_traiter(p_limite integer default 20) returns jsonb
+language sql set search_path = ''
+as $$
+  with pris as (
+    update public.reservations set frais_statut = 'en_cours', frais_tentatives = frais_tentatives + 1,
+                                   frais_pris_le = now()
+     where id in (select id from public.reservations
+                   where ((frais_statut = 'a_prelever' and (frais_prevu_le is null or frais_prevu_le <= now()))
+                          or (frais_statut = 'en_cours' and frais_pris_le < now() - interval '30 minutes'))
+                     and frais_tentatives < 5
+                   order by annulee_le nulls last limit p_limite for update skip locked)
+    returning *)
+  select coalesce(jsonb_agg(jsonb_build_object('id', id, 'reference', reference, 'email', email,
+                  'montant_centimes', frais_centimes, 'stripe_customer', stripe_customer,
+                  'stripe_payment_method', stripe_payment_method,
+                  'motif', case when absent_le is not null then 'absence' else 'annulation_tardive' end)), '[]'::jsonb)
+    from pris;
+$$;
+
+-- Lien personnel : état de l'absence (bouton « Je me suis présenté(e) »).
+create or replace function public.reservation_par_jeton(p_jeton_hash text) returns jsonb
+language plpgsql stable set search_path = ''
+as $$
+declare
+  r public.reservations;
+  s public.seances;
+  e public.experiences;
+  v_tardif boolean;
+begin
+  select res.* into r from public.reservations_liens l
+    join public.reservations res on res.id = l.reservation_id
+   where l.jeton_hash = p_jeton_hash;
+  if not found then return null; end if;
+  select * into s from public.seances where id = r.seance_id;
+  select * into e from public.experiences where id = r.experience_id;
+  v_tardif := now() > s.debut - make_interval(hours => e.delai_frais_heures);
+  return interne.donnees_reservation(r.id) - 'email' - 'telephone' || jsonb_build_object(
+    'statut', r.statut, 'seance_statut', s.statut,
+    'peut_annuler', r.statut = 'confirmee' and s.statut = 'publiee' and s.debut > now(),
+    'annulation_tardive', v_tardif,
+    'frais_si_annulation_centimes', case when v_tardif then interne.frais_dus(r.id) else 0 end,
+    'frais_statut', r.frais_statut, 'adherent', r.adherent,
+    'absent', r.absent_le is not null,
+    'absence_contestee', r.absence_contestee_le is not null,
+    'absence_contestable', r.absent_le is not null and r.frais_statut = 'a_prelever'
+                           and r.frais_prevu_le > now() and r.absence_contestee_le is null);
+end $$;
+
+-- Inscrits (E11.3) : état du prélèvement d'absence.
+create or replace view public.mes_inscrits with (security_barrier = true) as
+select r.id, r.seance_id, s.experience_id, s.debut,
+       interne.nom_court(r.nom) as nom,
+       r.personnes, r.telephone, r.langue, r.reste_sur_place_centimes,
+       r.adherent, r.absent_le, r.frais_centimes, r.frais_statut, r.frais_prevu_le
+from public.reservations r
+join public.seances s on s.id = r.seance_id
+join public.experiences e on e.id = s.experience_id
+where r.statut = 'confirmee'
+  and (e.intervenant_id = (select interne.mon_intervenant_id())
+       or (select interne.est_admin()));
+
+revoke all on function interne.seance_pour_adherents(public.seances, public.experiences),
+  interne.prix_adherent(public.seances, public.experiences),
+  public.retenir_pour_adhesion(uuid, integer, text, text, text, text),
+  public.finaliser_reservation_adherent(uuid, text, jsonb, text),
+  public.lien_reservation_par_id(uuid), public.signaler_presence(text) from public, anon, authenticated;
+grant execute on function interne.seance_pour_adherents(public.seances, public.experiences),
+  interne.prix_adherent(public.seances, public.experiences),
+  public.retenir_pour_adhesion(uuid, integer, text, text, text, text),
+  public.finaliser_reservation_adherent(uuid, text, jsonb, text),
+  public.lien_reservation_par_id(uuid), public.signaler_presence(text) to service_role;
+
+-- Carte de l'adhésion (ni paiement ni carte enregistrée pour la réservation) :
+-- on la « libère » pour la réservation sans jamais la retirer de Stripe, sinon
+-- l'abonnement d'adhésion ne pourrait plus se renouveler.
+create or replace function public.cartes_a_retirer(p_limite integer default 20) returns jsonb
+language sql stable set search_path = ''
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object('id', x.id, 'stripe_payment_method', x.stripe_payment_method,
+                                               'carte_adhesion', x.carte_adhesion)), '[]'::jsonb)
+    from (select r.id, r.stripe_payment_method,
+                 (r.stripe_payment_intent is null and r.stripe_setup_intent is null) as carte_adhesion
+            from public.reservations r join public.seances s on s.id = r.seance_id
+           where r.stripe_payment_method is not null and r.carte_retiree_le is null
+             and r.frais_statut not in ('a_prelever', 'en_cours', 'a_payer')
+             and (coalesce(s.fin, s.debut) < now() - interval '7 days'
+                  or s.statut = 'annulee'
+                  or r.statut in ('remboursee', 'expiree')
+                  or (r.statut = 'annulee' and r.frais_statut in ('aucun', 'preleve', 'echec')))
+           order by r.cree_le limit p_limite) x;
+$$;
+
+-- ---- Code de vérification de l'email (maj-13, décision du 21/11) ----
+-- Seul l'adhérent peut afficher sa carte : un code à 6 chiffres, valable
+-- 15 minutes, est envoyé à son adresse ; 5 essais par code, 3 codes par
+-- heure et par adresse. Code bon : un lien de carte (jeton) est créé pour
+-- ce téléphone. La réservation d'un adhérent exige ce jeton (vérifié par
+-- le serveur). Seule l'empreinte du code est gardée, jamais le code.
+alter table public.cartes_liens drop constraint cartes_liens_origine_check;
+alter table public.cartes_liens add constraint cartes_liens_origine_check
+  check (origine in ('paiement', 'email', 'admin', 'code'));
+
+create table public.codes_carte (
+  id         bigint generated always as identity primary key,
+  email      text not null check (email = lower(email)),
+  code_hash  text not null check (code_hash ~ '^[0-9a-f]{64}$'),
+  cree_le    timestamptz not null default now(),
+  expire_le  timestamptz not null,
+  essais     integer not null default 0,
+  utilise_le timestamptz
+);
+create index codes_carte_email on public.codes_carte (email, cree_le desc);
+alter table public.codes_carte enable row level security;   -- aucune règle : serveur seulement
+
+-- Nouveau code pour une adresse qui a (ou a eu) une adhésion. Rend 'cree',
+-- 'inconnu' (le serveur répond pareil) ou 'trop_de_demandes'.
+create function public.carte_code_creer(p_email text, p_code_hash text) returns text
+language plpgsql set search_path = ''
+as $$
+declare v_email text := lower(btrim(coalesce(p_email, '')));
+begin
+  delete from public.codes_carte where cree_le < now() - interval '1 day';
+  if not exists (select 1 from public.adhesions where email = v_email and statut <> 'remboursee') then
+    return 'inconnu';
+  end if;
+  if (select count(*) from public.codes_carte where email = v_email and cree_le > now() - interval '1 hour') >= 3 then
+    return 'trop_de_demandes';
+  end if;
+  insert into public.codes_carte (email, code_hash, expire_le) values (v_email, p_code_hash, now() + interval '15 minutes');
+  return 'cree';
+end $$;
+
+-- Vérifie le dernier code de l'adresse. Rend 'ok' (lien de carte créé pour
+-- p_jeton_hash), 'invalide', 'expire' ou 'trop_essais'.
+create function public.carte_code_verifier(p_email text, p_code_hash text, p_jeton_hash text) returns text
+language plpgsql set search_path = ''
+as $$
+declare
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  c public.codes_carte;
+begin
+  select * into c from public.codes_carte
+   where email = v_email and utilise_le is null order by cree_le desc limit 1 for update;
+  if not found or c.expire_le <= now() then return 'expire'; end if;
+  if c.essais >= 5 then return 'trop_essais'; end if;
+  if c.code_hash <> p_code_hash then
+    update public.codes_carte set essais = essais + 1 where id = c.id;
+    return case when c.essais + 1 >= 5 then 'trop_essais' else 'invalide' end;
+  end if;
+  update public.codes_carte set utilise_le = now() where id = c.id;
+  insert into public.cartes_liens (jeton_hash, email, origine) values (p_jeton_hash, v_email, 'code');
+  return 'ok';
+end $$;
+
+-- Email vérifié d'un lien de carte (réservation d'un adhérent : le jeton prouve l'adresse).
+create function public.carte_email(p_jeton_hash text) returns text
+language sql stable set search_path = ''
+as $$ select email from public.cartes_liens where jeton_hash = p_jeton_hash and revoque_le is null; $$;
+
+revoke all on table public.codes_carte from public, anon, authenticated;
+grant all on table public.codes_carte to service_role;
+revoke all on function public.carte_code_creer(text, text), public.carte_code_verifier(text, text, text),
+  public.carte_email(text) from public, anon, authenticated;
+grant execute on function public.carte_code_creer(text, text), public.carte_code_verifier(text, text, text),
+  public.carte_email(text) to service_role;
+
+
 commit;
 
 -- ============================================================
@@ -2158,6 +3105,8 @@ begin
                         'select public.effacer_telephones_anciens()');
   perform cron.schedule('vlaa-liberer-blocages', '*/5 * * * *',
                         'select public.liberer_reservations_expirees()');
+  perform cron.schedule('artdive-anonymiser-adherents', '41 4 2 * *',
+                        'select public.anonymiser_adherents_anciens()');
 exception when others then
   raise notice 'Ménage automatique non programmé (%). Le test des droits le signalera.', sqlerrm;
 end $$;

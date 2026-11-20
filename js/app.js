@@ -1554,67 +1554,34 @@ function seanceHtml(s, choisie) {
     '<span class="seance-etat">' + esc(etat) + '</span>' + barre + '</span></button>';
 }
 
-function prixHtml() {
-  const e = RESA.exp, n = RESA.personnes;
-  const total = e.prix_centimes * n;
-  if (!estVisiteResa(e.type)) {
-    return '<div class="resa-prix"><div class="resa-ligne"><span>' + esc(n + " × " + euros(e.prix_centimes)) + '</span><b class="resa-gros">' + esc(euros(total)) + '</b></div></div>';
-  }
-  const enLigne = e.prereservation_centimes * n;
-  return '<div class="resa-prix">' +
-    '<div class="resa-ligne"><span>' + esc(t("resa.fullPrice")) + '<br>' + esc(n + " × " + euros(e.prix_centimes)) + '</span><b class="resa-gros">' + esc(euros(total)) + '</b></div>' +
-    '<div class="resa-accent">' + esc(tx("resa.bookFor", { m: euros(enLigne) })) + '</div>' +
-    '<div class="member-note">' + esc(tx("resa.prereserv", { n, u: euros(e.prereservation_centimes) })) + '</div>' +
-    '<p class="resa-reste"><b>' + esc(tx("resa.restOnSite", { m: euros(total - enLigne), g: RESA.guide ? tx("resa.to", { g: RESA.guide }) : "" })) +
-    '</b> ' + esc(t("resa.cash")) + '</p>' +
-    (RESA.seance && RESA.seance.prix_adherent_centimes != null && RESA.seance.prix_adherent_centimes < e.prix_centimes
-      ? '<p class="member-note">' + esc(tx("resa.tarifAdhFiche", { m: euros(RESA.seance.prix_adherent_centimes) })) + '</p>' : '') + '</div>';
-}
-/* Adhérent reconnu (visites et ateliers) : pré-réservation offerte, tarif adhérent de la séance s'il existe.
-   Indicatif : le serveur recalcule tout à partir de l'email. */
-const estAdherentResa = () => !!(RESA && RESA.adherent && estVisiteResa(RESA.exp.type));
+/* Prix (décision du 21/11) : visites et ateliers sont réservés aux adhérents. Le prix
+   affiché est le prix net réglé sur place (prix de la fiche moins les 5 € de l'adhésion,
+   ou le tarif de la séance s'il est plus bas). En ligne : 0 € pour un adhérent, sinon
+   l'adhésion (5 € par an, quel que soit le nombre de personnes). */
+const ADHESION_CENTIMES = 500;
 function unitaireResa() {
   const e = RESA.exp, s = RESA.seance;
-  return estAdherentResa() && s && s.prix_adherent_centimes != null ? Math.min(s.prix_adherent_centimes, e.prix_centimes) : e.prix_centimes;
+  if (!estVisiteResa(e.type)) return e.prix_centimes;
+  const net = e.prix_centimes - (e.prereservation_centimes || 0);
+  return s && s.prix_adherent_centimes != null ? Math.min(s.prix_adherent_centimes, net) : net;
 }
-const aPayerResa = () => estAdherentResa() ? 0
-  : (estVisiteResa(RESA.exp.type) ? RESA.exp.prereservation_centimes : RESA.exp.prix_centimes) * RESA.personnes;
-/** Frais d'annulation tardive ou d'absence de la réservation : 10 € par personne, jamais plus que le solde sur place. */
-const fraisMaxResa = () => Math.min(RESA.exp.frais_annulation_tardive_centimes * RESA.personnes, unitaireResa() * RESA.personnes - aPayerResa());
+const estAdherentResa = () => !!(RESA && RESA.adherent);
+const pourAdherentsResa = () => estVisiteResa(RESA.exp.type) || !!(RESA.seance && RESA.seance.reservee_adherents);
+const aPayerResa = () => estVisiteResa(RESA.exp.type) ? 0 : RESA.exp.prix_centimes * RESA.personnes;
+const guideResa = () => RESA.guide ? tx("resa.to", { g: RESA.guide }) : "";
 
-/** Bloc prix du formulaire (E8.1, E8.2 ; adhérent : E8.1.1, E8.2.1). */
-function prixFormHtml() {
-  const e = RESA.exp, n = RESA.personnes, u = unitaireResa(), total = u * n, enLigne = aPayerResa();
-  const g = RESA.guide ? tx("resa.to", { g: RESA.guide }) : "";
-  if (!estVisiteResa(e.type)) return prixHtml();
-  const remise = estAdherentResa() && u < e.prix_centimes;
-  const frais = e.frais_annulation_tardive_centimes > 0;
-  return '<div class="resa-prix resa-prix-form">' +
-    '<div class="resa-ligne"><span>' + esc(remise ? t("resa.tarifAdh") : t("resa.fullPrice")) + '<br><span class="resa-mono">' + esc(n + " × ") +
-      (remise ? '<s>' + esc(euros(e.prix_centimes)) + '</s> ' : '') + esc(euros(u)) + '</span></span><b class="resa-gros">' + esc(euros(total)) + '</b></div>' +
-    (estAdherentResa()
-      ? '<div class="resa-filet"><div class="resa-accent">' + esc(t("resa.offerte")) + '</div><div class="member-note">' +
-          esc(tx("resa.offerteTexte", { u: euros(e.prereservation_centimes) })) + '</div></div>' +
-        '<p class="resa-reste"><b>' + esc(tx("resa.resteAdh", { m: euros(total), g })) + '</b> ' + esc(t("resa.cash")) + '</p>' +
-        (frais ? '<p class="member-note"><b>' + esc(t("resa.carteAEnregistrer")) + '</b> ' +
-          esc(tx("resa.carteAdhNote", { u: euros(e.frais_annulation_tardive_centimes) })) + '</p>' : '')
-      : '<div class="resa-filet"><div class="resa-accent">' + esc(tx("resa.bookFor", { m: euros(enLigne) })) + '</div><div class="member-note">' +
-          esc(tx("resa.prereserv", { n, u: euros(e.prereservation_centimes) })) + '</div></div>' +
-        '<p class="resa-reste"><b>' + esc(tx("resa.restOnSite", { m: euros(total - enLigne), g })) + '</b> ' + esc(t("resa.cash")) + '</p>' +
-        (frais ? '<p class="member-note">' + esc(tx("resa.carteNote", { u: euros(e.frais_annulation_tardive_centimes) })) + '</p>' : '')) +
-    '<div class="resa-ligne resa-total"><span>' + esc(t("resa.total")) + '</span><b>' + esc(euros(enLigne)) + '</b></div>' +
-    '<div class="member-note">' + esc(t("resa.vat")) + '</div></div>';
-}
-
-/** Adhérent : invitation à saisir l'email d'adhésion, ou « Adhérent reconnu ». */
-function adherentHtml() {
-  if (!estVisiteResa(RESA.exp.type)) return '';
-  if (estAdherentResa()) {
-    return '<div class="resa-adherent"><span class="badge-adherent">' + esc(t("resa.adhReconnu")) + '</span><span class="member-note">' +
-      esc(tx("resa.adhValide", { date: new Date(RESA.adherent.valide_jusqua).toLocaleDateString(localeResa(), { timeZone: "Europe/Paris" }) })) + '</span></div>';
+/** Sur la fiche (E2.2, E3) : prix net, « Réservez votre place pour 5 € », « Déjà adhérent : 0 € ». */
+function prixHtml() {
+  const e = RESA.exp, n = RESA.personnes, u = unitaireResa(), total = u * n;
+  if (!estVisiteResa(e.type)) {
+    return '<div class="resa-prix"><div class="resa-ligne"><span>' + esc(n + " × " + euros(e.prix_centimes)) + '</span><b class="resa-gros">' + esc(euros(total)) + '</b></div>' +
+      (pourAdherentsResa() ? '<p class="member-note">' + esc(t("resa.soireeAdherents")) + '</p>' : '') + '</div>';
   }
-  const remise = RESA.seance && RESA.seance.prix_adherent_centimes != null && RESA.seance.prix_adherent_centimes < RESA.exp.prix_centimes;
-  return '<p class="member-note resa-indice">' + esc(t("resa.adhHint1")) + ' <b>' + esc(t("resa.adhHintB")) + '</b>' + esc(t(remise ? "resa.adhHint2" : "resa.adhHint2b")) + '</p>';
+  return '<div class="resa-prix">' +
+    '<div class="resa-ligne"><span>' + esc(t(e.type === "atelier" ? "resa.prixAtelier" : "resa.fullPrice")) + '<br><span class="resa-mono">' + esc(n + " × " + euros(u)) + '</span></span><b class="resa-gros">' + esc(euros(total)) + '</b></div>' +
+    '<div class="resa-accent">' + esc(tx("resa.bookFor", { m: euros(ADHESION_CENTIMES) })) + '</div>' +
+    '<div class="member-note">' + esc(t("resa.adhesionExplique")) + '</div>' +
+    '<p class="resa-reste"><b>' + esc(tx("resa.resteAdh", { m: euros(total), g: guideResa() })) + '</b> ' + esc(t("resa.cash")) + '</p></div>';
 }
 
 function stepperHtml(idPrefix) {
@@ -1631,6 +1598,18 @@ function brancherStepper(idPrefix, repeindre) {
   if (p) p.addEventListener("click", () => { RESA.personnes += 1; repeindre(); });
 }
 
+/** La carte de membre gardée sur ce téléphone (vérifiée par code ou par le paiement) est-elle valable ? */
+function adhesionLocaleValide() {
+  const c = carteLue();
+  return !!(c && c.carte && c.email && new Date(c.carte.valide_jusqua) > new Date());
+}
+/** Adhérent reconnu = la carte de CE téléphone, pour SON email (jamais une adresse tapée). */
+function adherentDeLaCarte() {
+  if (!adhesionLocaleValide()) return null;
+  const c = carteLue();
+  return { valide_jusqua: c.carte.valide_jusqua, numero: c.carte.numero, email: c.email, carte: c.carte.renouvelable };
+}
+
 function peindreSeances() {
   const zone = $("#visite-seances");
   if (!zone || !RESA) return;
@@ -1639,154 +1618,266 @@ function peindreSeances() {
     return;
   }
   if (RESA.seance) RESA.personnes = Math.min(RESA.personnes, Math.max(1, RESA.seance.places_restantes));
+  const visite = estVisiteResa(RESA.exp.type);
   zone.innerHTML =
-    '<div class="mini-label">' + esc(t("resa.chooseDate")) + '</div>' +
+    '<div class="mini-label">' + esc(t(RESA.exp.type === "atelier" ? "resa.chooseSession" : "resa.chooseDate")) + '</div>' +
     '<div class="seances">' + RESA.seances.map((s) => seanceHtml(s, RESA.seance && s.id === RESA.seance.id)).join("") + '</div>' +
-    (estVisiteResa(RESA.exp.type) ? '<div class="member-note">' + esc(t("resa.minNote")) + '</div>' : '') +
+    (visite ? '<div class="member-note">' + esc(t(RESA.exp.type === "atelier" ? "resa.minNoteAtelier" : "resa.minNote")) + '</div>' : '') +
     (RESA.seance ? stepperHtml("fiche") + prixHtml() +
-      '<button type="button" class="cta fee" id="btn-reserver">' + esc(tx("resa.payNowBtn", { m: euros(aPayerResa()) })) + '</button>' : '');
+      '<button type="button" class="cta fee" id="btn-reserver">' + esc(visite
+        ? (adhesionLocaleValide() ? t("resa.reserverGratuit") : tx("resa.reserverAdhesion", { m: euros(ADHESION_CENTIMES) }))
+        : tx("resa.payNowBtn", { m: euros(aPayerResa()) })) + '</button>' +
+      (visite ? '<div class="member-note resa-centre">' + esc(t("resa.dejaAdherent")) + '</div>' +
+        '<div class="mini-label">' + esc(t("resa.bonASavoir")) + '</div><ul class="resa-bon">' +
+        ["resa.bon1", "resa.bon2", RESA.exp.type === "visite_guidee" ? "resa.bon3" : ""].filter(Boolean).map((k) => '<li>' + esc(t(k)) + '</li>').join("") + '</ul>' : '') : '');
   $$("#visite-seances .seance").forEach((b) => b.addEventListener("click", () => {
     RESA.seance = RESA.seances.find((s) => s.id === b.dataset.seance); peindreSeances();
   }));
   brancherStepper("fiche", peindreSeances);
   const go = $("#btn-reserver");
-  if (go) go.addEventListener("click", ouvrirReservation);
+  if (go) go.addEventListener("click", () => ouvrirReservation(pourAdherentsResa() && !adhesionLocaleValide() && estVisiteResa(RESA.exp.type) ? "adhesion" : "reservation"));
 }
 
-/** Cases à cocher du paiement (CGV, section 2) : une par engagement, jamais pré-cochées. */
-function casesResa() {
-  const e = RESA.exp, visite = estVisiteResa(e.type);
-  const lienCgv = ' <a href="cgv.html" target="_blank" rel="noopener">' + esc(t("resa.cgvLink")) + '</a>';
-  const cases = [{ cle: "cgv", obligatoire: true, html: esc(t("resa.c.cgv")) + lienCgv }];
-  if (visite) {
-    if (!estAdherentResa()) cases.push({ cle: "non_remboursable", obligatoire: true, html: esc(t("resa.c.nonRemb")) });
-    cases.push({ cle: "sans_retractation", obligatoire: true, html: esc(t("resa.c.retract")) });
-    if (e.frais_annulation_tardive_centimes > 0) {
-      cases.push({ cle: "prelevement", obligatoire: true, html: esc(tx("resa.c.prel", {
-        u: euros(e.frais_annulation_tardive_centimes), m: euros(fraisMaxResa()) })) });
-    }
-    cases.push({ cle: "photos", obligatoire: false, html: esc(t("resa.c.photos")) });
-  } else {
-    cases.push({ cle: "non_remboursable", obligatoire: true, html: esc(t("resa.c.nonRembSoiree")) });
-    cases.push({ cle: "sans_retractation", obligatoire: true, html: esc(t("resa.c.retractSoiree")) });
+/** Textes près du bouton (CGV) : rétractation, non-remboursement, âge, photos. Pas de case en plus. */
+function infosLegalesResa() {
+  const e = RESA.exp;
+  if (!estVisiteResa(e.type)) return '';
+  return '<p class="resa-mention">' + esc(t("resa.infoRetract")) + (e.age_minimum ? ' ' + esc(tx("resa.infoAge", { n: e.age_minimum })) : '') +
+    ' ' + esc(t("resa.infoPhotos")) + ' <a href="cgv.html" target="_blank" rel="noopener">' + esc(t("resa.cgvLink")) + '</a></p>';
+}
+
+/** Case 2 (réservation) : visites et ateliers ; soirée : sa case unique (E8.3), âge compris. */
+function caseConditionsHtml() {
+  const e = RESA.exp, lien = '<a href="cgv.html" target="_blank" rel="noopener">' + esc(t("resa.conditionsLien")) + '</a>';
+  const texte = estVisiteResa(e.type)
+    ? esc(t("resa.case2a")) + ' ' + lien + esc(t("resa.case2b"))
+    : esc(t("resa.caseSoireeA")) + ' ' + '<a href="cgv.html" target="_blank" rel="noopener">' + esc(t("resa.cgvFull").toLowerCase()) + '</a>' +
+      esc(t("resa.caseSoireeB")) + (e.age_minimum ? ' ' + esc(tx("resa.caseSoireeAge", { n: e.age_minimum })) : '');
+  return '<label class="resa-case"><input type="checkbox" id="resa-c-conditions"><span>' + texte + '</span></label>';
+}
+
+/** Case 1 (adhésion) : statuts, règlement, politique de confidentialité. */
+function caseAdhesionHtml(id) {
+  const l = CONFIG.liens || {};
+  const lien = (url, k) => url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(t(k)) + '</a>' : esc(t(k));
+  return '<label class="resa-case"><input type="checkbox" id="' + id + '"><span>' + esc(t("adh.case1a")) + ' ' +
+    lien(l.statuts, "adh.statuts") + esc(t("adh.case1b")) + ' ' + lien(l.reglement, "adh.reglement") + ' ' + esc(t("adh.case1c")) + ' ' +
+    lien(l.confidentialite, "adh.confidentialite") + '.</span></label>';
+}
+
+const appelReserver = (corps) => fetch("/.netlify/functions/reserver", { method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(corps) }).then(async (r) => ({ ok: r.ok, status: r.status, d: await r.json().catch(() => ({})) }));
+const erreurResa = (d) => d.code === "COMPLET" ? t("resa.err.full") : d.code === "SEANCE_INDISPONIBLE" ? t("resa.err.gone")
+  : ["PARAMETRES", "TELEPHONE_REQUIS"].includes(d.code) ? t("resa.err.form")
+  : ["CONDITIONS_NON_ACCEPTEES", "ACCORD_ADHESION"].includes(d.code) ? t("resa.err.cgv") : t("resa.err.pay");
+
+/** Fin de réservation : confirmation tout de suite (carte de l'adhésion), sinon Stripe. */
+function suiteResa(d, note) {
+  if (d.url) { window.location.href = d.url; return true; }
+  if (d.jeton && d.reservation) {
+    try { localStorage.removeItem("resaEnCours"); } catch (e) { /* rien */ }
+    peindreReservation(d.reservation, d.jeton, d.reservation.statut === "confirmee" ? t("resa.ok.title") : null);
+    showScreen("reservation");
+    return true;
   }
-  if (e.age_minimum) cases.push({ cle: "age", obligatoire: true, html: esc(tx("resa.c.age", { n: e.age_minimum })) });
-  return cases;
+  if (note) note.textContent = t("resa.err.pay");
+  return false;
 }
 
-/** Mention affichée au-dessus du bouton (CGV, section 2). */
-function mentionResa() {
-  const e = RESA.exp, s = RESA.seance, n = RESA.personnes;
-  if (!estVisiteResa(e.type)) {
-    return '<p class="resa-mention">' + esc(tx("resa.m.soiree", { m: euros(aPayerResa()), lieu: s.point_rdv || "" })) + '</p>';
-  }
-  if (estAdherentResa()) {
-    return '<p class="resa-mention">' + esc(tx("resa.m.visiteAdh", { g: RESA.guide || t("resa.m.intervenant"),
-      r: euros(unitaireResa()), min: s.participants_min })) + '</p>';
-  }
-  return '<p class="resa-mention">' + esc(tx("resa.m.visite", {
-    m: euros(aPayerResa()), g: RESA.guide || t("resa.m.intervenant"),
-    r: euros(e.prix_centimes - e.prereservation_centimes), p: euros(e.prix_centimes), min: s.participants_min })) + '</p>';
-}
-
-/** Écran E8 : coordonnées, conditions, paiement. */
-/** Type d'affichage (couleurs du thème) d'une expérience Supabase : visite, atelier, diner (soirée) ou escape. */
-function offreDeResa(type) {
-  const k = String(type || "");
-  return /atelier/.test(k) ? "atelier" : /soiree/.test(k) ? "diner" : /escape/.test(k) ? "escape" : "visite";
-}
-
-function ouvrirReservation() {
+/** Écran de réservation. mode : « adhesion » (E8.0), « reservation » (E8.1, E8.2, soirée),
+    « finaliser » (retour du paiement de l'adhésion : la place retenue devient une réservation). */
+function ouvrirReservation(mode) {
   if (!RESA || !RESA.seance) return;
   const e = RESA.exp, s = RESA.seance, visite = estVisiteResa(e.type);
   if ($("#screen-reserver")) $("#screen-reserver").dataset.offre = offreDeResa(e.type);
   const champs = (window.__resaChamps = window.__resaChamps || { nom: "", email: "", tel: "" });
-  champs.cases = {};
-  const peindre = () => {
-    const sous = $("#screen-reserver .back-sub");
-    if (sous) sous.textContent = t(estAdherentResa() ? "resa.subAdh" : "resa.sub");
-    $("#reserver-body").innerHTML =
-      '<div class="resa-resume"><b>' + esc(titreResa(e.titre)) + '</b><span>' + esc(dateLongueResa(s.debut)) + '</span>' +
-        '<span>' + esc((LANGUE_SEANCE[s.langue] || s.langue) + (s.point_rdv ? " · " + s.point_rdv : "")) + '</span></div>' +
-      stepperHtml("form") +
-      '<div class="member-note">' + esc(tx("resa.holdLeft", { n: s.places_restantes, max: s.capacite_max })) + '</div>' +
-      (e.type === "atelier" ? '<div class="resa-min"><b>' + esc(tx("resa.atelierMin", { n: s.participants_min })) + '</b><span>' +
-        esc(t("resa.atelierMinNote")) + '</span></div>' : '') +
-      '<form id="resa-form" novalidate>' +
-        '<div class="mini-label">' + esc(t("resa.contact")) + '</div>' +
-        '<label class="resa-champ"><span>' + esc(t("resa.name")) + '</span><input class="input-field" id="resa-nom" autocomplete="name" required value="' + esc(champs.nom) + '"></label>' +
-        '<label class="resa-champ"><span>' + esc(t("resa.email")) + '</span><input class="input-field" id="resa-email" type="email" inputmode="email" autocomplete="email" required value="' + esc(champs.email) + '"></label>' +
-        '<label class="resa-champ"><span>' + esc(e.telephone_obligatoire ? t("resa.phone") : t("resa.phoneOpt")) + '</span><input class="input-field" id="resa-tel" type="tel" inputmode="tel" autocomplete="tel"' + (e.telephone_obligatoire ? " required" : "") + ' value="' + esc(champs.tel) + '"></label>' +
-        adherentHtml() +
-        prixFormHtml() +
-        (estVisiteResa(e.type) ? '' : '<div class="resa-ligne resa-total"><span>' + esc(t("resa.total")) + '</span><b>' + esc(euros(aPayerResa())) + '</b></div>' +
-          '<div class="member-note">' + esc(t("resa.vat")) + '</div>') +
-        mentionResa() + casesResa().map((c) =>
-          '<label class="resa-case"><input type="checkbox" id="resa-c-' + c.cle + '"' + (champs.cases[c.cle] ? " checked" : "") + '><span>' + c.html + '</span></label>').join("") +
-        '<button type="submit" class="cta fee" id="resa-payer">' + esc(aPayerResa() === 0 && estVisiteResa(e.type) ? t("resa.btnGratuit") : tx("resa.payOblig", { m: euros(aPayerResa()) })) + '</button>' +
-        '<div id="resa-note" class="resa-erreur" role="alert"></div>' +
-        '<div class="member-note resa-centre">' + esc(aPayerResa() === 0 && estVisiteResa(e.type) ? t("resa.setupSecure") : t("resa.m.secure")) + '</div>' +
-      '</form>';
-    brancherStepper("form", () => { garder(); peindre(); });
-    // Email d'adhésion : vérifié dès que la personne quitte le champ (visites et ateliers).
-    const champEmail = $("#resa-email");
-    if (champEmail && estVisiteResa(e.type)) champEmail.addEventListener("change", () => verifierAdherent(champEmail.value));
-    $("#resa-form").addEventListener("submit", payer);
-    $$("#resa-form input").forEach((i) => i.addEventListener("input", () => { $("#resa-note").textContent = ""; }));
-  };
+  RESA.mode = mode || "reservation";
+  if (RESA.mode !== "finaliser") {
+    RESA.adherent = adherentDeLaCarte();
+    if (RESA.adherent && !champs.email) champs.email = RESA.adherent.email;
+    if (RESA.adherent && !champs.nom && (carteLue().carte || {}).nom) champs.nom = carteLue().carte.nom;
+  }
+  const resume = (avecPersonnes) => '<div class="resa-resume"><b>' + esc(titreResa(e.titre)) + (RESA.guide && visite ? esc(tx("resa.avec", { g: RESA.guide })) : '') + '</b><span>' + esc(dateLongueResa(s.debut)) +
+    (avecPersonnes ? " · " + (RESA.personnes === 1 ? t("resa.person1") : tx("resa.personN", { n: RESA.personnes })) : '') + '</span>' +
+    (avecPersonnes ? '' : '<span>' + esc((LANGUE_SEANCE[s.langue] || s.langue) + (s.point_rdv ? " · " + s.point_rdv : "")) + '</span>') + '</div>';
+  const champsHtml = () =>
+    '<label class="resa-champ"><span>' + esc(t("resa.name")) + '</span><input class="input-field" id="resa-nom" autocomplete="name" required value="' + esc(champs.nom) + '"></label>' +
+    '<label class="resa-champ"><span>' + esc(t("resa.email")) + '</span><input class="input-field" id="resa-email" type="email" inputmode="email" autocomplete="email" required value="' + esc(champs.email) + '"></label>' +
+    '<label class="resa-champ"><span>' + esc(e.telephone_obligatoire || visite ? t("resa.phone") : t("resa.phoneOpt")) + '</span><input class="input-field" id="resa-tel" type="tel" inputmode="tel" autocomplete="tel"' + (e.telephone_obligatoire ? " required" : "") + ' value="' + esc(champs.tel) + '"></label>';
   const garder = () => {
     champs.nom = ($("#resa-nom") || {}).value || champs.nom;
     champs.email = ($("#resa-email") || {}).value || champs.email;
     champs.tel = ($("#resa-tel") || {}).value || champs.tel;
-    $$("#resa-form .resa-case input").forEach((c) => { champs.cases[c.id.replace("resa-c-", "")] = c.checked; });
   };
-  const verifierAdherent = async (valeur) => {
-    const email = String(valeur || "").trim().toLowerCase();
-    let adh = null;
-    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      try {
-        const res = await fetch("/.netlify/functions/reserver", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "adherent", email }) });
-        const d = await res.json().catch(() => ({}));
-        if (res.ok && d.adherent) adh = { valide_jusqua: d.valide_jusqua };
-      } catch (err) { /* hors ligne : tarif normal affiché, le serveur tranchera */ }
-    }
-    if (!!adh === !!RESA.adherent) { RESA.adherent = adh; return; }
-    RESA.adherent = adh;
-    garder(); peindre();
-  };
-  if (champs.email && estVisiteResa(e.type)) verifierAdherent(champs.email);
-  const payer = async (ev) => {
-    ev.preventDefault();
-    garder();
-    const note = $("#resa-note"), btn = $("#resa-payer");
+  const champsValides = () => {
     const email = champs.email.trim().toLowerCase();
-    if (!champs.nom.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || (e.telephone_obligatoire && champs.tel.trim().length < 6)) {
-      note.textContent = t("resa.err.form"); return;
-    }
-    const consentements = {};
-    casesResa().forEach((c) => { if ($("#resa-c-" + c.cle).checked) consentements[c.cle] = true; });
-    if (casesResa().some((c) => c.obligatoire && !consentements[c.cle])) { note.textContent = t("resa.err.cgv"); return; }
-    note.textContent = ""; btn.disabled = true;
+    return champs.nom.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && (!e.telephone_obligatoire || champs.tel.trim().length >= 6);
+  };
+  const sous = (k, vars) => { const el = $("#screen-reserver .back-sub"); if (el) el.textContent = tx(k, vars || {}); };
+
+  // ---- E8.0 : adhésion (place retenue 15 minutes pendant le paiement) ----
+  const peindreAdhesion = () => {
+    sous("resa.sousAdhesion");
+    $("#reserver-body").innerHTML = resume(true) +
+      '<div class="adh-prix"><b>' + esc(euros(ADHESION_CENTIMES)) + '</b><span>' + esc(t("adh.parAn")) + '</span></div>' +
+      '<p class="adh-phrase">' + esc(t("adh.phrase")) + '</p>' +
+      '<p class="member-note">' + esc(t("adh.deja")) + ' <button type="button" class="lien-bouton" id="adh-connecter">' + esc(t("adh.meConnecter")) + '</button></p>' +
+      '<form id="adh-form" novalidate>' + champsHtml() + caseAdhesionHtml("adh-c-statuts") +
+        '<button type="submit" class="cta fee" id="adh-payer">' + esc(tx("adh.payer", { m: euros(ADHESION_CENTIMES) })) + '</button>' +
+        '<div id="resa-note" class="resa-erreur" role="alert"></div>' +
+        '<div class="member-note resa-centre">' + esc(t("adh.renouvelee")) + '<br>' + esc(t("adh.securise")) + '</div>' +
+      '</form>';
+    $("#adh-connecter").addEventListener("click", () => { garder(); RESA.codeDemande = true; ouvrirReservation("reservation"); });
+    $("#adh-form").addEventListener("submit", async (ev) => {
+      ev.preventDefault(); garder();
+      const note = $("#resa-note"), btn = $("#adh-payer");
+      if (!champsValides()) { note.textContent = t("resa.err.form"); return; }
+      if (!$("#adh-c-statuts").checked) { note.textContent = t("resa.err.cgv"); return; }
+      btn.disabled = true; note.textContent = "";
+      try {
+        const { ok, d } = await appelReserver({ action: "adhesion", seance_id: s.id, personnes: RESA.personnes, nom: champs.nom.trim(),
+          email: champs.email.trim().toLowerCase(), telephone: champs.tel.trim(), langue: getLang(), accord_adhesion: true });
+        if (ok && d.url) {
+          try {
+            localStorage.setItem("resaEnCours", JSON.stringify({ reservation_id: d.reservation_id, exp: e, seance: s, personnes: RESA.personnes,
+              guide: RESA.guide, champs: { nom: champs.nom, email: champs.email, tel: champs.tel }, bloque_jusqua: d.bloque_jusqua }));
+          } catch (err) { /* sans stockage : l'adhésion est faite, la réservation sera à refaire */ }
+          window.location.href = d.url; return;
+        }
+        if (d.code === "DEJA_ADHERENT") { RESA.codeDemande = true; ouvrirReservation("reservation"); return; }
+        note.textContent = erreurResa(d);
+      } catch (err) { note.textContent = t("resa.err.pay"); }
+      btn.disabled = false;
+    });
+  };
+
+  // ---- E8.1, E8.2 (adhérent, 0 € maintenant) et soirée ----
+  const peindre = () => {
+    const finaliser = RESA.mode === "finaliser";
+    if (finaliser && RESA.bloqueJusqua) {
+      const reste = Math.max(0, Math.round((new Date(RESA.bloqueJusqua) - Date.now()) / 1000));
+      sous("resa.sousRetenu", { t: Math.floor(reste / 60) + ":" + String(reste % 60).padStart(2, "0") });
+    } else sous("resa.sub");
+    const n = RESA.personnes, u = unitaireResa(), total = u * n;
+    const adh = RESA.adherent;
+    const remise = visite && u < e.prix_centimes;
+    const carteInfo = adh && adh.carte
+      ? '<div class="resa-carte-adh"><b>' + esc(t("resa.carteAdhesion")) + '</b><span>' + esc(t("resa.aucunDebit")) + '</span></div>'
+      : '<div class="resa-carte-adh"><b>' + esc(t("resa.carteAEnregistrer")) + '</b><span>' + esc(t("resa.aucunDebit")) + '</span></div>';
+    $("#reserver-body").innerHTML = resume(false) +
+      (finaliser ? '' : stepperHtml("form")) +
+      '<div class="member-note">' + esc(tx("resa.holdLeft", { n: s.places_restantes, max: s.capacite_max })) + '</div>' +
+      (e.type === "atelier" ? '<div class="resa-min"><b>' + esc(tx("resa.atelierMin", { n: s.participants_min })) + '</b><span>' +
+        esc(t("resa.atelierMinNote")) + '</span></div>' : '') +
+      '<form id="resa-form" novalidate>' +
+        '<div class="mini-label">' + esc(t("resa.contact")) + '</div>' + champsHtml() +
+        (visite && adh ? '<div class="resa-adherent"><span class="resa-adh-titre">' + esc(t("resa.adhReconnu")) + '</span><span class="member-note">' +
+          esc((adh.numero ? tx("resa.carteNo", { n: adh.numero }) + " · " : "") + tx("resa.valableJusqua", { date: new Date(adh.valide_jusqua).toLocaleDateString(localeResa(), { timeZone: "Europe/Paris" }) })) + '</span></div>' : '') +
+        (visite && !adh ? '<p class="member-note resa-indice">' + esc(t("resa.adhHint1")) + ' <b>' + esc(t("resa.adhHintB")) + '</b>' + esc(t("resa.adhHintC")) + '</p>' : '') +
+        (visite
+          ? '<div class="resa-prix resa-prix-form">' +
+              '<div class="resa-ligne"><span>' + esc(t("resa.tarifAdh")) + '<br><span class="resa-mono">' + esc(n + " × ") +
+                (remise ? '<s>' + esc(euros(e.prix_centimes)) + '</s> ' : '') + esc(euros(u)) + '</span></span><b class="resa-gros">' + esc(euros(total)) + '</b></div>' +
+              '<div class="resa-filet"><div class="resa-accent">' + esc(t("resa.offerte")) + '</div><div class="member-note">' + esc(t("resa.offerteTexte")) + '</div></div>' +
+              '<p class="resa-reste"><b>' + esc(tx("resa.resteAdh", { m: euros(total), g: guideResa() })) + '</b> ' + esc(t("resa.cash")) + '</p>' +
+              (e.frais_annulation_tardive_centimes > 0 ? carteInfo : '') +
+              '<div class="resa-ligne resa-total"><span>' + esc(t("resa.total")) + '</span><b>' + esc(euros(0)) + '</b></div></div>'
+          : prixHtml() + '<div class="resa-ligne resa-total"><span>' + esc(t("resa.totalSoiree")) + '</span><b>' + esc(euros(aPayerResa())) + '</b></div>' +
+            '<div class="member-note">' + esc(t("resa.vat")) + '</div>') +
+        (RESA.codeDemande ? panneauCodeHtml() : '') +
+        caseConditionsHtml() + infosLegalesResa() +
+        '<button type="submit" class="cta fee" id="resa-payer">' + esc(visite ? t("resa.btnGratuit") : tx("resa.payer", { m: euros(aPayerResa()) })) + '</button>' +
+        '<div id="resa-note" class="resa-erreur" role="alert"></div>' +
+        '<div class="member-note resa-centre">' + esc(visite ? t("resa.aucunDebit") : t("resa.m.secure")) + '</div>' +
+      '</form>';
+    if (!finaliser) brancherStepper("form", () => { garder(); peindre(); });
+    // L'email d'une carte enregistrée ne se change pas ici (« Utiliser une autre adresse » sur la carte de membre).
+    if (adh && !finaliser && $("#resa-email")) $("#resa-email").readOnly = true;
+    if (RESA.codeDemande) brancherCode();
+    $("#resa-form").addEventListener("submit", envoyer);
+    $$("#resa-form input").forEach((i) => i.addEventListener("input", () => { $("#resa-note").textContent = ""; }));
+  };
+
+  /* « Déjà adhérent ? Me connecter » ou adresse d'adhérent sans carte sur ce téléphone :
+     code reçu par email, puis la carte est enregistrée et la réservation continue en adhérent. */
+  const panneauCodeHtml = () => '<div class="resa-code" id="resa-code"><b>' + esc(t("resa.codeTitre")) + '</b>' +
+    '<p class="member-note">' + esc(t("resa.codeTexte")) + '</p>' +
+    '<button type="button" class="cta ghost" id="resa-code-envoyer">' + esc(t("member.recevoirCode")) + '</button>' +
+    '<div id="resa-code-saisie" hidden><label class="resa-champ"><span>' + esc(t("member.codeLabel")) + '</span>' +
+    '<input class="input-field mb-code" id="resa-code-valeur" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"></label>' +
+    '<button type="button" class="cta fee" id="resa-code-valider">' + esc(t("resa.codeValider")) + '</button></div>' +
+    '<div class="member-note" id="resa-code-note" role="status"></div></div>';
+  const brancherCode = () => {
+    const note = $("#resa-code-note");
+    $("#resa-code-envoyer").addEventListener("click", async () => {
+      garder();
+      const email = champs.email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { note.textContent = t("member.emailInvalid"); return; }
+      note.textContent = t("member.loading");
+      const etat = await demanderCode(email).catch(() => "erreur");
+      note.textContent = messageEnvoiCode(etat);
+      if (etat === "envoye") $("#resa-code-saisie").hidden = false;
+    });
+    $("#resa-code-valider").addEventListener("click", async () => {
+      garder();
+      note.textContent = t("member.loading");
+      const r = await validerCode(champs.email.trim().toLowerCase(), $("#resa-code-valeur").value).catch(() => ({ ok: false, message: t("member.error") }));
+      if (!r.ok) { note.textContent = r.message; return; }
+      RESA.codeDemande = false;
+      ouvrirReservation("reservation");
+    });
+  };
+
+  const envoyer = async (ev) => {
+    ev.preventDefault(); garder();
+    const note = $("#resa-note"), btn = $("#resa-payer");
+    if (!champsValides()) { note.textContent = t("resa.err.form"); return; }
+    if (!$("#resa-c-conditions").checked) { note.textContent = t("resa.err.cgv"); return; }
+    btn.disabled = true; note.textContent = "";
+    const commun = { nom: champs.nom.trim(), email: champs.email.trim().toLowerCase(), telephone: champs.tel.trim(), langue: getLang(),
+      consentements: { conditions: true }, jeton: (carteLue() || {}).jeton };
     try {
-      const res = await fetch("/.netlify/functions/reserver", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ seance_id: s.id, personnes: RESA.personnes, nom: champs.nom.trim(), email,
-          telephone: champs.tel.trim(), langue: getLang(), consentements }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (res.ok && d.url) { window.location.href = d.url; return; }
-      note.textContent = d.code === "COMPLET" ? t("resa.err.full")
-        : d.code === "SEANCE_INDISPONIBLE" ? t("resa.err.gone")
-        : ["PARAMETRES", "TELEPHONE_REQUIS"].includes(d.code) ? t("resa.err.form")
-        : ["CGV_NON_ACCEPTEES", "ACCORD_FRAIS_REQUIS", "CONSENTEMENTS_MANQUANTS", "AGE_NON_CONFIRME"].includes(d.code) ? t("resa.err.cgv") : t("resa.err.pay");
-    } catch (err) {
-      note.textContent = t("resa.err.pay");
-    }
+      const { ok, d } = await appelReserver(RESA.mode === "finaliser"
+        ? Object.assign({ action: "finaliser", reservation_id: RESA.reservationId }, commun)
+        : Object.assign({ seance_id: s.id, personnes: RESA.personnes }, commun));
+      if (ok && suiteResa(d, note)) return;
+      if (d.code === "ADHESION_REQUISE" && estVisiteResa(e.type)) { ouvrirReservation("adhesion"); return; }
+      if (d.code === "VERIFICATION_REQUISE") { RESA.codeDemande = true; peindre(); $("#resa-code").scrollIntoView({ block: "center" }); return; }
+      note.textContent = d.code === "ADHESION_REQUISE" ? t("resa.err.adhesion") : erreurResa(d);
+    } catch (err) { note.textContent = t("resa.err.pay"); }
     btn.disabled = false;
   };
-  peindre();
+
+  if (RESA.mode === "adhesion") peindreAdhesion(); else peindre();
+  // La carte d'abonnement (pour l'affichage « Carte de votre adhésion ») : demandée avec le jeton, jamais avec un email tapé.
+  if (RESA.adherent && RESA.mode !== "adhesion" && (carteLue() || {}).jeton) {
+    appelReserver({ action: "adherent", jeton: carteLue().jeton }).then(({ ok, d }) => {
+      if (!ok || !d.adherent || !RESA.adherent || RESA.mode === "adhesion") return;
+      const avant = RESA.adherent.carte;
+      Object.assign(RESA.adherent, { carte: d.carte, numero: d.numero || RESA.adherent.numero });
+      if (avant !== d.carte && $("#resa-form")) { garder(); peindre(); }
+    }).catch(() => {});
+  }
   showScreen("reserver");
+}
+
+/** Retour du paiement de l'adhésion avec une place retenue (?adhesion=cs_…&resa=…) : la réservation continue (E8.1). */
+async function reprendreReservationApresAdhesion(reservationId, carte) {
+  let ctx = null;
+  try { ctx = JSON.parse(localStorage.getItem("resaEnCours") || "null"); } catch (e) { ctx = null; }
+  if (!ctx || ctx.reservation_id !== reservationId) return false;
+  RESA = { exp: ctx.exp, seances: [ctx.seance], seance: ctx.seance, personnes: ctx.personnes, guide: ctx.guide || "",
+    reservationId, bloqueJusqua: ctx.bloque_jusqua,
+    adherent: { valide_jusqua: carte && carte.valide_jusqua, numero: carte && carte.numero, carte: true } };
+  window.__resaChamps = Object.assign({ nom: "", email: "", tel: "" }, ctx.champs || {});
+  ouvrirReservation("finaliser");
+  return true;
+}
+
+/** Type d'affichage (couleurs du thème) d'une expérience Supabase : visite, atelier, diner (soirée) ou escape. */
+function offreDeResa(type) {
+  const k = String(type || "");
+  return /atelier/.test(k) ? "atelier" : /soiree/.test(k) ? "diner" : /escape/.test(k) ? "escape" : "visite";
 }
 
 /** Écran E9 : confirmation, ou page du lien personnel (« Je ne peux plus venir »). */
@@ -1813,8 +1904,23 @@ function peindreReservation(r, jeton, intro) {
         ? '<p class="resa-reste"><b>' + esc(tx("resa.restOnSite", { m: euros(r.reste_sur_place_centimes), g: r.intervenant ? tx("resa.to", { g: r.intervenant }) : "" })) + '</b> ' + esc(t("resa.cash")) + '</p>' : '') +
       (r.message_inscrits && r.statut === "confirmee" ? '<p class="member-note">« ' + esc(r.message_inscrits) + ' »</p>' : '') +
     '</div>' +
+    (r.absent ? '<div class="resa-etat">' + esc(r.absence_contestee ? t("resa.absenceContestee")
+      : r.absence_contestable ? tx("resa.absenceSignalee", { m: euros(r.frais_centimes || 0) }) : t("resa.absenceNotee")) + '</div>' : '') +
+    (r.absence_contestable ? '<button type="button" class="cta fee" id="resa-present">' + esc(t("resa.present")) + '</button><div class="resa-erreur" id="resa-present-note" role="alert"></div>' : '') +
     (r.peut_annuler ? '<button type="button" class="cta ghost" id="resa-annuler">' + esc(t("resa.cancelBtn")) + '</button><div id="resa-annuler-zone"></div>' : '') +
     boutonAccueilResa();
+  const pr = $("#resa-present");
+  if (pr) pr.addEventListener("click", async () => {
+    pr.disabled = true;
+    try {
+      const res = await fetch("/.netlify/functions/reservation", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "present", jeton }) });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.reservation) { peindreReservation(d.reservation, jeton); return; }
+      $("#resa-present-note").textContent = t("resa.err.pay");
+    } catch (e) { $("#resa-present-note").textContent = t("resa.err.pay"); }
+    pr.disabled = false;
+  });
   const b = $("#resa-annuler");
   if (b) b.addEventListener("click", () => {
     $("#resa-annuler-zone").innerHTML =
@@ -2043,29 +2149,29 @@ function dateCarte(isoDate) {
 
 function carteHtml(c, note) {
   const valide = new Date(c.valide_jusqua) > new Date();
-  const annee = new Date(c.valide_jusqua).getFullYear();
+  const fin = dateCarte(c.valide_jusqua);
+  const court = new Date(c.valide_jusqua).toLocaleDateString(localeResa(), { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "2-digit" });
   const avantages = [1, 2, 3, 4, 5].map((n) => '<li>' + esc(t("member.benefit" + n)) + '</li>').join("");
   return (
-    '<div class="mb-etat">' + esc(t(valide ? "member.enCours" : "member.expiree")) + '</div>' +
+    '<div class="mb-etat">' + esc(!valide ? t("member.expiree") : c.renouvelable ? tx("member.renouvelee", { date: fin }) : t("member.enCours")) + '</div>' +
     '<div class="mb-carte' + (valide ? '' : ' expired') + '">' +
       '<div class="mb-carte-haut"><div><div class="mb-eyebrow">Mouvement Montmartre</div>' +
         '<div class="mb-carte-titre">' + esc(t("member.carteDe")) + ' <i>' + esc(t("member.carteMembre")) + '</i></div></div>' +
-        '<span class="mb-annee">' + esc(String(annee)) + '</span></div>' +
+        '<span class="mb-annee">' + esc(tx(valide ? "member.jusquau" : "member.expiredOn", { date: court }).replace("{date}", court)) + '</span></div>' +
       '<div class="mb-carte-bas"><div class="mb-carte-id">' +
         '<div class="mb-k">' + esc(t("member.titulaire")) + '</div><div class="mb-nom">' + esc(c.nom || t("member.formula.adhesion")) + '</div>' +
-        '<div class="mb-v">' + esc(t("member.formula." + (c.formule === "bienfaiteur" ? "bienfaiteur" : "adhesion"))) + ' · ' +
-          esc(t(valide ? "member.validUntil" : "member.expiredOn").replace("{date}", dateCarte(c.valide_jusqua))) + '</div>' +
-        (c.membre_depuis ? '<div class="mb-v">' + esc(t("member.since").replace("{date}", dateCarte(c.membre_depuis))) + '</div>' : '') +
-        // Numéro de membre et QR code : seulement s'ils existent un jour dans les données (pas aujourd'hui).
         (c.numero ? '<div class="mb-k mb-k-num">' + esc(t("member.numero")) + '</div><div class="mb-num">' + esc(c.numero) + '</div>' : '') +
+        (c.formule === "bienfaiteur" ? '<div class="mb-v">' + esc(t("member.formula.bienfaiteur")) + '</div>' : '') +
       '</div>' +
+      // QR code : affiché seulement s'il existe un jour dans les données (pas aujourd'hui).
       (c.qr_svg ? '<div class="mb-qr">' + c.qr_svg + '</div>' : '<img class="mb-logo" src="icons/logo.png" alt="">') +
     '</div></div>' +
     (note ? '<div class="member-note">' + esc(note) + '</div>' : '') +
-    (!valide ? '<a class="cta ocre" style="text-decoration:none;" href="' + esc(CONFIG.liens.adhesion) + '" target="_blank" rel="noopener">' + esc(t("member.renew")) + '</a>' : '') +
+    (!valide ? '<button type="button" class="cta ocre" id="membre-renouveler">' + esc(t("member.adherer5")) + '</button>' : '') +
     '<h2 class="mb-titre mb-titre-petit">' + esc(t("member.avantages1")) + ' <i>' + esc(t("member.avantages2")) + '</i></h2>' +
     '<ul class="mb-avantages">' + avantages + '</ul>' +
-    '<a class="cta ocre" style="text-decoration:none;" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener">' + esc(t("cta.donate")) + '</a>' +
+    (c.renouvelable ? '<button type="button" class="cta ocre" id="membre-portail">' + esc(t("member.gerer")) + '</button><div class="resa-erreur" id="membre-portail-note" role="alert"></div>' : '') +
+    '<a class="lien-bouton mb-don" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener">' + esc(t("cta.donate")) + '</a>' +
     '<button class="lien-bouton mb-autre" type="button" id="membre-oublier">' + esc(t("member.autreEmail")) + '</button>'
   );
 }
@@ -2082,6 +2188,18 @@ async function renderMembre(note) {
       result.innerHTML = carteHtml(s.carte, n);
       form.hidden = true;
       $("#membre-oublier").addEventListener("click", () => { carteEcrite(null); renderMembre(); });
+      const portail = $("#membre-portail");
+      if (portail) portail.addEventListener("click", async () => {
+        portail.disabled = true;
+        try {
+          const r = await appelCarte({ action: "portail", jeton: (carteLue() || {}).jeton });
+          if (r.status === 200 && r.data.url) { window.location.href = r.data.url; return; }
+          $("#membre-portail-note").textContent = t("member.portailIndispo");
+        } catch (e) { $("#membre-portail-note").textContent = t("member.error"); }
+        portail.disabled = false;
+      });
+      const renouveler = $("#membre-renouveler");
+      if (renouveler) renouveler.addEventListener("click", () => { carteEcrite(null); renderMembre(); $("#membre-adherer").scrollIntoView({ block: "center" }); });
     } else {
       result.innerHTML = n ? '<div class="member-note">' + esc(n) + '</div>' : '';
       form.hidden = false;
@@ -2094,7 +2212,7 @@ async function renderMembre(note) {
   try {
     const r = await appelCarte({ action: "voir", jeton: st.jeton });
     if (r.status === 200 && r.data.carte) {
-      carteEcrite({ jeton: st.jeton, carte: r.data.carte, maj: Date.now() });
+      carteEcrite({ jeton: st.jeton, carte: r.data.carte, email: r.data.email || st.email, maj: Date.now() });
       afficher(carteLue(), note);
     } else if (r.status === 404 || r.status === 400) {
       carteEcrite(null);
@@ -2105,6 +2223,24 @@ async function renderMembre(note) {
   }
 }
 
+/* Code de vérification (21/11) : seul l'adhérent, qui reçoit le code à son adresse, affiche sa carte.
+   Étape 1 : code envoyé (réponse identique que l'adresse soit adhérente ou non). Étape 2 : code saisi. */
+async function demanderCode(email) {
+  const r = await appelCarte({ action: "email", email, langue: getLang() });
+  return r.status === 200 ? "envoye" : r.status === 503 ? "indisponible" : r.status === 400 ? "email" : "erreur";
+}
+async function validerCode(email, code) {
+  const r = await appelCarte({ action: "code", email, code: String(code || "").replace(/\s/g, "") });
+  if (r.status === 200 && r.data.jeton && r.data.carte) {
+    carteEcrite({ jeton: r.data.jeton, carte: r.data.carte, email: r.data.email || email, maj: Date.now() });
+    return { ok: true, carte: r.data.carte };
+  }
+  return { ok: false, message: r.status === 400 ? t("member.codeFaux") : r.status === 429 ? t("member.codeTropEssais")
+    : r.status === 410 ? t("member.codeExpire") : r.status === 404 ? t("member.notFound") : t("member.error") };
+}
+const messageEnvoiCode = (etat) => etat === "envoye" ? t("member.codeEnvoye") : etat === "indisponible" ? t("member.unavailable")
+  : etat === "email" ? t("member.emailInvalid") : t("member.error");
+
 $("#membre-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const email = ($("#membre-email").value || "").trim().toLowerCase();
@@ -2113,23 +2249,25 @@ $("#membre-form").addEventListener("submit", async (e) => {
   out.textContent = t("member.loading");
   bouton.disabled = true;
   try {
-    const r = await appelCarte({ action: "email", email });
-    if (r.status === 200 && r.data.jeton && r.data.carte) {
-      carteEcrite({ jeton: r.data.jeton, carte: r.data.carte, maj: Date.now() });
-      $("#membre-email").value = "";
-      out.textContent = "";
-      renderMembre();
-      return;
+    const etat = await demanderCode(email);
+    out.textContent = messageEnvoiCode(etat);
+    if (etat === "envoye") { $("#membre-code-zone").hidden = false; $("#membre-code").focus(); }
+  } catch (err) { out.textContent = t("member.error"); }
+  bouton.disabled = false;
+});
+$("#membre-valider").addEventListener("click", async () => {
+  const email = ($("#membre-email").value || "").trim().toLowerCase();
+  const out = $("#membre-form-note"), bouton = $("#membre-valider");
+  bouton.disabled = true; out.textContent = t("member.loading");
+  try {
+    const r = await validerCode(email, $("#membre-code").value);
+    if (r.ok) {
+      $("#membre-email").value = ""; $("#membre-code").value = ""; $("#membre-code-zone").hidden = true;
+      out.textContent = ""; renderMembre(); return;
     }
-    out.textContent = r.status === 404 ? t("member.notFound")
-      : r.status === 429 ? t("member.tooMany")
-      : r.status === 400 ? t("member.emailInvalid")
-      : t("member.error");
-  } catch (err) {
-    out.textContent = t("member.error");
-  } finally {
-    bouton.disabled = false;
-  }
+    out.textContent = r.message;
+  } catch (err) { out.textContent = t("member.error"); }
+  bouton.disabled = false;
 });
 
 /** Arrivée par le lien de l'email (#carte=…) ou au retour du paiement d'adhésion (?adhesion=cs_…). */
@@ -2138,9 +2276,10 @@ async function handleCarteRetour() {
   const m = hash.match(/^#carte=([A-Za-z0-9_-]{43})$/);
   const params = new URLSearchParams(window.location.search);
   const session = params.get("adhesion");
+  const resaRetenue = params.get("resa");
   if (!m && !session) return;
   history.replaceState(null, "", window.location.pathname);   // le jeton ne reste pas dans l'adresse
-  openTarget("membre");
+  if (!resaRetenue) openTarget("membre");
 
   if (m) {
     carteEcrite({ jeton: m[1], carte: null, maj: 0 });
@@ -2153,11 +2292,15 @@ async function handleCarteRetour() {
   try {
     const r = await appelCarte({ action: "session", session_id: session });
     if (r.status === 200 && r.data.jeton) {
-      carteEcrite({ jeton: r.data.jeton, carte: r.data.carte, maj: Date.now() });
+      carteEcrite({ jeton: r.data.jeton, carte: r.data.carte, email: r.data.email, maj: Date.now() });
+      // Adhésion prise pendant une réservation : la place retenue attend la fin de la réservation.
+      if (resaRetenue && await reprendreReservationApresAdhesion(resaRetenue, r.data.carte)) return;
+      if (resaRetenue) openTarget("membre");
       renderMembre(t("member.welcome"));
       return;
     }
   } catch (e) { /* on retombe sur le message ci-dessous */ }
+  if (resaRetenue) openTarget("membre");
   renderMembre(t("member.paymentPending"));
 }
 
@@ -2274,9 +2417,10 @@ function renderInfosFestival() {
 function handleLienDirect() {
   const h = window.location.hash || "";
   const m = h.match(/^#espace(?:=([a-z]+))?$/);
-  if (h !== "#rejoindre" && !m) return false;
+  if (h !== "#rejoindre" && h !== "#membre" && !m) return false;
   history.replaceState(null, "", window.location.pathname + window.location.search);
   if (h === "#rejoindre") { openTarget("rejoindre"); return true; }
+  if (h === "#membre") { openTarget("membre"); return true; }
   if (m[1]) {
     if (typeof ADM !== "undefined") ADM.ongletVoulu = m[1];
     try { localStorage.setItem("ongletVoulu", m[1]); } catch (e) { /* rien */ }   // après la connexion par email
@@ -2309,9 +2453,24 @@ document.addEventListener("DOMContentLoaded", () => {
     if (typeof handleParcoursRetour === "function") handleParcoursRetour();
   }
 
-  // Lien d'adhésion sur l'écran « Ma carte de membre » (E15)
+  // Adhésion (E15) : abonnement 5 € par an. Premier appui : nom, email, téléphone ; ensuite, paiement.
+  const caseE15 = $("#adh-e15-case");
+  if (caseE15) caseE15.innerHTML = caseAdhesionHtml("adh-e15-statuts");
   const membreAdherer = $("#membre-adherer");
-  if (membreAdherer) membreAdherer.href = CONFIG.liens.adhesion;
+  if (membreAdherer) membreAdherer.addEventListener("click", async () => {
+    const zone = $("#adh-e15"), note = $("#adh-e15-note");
+    if (zone.hidden) { zone.hidden = false; $("#adh-nom").focus(); return; }
+    const nom = $("#adh-nom").value.trim(), email = $("#adh-email").value.trim().toLowerCase();
+    if (!nom || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { note.textContent = t("resa.err.form"); return; }
+    if (!$("#adh-e15-statuts").checked) { note.textContent = t("resa.err.cgv"); return; }
+    membreAdherer.disabled = true; note.textContent = "";
+    try {
+      const r = await appelCarte({ action: "adherer", nom, email, telephone: $("#adh-tel").value.trim(), langue: getLang(), accord_adhesion: true });
+      if (r.status === 200 && r.data.url) { window.location.href = r.data.url; return; }
+      note.textContent = r.data.code === "DEJA_ADHERENT" ? t("member.dejaAdherentCode") : t("resa.err.pay");
+    } catch (e) { note.textContent = t("resa.err.pay"); }
+    membreAdherer.disabled = false;
+  });
 
   // Service worker (hors ligne)
   if ("serviceWorker" in navigator && navigator.serviceWorker) {
