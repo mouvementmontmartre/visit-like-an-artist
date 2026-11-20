@@ -1523,12 +1523,14 @@ function peindreFormExperience(corps, e) {
 
 async function peindreValidations(corps) {
   admChargement();
-  let cands = [], notifs = [], decisions = [];
+  let cands = [], notifs = [], decisions = [], sansEspace = [];
   try {
-    [cands, notifs, decisions] = await Promise.all([
+    [cands, notifs, decisions, sansEspace] = await Promise.all([
       supaConnecte("candidatures?select=*&statut=eq.nouvelle&order=cree_le.asc"),
       supaEcrire("POST", "rpc/notifications_non_envoyees", {}).catch(() => []),
       supaConnecte("candidatures?select=id,nom,type,statut,motif_refus,traitee_le&statut=neq.nouvelle&order=cree_le.desc&limit=20"),
+      // Acceptées avant le 22/11 avec l'ancien menu de statut : ni fiche ni accès.
+      supaConnecte("candidatures?select=*&statut=eq.acceptee&intervenant_id=is.null&order=cree_le.desc"),
     ]);
   } catch (e) { admZone().innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>'; return; }
   ADM.cands = cands;
@@ -1557,6 +1559,13 @@ async function peindreValidations(corps) {
         '<span class="adm-actions"><a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a>' + (c.telephone ? ' · <a href="tel:' + esc(c.telephone) + '">' + esc(c.telephone) + '</a>' : '') + '</span>' +
         actions("candidature", c.id) + '</span></div>').join("") + '</div>'
       : '<div class="member-note">' + esc(t("adm.aucuneCandidatureAValider")) + '</div>') +
+    (sansEspace.length ? '<h3 class="adm-sous-titre">' + esc(tx("adm.accepteesSansEspace", { n: sansEspace.length })) + '</h3>' +
+      '<p class="member-note">' + esc(t("adm.accepteesSansEspaceAide")) + '</p><div class="adm-liste">' + sansEspace.map((c) =>
+        '<div class="adm-ligne adm-demande"><span class="adm-ligne-corps">' +
+          '<span class="adm-ligne-titre">' + esc(c.nom) + '</span><span class="adm-ligne-meta">' + esc(t("adm.typeInt." + c.type)) + '</span>' +
+          '<span class="adm-actions"><a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a></span>' +
+          '<span class="adm-actions adm-ouvrir"><button type="button" class="cta ocre adm-petit" data-ouvrir-espace="' + esc(c.id) + '">' + esc(t("adm.ouvrirEspace")) + '</button></span>' +
+        '</span></div>').join("") + '</div>' : '') +
     '<h3 class="adm-sous-titre">' + esc(tx("adm.experiencesAValider", { n: exps.length })) + '</h3>' +
     (exps.length ? '<div class="adm-liste">' + exps.map((e) =>
       '<div class="adm-ligne adm-demande"><span class="adm-ligne-corps">' +
@@ -1578,6 +1587,17 @@ async function peindreValidations(corps) {
     '<p class="member-note adm-centre">' + esc(t("adm.validationsPied")) + '</p>';
   if ($("#adm-props")) peindrePropositions(corps, $("#adm-props"));
   $$("[data-adm-fiche]").forEach((b) => b.addEventListener("click", () => peindreFormFiche(corps, ADM.exps.find((e) => e.id === b.dataset.admFiche))));
+  $$("[data-ouvrir-espace]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm(t("adm.confirmerCandidature"))) return;
+    b.disabled = true;
+    try {
+      const r = await admValidation({ action: "candidature_accepter", id: b.dataset.ouvrirEspace });
+      ADM.onglet = "valider";
+      await renderAdmin(corps);
+      admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc((t("adm.candidatureAcceptee") + " " +
+        (r.notifie === false ? t("adm.notifNonEnvoyee") : tx("adm.emailEnvoye", { email: r.email || "" }))).trim()) + '</div>');
+    } catch (e) { $("#v-note").textContent = e.code === "COMPTE_ADMIN" ? t("adm.inviterAdmin") : admErreur(e); b.disabled = false; }
+  }));
   $$("[data-reessayer]").forEach((b) => b.addEventListener("click", async () => {
     b.disabled = true;
     try { await supaEcrire("POST", "rpc/notification_reessayer", { p_id: +b.dataset.reessayer }, "return=minimal"); b.textContent = t("adm.reessaiPrevu"); }

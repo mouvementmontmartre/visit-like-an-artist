@@ -340,7 +340,8 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   const ilya = new Date(Date.now() - 12 * 60e3).toISOString();
   ({ pg, ctx, st } = await page({ notifs: [{ id: 41, type: "experience_validee", destinataire: "guide@exemple.invalid", cree_le: ilya, statut: "echec", tentatives: 5 }], db: {
     intervenants: [{ id: "i-1", nom: "Sylvain Lesecq" }],
-    candidatures: [{ id: "c-1", nom: "Heber", type: "artiste", email: "heber@exemple.invalid", telephone: "0600000000", message: "Gravure sur cuivre", statut: "nouvelle", cree_le: ilya }],
+    candidatures: [{ id: "c-1", nom: "Heber", type: "artiste", email: "heber@exemple.invalid", telephone: "0600000000", message: "Gravure sur cuivre", statut: "nouvelle", cree_le: ilya },
+      { id: "c-old", nom: "Luci", type: "artiste", email: "luci@exemple.invalid", message: "Réalisatrice", statut: "acceptee", intervenant_id: null, cree_le: ilya }],
     experiences: [{ id: "x-9", slug: "gravure", type: "atelier", titre: { fr: "Gravure à Montmartre" }, description: { fr: "Initiation à la gravure" }, point_rdv: { fr: "Rue Lepic" },
       a_valider: true, publie: false, intervenant_id: "i-1", prix_centimes: 4500, capacite_max: 8, duree_minutes: 150, cree_le: ilya }],
     propositions: [{ id: "p-l", intervenant_id: "i-1", type: "lieu", donnees: { site: "https://exemple.invalid" }, statut: "en_attente", cree_le: ilya }],
@@ -354,6 +355,11 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   v("notification non envoyée affichée, avec « Réessayer »", await attendre(pg, "#adm-zone", "Notifications non envoyées · 1") && await attendre(pg, "#adm-zone", "guide@exemple.invalid"));
   await pg.click('[data-reessayer="41"]');
   v("Réessayer : fonction de la base", await attendre(pg, "#adm-zone", "Renvoi prévu") && st.rpc.some((r) => r.nom === "notification_reessayer" && r.args.p_id === 41));
+  v("candidature acceptée avec l'ancien menu : « Ouvrir son espace »", await attendre(pg, "#adm-zone", "espace pas encore ouvert · 1") && await attendre(pg, "#adm-zone", "luci@exemple.invalid"));
+  pg.once("dialog", (d) => d.accept());
+  await pg.click('[data-ouvrir-espace="c-old"]');
+  v("« Ouvrir son espace » : même fonction serveur que la validation", await attendre(pg, "#adm-zone", "Candidature acceptée") &&
+    st.validations.some((x) => x.corps.action === "candidature_accepter" && x.corps.id === "c-old"));
   pg.once("dialog", (d) => d.accept());
   await pg.click('[data-genre="candidature"] [data-decider="valider"]');
   v("valider la candidature : fonction serveur avec la session, message", await attendre(pg, "#adm-zone", "Candidature acceptée") &&

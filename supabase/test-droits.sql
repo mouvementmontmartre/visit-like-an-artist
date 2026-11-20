@@ -153,7 +153,8 @@ begin
                         'sanstel@exemple.invalid', 'version@exemple.invalid', 'cgv@exemple.invalid', 'case@exemple.invalid']) m;
     insert into public.intervenants_contacts (intervenant_id, email) values
       (i_a, 'guide-a@exemple.invalid'), (i_b, 'guide-b@exemple.invalid');
-    insert into auth.users (id, email) values (gen_random_uuid(), 'candidat@exemple.invalid');
+    insert into auth.users (id, email) values (gen_random_uuid(), 'candidat@exemple.invalid'), (gen_random_uuid(), 'ancien-accepte@exemple.invalid');
+    insert into public.candidatures (type, nom, email, message, statut) values ('guide', 'Ancien Accepté', 'ancien-accepte@exemple.invalid', 'Visites', 'acceptee');
     insert into public.candidatures (type, nom, email, message) values
       ('artiste', 'Candidat Essai', 'candidat@exemple.invalid', 'Atelier de gravure'),
       ('guide', 'Refusé Essai', 'refuse@exemple.invalid', 'Visites');
@@ -365,6 +366,10 @@ begin
         pg_temp.essai('service_role', null, format('select public.accepter_candidature(c.id, %L, %L) from public.candidatures c where c.email = %L', (select id from auth.users where email = 'candidat@exemple.invalid'), u_admin, 'candidat@exemple.invalid'))),
       jsonb_build_array('Contrôle', 'intervenant non publié, profil, contact, email d''accès', '1',
         pg_temp.essai(null, null, format('select 1 from public.candidatures c join public.intervenants i on i.id = c.intervenant_id and not i.publie join public.profils p on p.intervenant_id = i.id and p.role = %L join public.intervenants_contacts k on k.intervenant_id = i.id and k.email = c.email join public.envois v on v.cible_id = c.id and v.type = %L where c.email = %L and c.statut = %L', 'intervenant', 'acces_intervenant', 'candidat@exemple.invalid', 'acceptee'))),
+      jsonb_build_array('Serveur', 'ouvre l''espace d''une candidature acceptée à la main avant le 22/11', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.accepter_candidature(c.id, %L, %L) as r from public.candidatures c where c.email = %L) x where not (r->>%L)::boolean and r->>%L is not null', (select id from auth.users where email = 'ancien-accepte@exemple.invalid'), u_admin, 'ancien-accepte@exemple.invalid', 'deja', 'intervenant_id'))),
+      jsonb_build_array('Contrôle', 'fiche, profil et email d''accès pour cette candidature', '1',
+        pg_temp.essai(null, null, format('select 1 from public.candidatures c join public.profils p on p.intervenant_id = c.intervenant_id join public.envois v on v.cible_id = c.id and v.type = %L where c.email = %L', 'acces_intervenant', 'ancien-accepte@exemple.invalid'))),
       jsonb_build_array('Serveur', 'refuse une candidature avec un motif', '1',
         pg_temp.essai('service_role', null, format('select public.refuser_candidature(id, %L, %L) from public.candidatures where email = %L', 'Hors Montmartre', u_admin, 'refuse@exemple.invalid'))),
       jsonb_build_array('Contrôle', 'refusée et prévenue', '1',

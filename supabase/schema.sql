@@ -3211,7 +3211,8 @@ declare
 begin
   select * into c from public.candidatures where id = p_id for update;
   if not found then raise exception 'CANDIDATURE_INTROUVABLE'; end if;
-  if c.statut = 'acceptee' then
+  -- Candidature acceptée à la main avant le 22/11 (menu de statut) : pas encore de fiche, on ouvre l'espace maintenant.
+  if c.statut = 'acceptee' and c.intervenant_id is not null then
     return jsonb_build_object('deja', true, 'intervenant_id', c.intervenant_id, 'email', c.email);
   end if;
   select * into p from public.profils where user_id = p_user_id;
