@@ -312,7 +312,7 @@ begin
       jsonb_build_array('Admin', 'publie le brouillon de séance', '1',
         pg_temp.essai('authenticated', u_admin, format('update public.seances set statut = %L where id = %L', 'publiee', s_a_brouillon))),
       jsonb_build_array('Admin', 'lit les demandes privées', '1',
-        pg_temp.essai('authenticated', u_admin, 'select 1 from public.demandes_groupes')),
+        pg_temp.essai('authenticated', u_admin, 'select 1 from public.demandes_groupes where email = ''groupe@exemple.invalid''')),
       jsonb_build_array('Admin', 'valide la proposition de fiche de A', '1',
         pg_temp.essai('authenticated', u_admin, format('select public.valider_proposition(%L)', p_a))),
       jsonb_build_array('Contrôle', 'seul le nom a changé (publie et ordre ignorés)', '1',
