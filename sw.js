@@ -9,7 +9,7 @@
    une modification du code : incrémenter CACHE_VERSION.
    ============================================================ */
 
-const CACHE_VERSION = "mm-v100";
+const CACHE_VERSION = "mm-v101";
 
 const SHELL = [
   "./",

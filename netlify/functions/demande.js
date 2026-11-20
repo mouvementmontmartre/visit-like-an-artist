@@ -4,14 +4,20 @@
    - « prive »     : demande de visite ou d'atelier privé (E7) → demandes_groupes
    - « rejoindre » : guide, artiste ou lieu qui veut rejoindre ArtDive (E14) → candidatures
    Les formulaires n'écrivent jamais dans la base depuis le navigateur :
-   cette fonction vérifie tout, enregistre avec la clé secrète, puis
-   prévient l'association par email (Brevo). Pas d'email envoyé à
-   l'adresse saisie : personne ne peut se servir du formulaire pour
-   écrire à un tiers. Anti-robots : champ piège invisible, délai minimum
-   de remplissage, 3 demandes par adresse et par heure.
+   cette fonction vérifie tout, enregistre avec la clé secrète, PUIS
+   prévient l'association par email (Brevo) : adresse NOTIFY_EMAIL
+   (variable Netlify, sinon mouvementmontmartre@gmail.com), « Répondre »
+   écrit à la personne, lien direct vers l'onglet Demandes. Si l'email
+   échoue, la demande reste enregistrée (visible dans l'onglet Demandes).
+   Pas d'email envoyé à l'adresse saisie : personne ne peut se servir du
+   formulaire pour écrire à un tiers.
+   Anti-robots : champ piège invisible (demande écartée et journalisée) ;
+   3 demandes par adresse et par heure. Un envoi très rapide (moins de
+   3 s, possible avec le remplissage automatique du téléphone) n'est PAS
+   écarté : il est enregistré et signalé « à vérifier » dans l'email.
    ============================================================ */
 
-const { json, table, envoyerBrevo, emailValide, EMAIL_REPONSE } = require("../lib/commun");
+const { json, table, envoyerBrevo, emailValide, EMAIL_REPONSE, SITE_URL } = require("../lib/commun");
 const { esc } = require("../lib/emails");
 
 const texte = (v, max) => { const s = String(v == null ? "" : v).trim(); return s ? s.slice(0, max) : null; };
@@ -24,8 +30,16 @@ exports.handler = async (event) => {
   let p;
   try { p = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { error: "Corps invalide" }); }
 
-  // Robots : le champ piège doit rester vide et un humain met plus de 3 secondes à remplir.
-  if (texte(p.site_web, 200) || !(Number(p.duree_ms) >= 3000)) return json(200, { ok: true });
+  // Robots : le champ piège doit rester vide. Écartée sans le dire (réponse « ok »), mais journalisée
+  // (sans donnée personnelle) pour pouvoir vérifier dans Netlify > Logs qu'aucune vraie demande n'est perdue.
+  const formulaire = p.formulaire === "rejoindre" || p.formulaire === "prive" ? p.formulaire : "?";
+  const duree = Math.round(Number(p.duree_ms) || 0);
+  if (texte(p.site_web, 200)) {
+    console.warn("demande écartée", JSON.stringify({ raison: "champ_piege", formulaire, duree_ms: duree }));
+    return json(200, { ok: true });
+  }
+  const rapide = !(duree >= 3000);
+  if (rapide) console.warn("demande rapide, gardée à vérifier", JSON.stringify({ formulaire, duree_ms: duree }));
 
   const nom = texte(p.nom, 120), email = String(p.email || "").trim().toLowerCase(), telephone = texte(p.telephone, 30);
   const message = texte(p.message, 4000);
@@ -38,9 +52,12 @@ exports.handler = async (event) => {
 
     const uneHeure = new Date(Date.now() - 3600e3).toISOString();
     const recentes = await table("GET", tableCible + "?select=id&email=eq." + encodeURIComponent(email) + "&cree_le=gt." + encodeURIComponent(uneHeure));
-    if (recentes.length >= 3) return json(429, { error: "TROP" });
+    if (recentes.length >= 3) {
+      console.warn("demande écartée", JSON.stringify({ raison: "trop_de_demandes", formulaire }));
+      return json(429, { error: "TROP" });
+    }
 
-    let ligne, sujet, lignesMail;
+    let ligne, sujet, lignesMail;   // sujet modifié ensuite si l'envoi est très rapide
     if (tableCible === "candidatures") {
       const type = TYPES_CANDIDAT.includes(p.type) ? p.type : "autre";
       if (!message) return json(400, { error: "MESSAGE" });
@@ -65,17 +82,23 @@ exports.handler = async (event) => {
         ["Occasion", ligne.occasion], ["Période", ligne.periode_souhaitee], ["Langue", ligne.langue],
         ["Nom", nom], ["Email", email], ["Téléphone", telephone]];
     }
+    // 1. Enregistrement d'abord : la demande n'est jamais perdue, même si l'email échoue.
     await table("POST", tableCible, ligne, { Prefer: "return=minimal" });
+    if (rapide) sujet = "[À vérifier : envoi très rapide] " + sujet;
 
-    // Alerte à l'association (répondre à l'email répond directement à la personne).
+    // 2. Alerte à l'association (répondre à l'email répond directement à la personne).
+    const lienDemandes = SITE_URL + "/#espace=demandes";
     const html = '<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#14100D;max-width:560px">' +
       "<p>" + esc(sujet) + "</p><table style=\"border-collapse:collapse\">" +
       lignesMail.filter((l) => l[1] != null && l[1] !== "").map((l) => '<tr><td style="padding:3px 12px 3px 0;color:#5C5246">' + esc(l[0]) +
         "</td><td><b>" + esc(l[1]) + "</b></td></tr>").join("") + "</table>" +
       (message ? "<p style=\"white-space:pre-line\">" + esc(message) + "</p>" : "") +
-      "<p>À retrouver dans l'app : Infos, Espace intervenants, onglet Demandes.</p></div>";
-    await envoyerBrevo(EMAIL_REPONSE, { sujet, html, texte: html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") }, ["demande"], { email, name: nom })
-      .catch((e) => console.error("alerte demande :", e.message));   // la demande est enregistrée même si l'alerte échoue
+      "<p>Pour répondre, utilisez simplement « Répondre » : l'email part chez " + esc(nom) + ".</p>" +
+      '<p><a href="' + esc(lienDemandes) + '">Ouvrir l\'onglet Demandes dans ArtDive</a></p></div>';
+    const destinataire = String(process.env.NOTIFY_EMAIL || "").trim() || EMAIL_REPONSE;
+    await envoyerBrevo(destinataire, { sujet, html, texte: html.replace(/<a href="([^"]+)">([^<]+)<\/a>/g, "$2 : $1").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") },
+      ["demande"], { email, name: nom })
+      .catch((e) => console.error("alerte demande non envoyée (demande bien enregistrée) :", e.message));
     return json(200, { ok: true });
   } catch (e) {
     console.error("demande :", e.message);

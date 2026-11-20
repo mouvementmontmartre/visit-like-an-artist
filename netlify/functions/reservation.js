@@ -27,7 +27,7 @@ exports.handler = async (event) => {
       const session = await stripe("checkout/sessions/" + id);
       if (!session.metadata || !session.metadata.reservation_id) return json(400, { error: "Session invalide" });
       if (Date.now() / 1000 - session.created > 24 * 3600) return json(400, { error: "Session expirée" });
-      if (session.payment_status === "paid") {
+      if (session.payment_status === "paid" || (session.mode === "setup" && session.status === "complete")) {
         await confirmerSession(session);        // sans attendre le webhook, sans doublon
         await toutTraiter().catch(() => {});      // la confirmation part tout de suite
       }

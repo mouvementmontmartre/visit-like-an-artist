@@ -8,7 +8,11 @@
    2. Crée la session de paiement Stripe et renvoie son adresse.
    Pour une visite ou un atelier, la carte est gardée (accord donné)
    pour d'éventuels frais d'annulation tardive ou d'absence.
+   Adhérent (email d'une adhésion valable, vérifié par la base) : rien à
+   payer, la carte est seulement enregistrée (Checkout en mode « setup »).
    Si Stripe échoue, les places sont libérées tout de suite.
+   POST { action: "adherent", email } : l'email est-il celui d'une
+   adhésion valable ? (affichage du formulaire, la base recalcule tout).
    ============================================================ */
 
 const { SITE_URL, CGV_VERSION, json, rpc, stripePost, emailValide } = require("../lib/commun");
@@ -19,9 +23,9 @@ const ERREURS = {
   SEANCE_INDISPONIBLE: 409, COMPLET: 409,
 };
 const MENTION_FRAIS = {
-  fr: "Votre carte est enregistrée pour d'éventuels frais d'annulation tardive (moins de 24 h avant) ou d'absence, selon les conditions acceptées.",
-  en: "Your card is saved for a possible late cancellation (less than 24 hours before) or no-show fee, as agreed.",
-  es: "Tu tarjeta se guarda para posibles gastos de cancelación tardía (menos de 24 h antes) o de ausencia, según las condiciones aceptadas.",
+  fr: "Votre carte est enregistrée pour d'éventuels frais d'annulation tardive (moins de 24 h avant) ou d'absence, au profit de l'association, selon les conditions acceptées.",
+  en: "Your card is saved for a possible late cancellation (less than 24 hours before) or no-show fee, for the association, as agreed.",
+  es: "Tu tarjeta se guarda para posibles gastos de cancelación tardía (menos de 24 h antes) o de ausencia, a favor de la asociación, según las condiciones aceptadas.",
 };
 const uuidValide = (s) => typeof s === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
@@ -29,6 +33,13 @@ exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return json(405, { error: "POST attendu" });
   let p;
   try { p = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { error: "Corps invalide" }); }
+
+  if (p.action === "adherent") {
+    const em = String(p.email || "").trim().toLowerCase();
+    if (!emailValide(em)) return json(400, { error: "EMAIL" });
+    try { return json(200, await rpc("adhesion_pour_reservation", { p_email: em })); }
+    catch (e) { console.error("reserver adherent", e.message); return json(500, { error: "ERREUR" }); }
+  }
 
   const langue = ["fr", "en", "es"].includes(p.langue) ? p.langue : "fr";
   const email = String(p.email || "").trim().toLowerCase();
@@ -92,12 +103,28 @@ exports.handler = async (event) => {
     params["custom_text[submit][message]"] = MENTION_FRAIS[langue];
   }
 
-  const s = await stripePost("checkout/sessions", params, "resa-" + resa.reservation_id)
-    .catch((e) => ({ ok: false, data: { error: { message: e.message } } }));
+  let s;
+  if (resa.a_payer_centimes === 0) {
+    // Adhérent : pré-réservation offerte. La carte est enregistrée sans débit, au nom d'un client
+    // Stripe créé pour l'occasion (indispensable pour un prélèvement ultérieur hors session).
+    const client = await stripePost("customers", { email, name: nom, "metadata[reservation_id]": resa.reservation_id },
+      "client-" + resa.reservation_id).catch((e) => ({ ok: false, data: { error: { message: e.message } } }));
+    s = client.ok ? await stripePost("checkout/sessions", {
+      mode: "setup", locale: langue, customer: client.data.id,
+      "payment_method_types[0]": "card",
+      "metadata[reservation_id]": resa.reservation_id,
+      "setup_intent_data[metadata][reservation_id]": resa.reservation_id,
+      "setup_intent_data[description]": ("Réservation " + resa.reference + " (adhérent), " + titre + ", " + quand).slice(0, 500),
+      expires_at: params.expires_at, success_url: params.success_url, cancel_url: params.cancel_url,
+    }, "resa-" + resa.reservation_id).catch((e) => ({ ok: false, data: { error: { message: e.message } } })) : client;
+  } else {
+    s = await stripePost("checkout/sessions", params, "resa-" + resa.reservation_id)
+      .catch((e) => ({ ok: false, data: { error: { message: e.message } } }));
+  }
   if (!s.ok) {
     console.error("reserver stripe", s.data && s.data.error && s.data.error.message);
     await rpc("liberer_reservation", { p_stripe_session_id: null, p_reservation_id: resa.reservation_id }).catch(() => {});
     return json(502, { error: "Paiement indisponible pour le moment", code: "STRIPE" });
   }
-  return json(200, { url: s.data.url, reference: resa.reference });
+  return json(200, { url: s.data.url, reference: resa.reference, adherent: !!resa.adherent });
 };

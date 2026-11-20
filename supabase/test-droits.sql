@@ -138,6 +138,14 @@ begin
     insert into public.reservations_liens (jeton_hash, reservation_id) values
       (interne.sha256('jeton-loin'), r_loin), (interne.sha256('jeton-tot'), r_tot),
       (interne.sha256('jeton-tot-sans'), r_tot_sans);
+    -- Frais plafonnés au solde : 2 personnes, 6 € à régler sur place → 6 € au plus.
+    insert into public.reservations (seance_id, experience_id, nom, email, telephone, personnes, statut,
+        prix_unitaire_centimes, total_centimes, paye_en_ligne_centimes, reste_sur_place_centimes, cgv_acceptees_le,
+        accord_frais_le, stripe_customer, stripe_payment_method, confirmee_le) values
+      (s_tot, x_a, 'Cléo Cap', 'cleo@exemple.invalid', '06', 2, 'confirmee', 800, 1600, 1000, 600, now(), now(), 'cus_c', 'pm_c', now());
+    insert into public.adhesions (email, nom, source, debut, valide_jusqua) values
+      ('ada@exemple.invalid', 'Ada Adhérente', 'manuelle', now() - interval '10 days', now() + interval '300 days');
+    update public.seances set prix_adherent_centimes = 4000 where id = s_b;
     insert into public.intervenants_contacts (intervenant_id, email) values
       (i_a, 'guide-a@exemple.invalid'), (i_b, 'guide-b@exemple.invalid');
 
@@ -199,7 +207,7 @@ begin
         pg_temp.essai('authenticated', u_a, format('select 1 from public.seances where id = %L', s_b))),
       jsonb_build_array('Intervenant A', 'voit son inscrite confirmée, nom abrégé', '1',
         pg_temp.essai('authenticated', u_a, format('select 1 from public.mes_inscrits where nom = %L and telephone = %L', 'Camille D.', '0600000001'))),
-      jsonb_build_array('Intervenant A', 'ne voit que ses inscrits (7 lignes, aucune de B)', '7',
+      jsonb_build_array('Intervenant A', 'ne voit que ses inscrits (8 lignes, aucune de B)', '8',
         pg_temp.essai('authenticated', u_a, 'select 1 from public.mes_inscrits')),
       jsonb_build_array('Intervenant A', 'ne lit pas les réservations complètes (emails)', 'refus',
         pg_temp.essai('authenticated', u_a, 'select 1 from public.reservations')),
@@ -295,7 +303,7 @@ begin
 
     -- ---------- ADMIN ----------
     res := res || jsonb_build_array(
-      jsonb_build_array('Admin', 'lit toutes les réservations (10)', '10',
+      jsonb_build_array('Admin', 'lit toutes les réservations (11)', '11',
         pg_temp.essai('authenticated', u_admin, 'select 1 from public.reservations')),
       jsonb_build_array('Admin', 'voit l''expérience non publiée', '1',
         pg_temp.essai('authenticated', u_admin, format('select 1 from public.experiences where id = %L', x_cache))),
@@ -335,6 +343,26 @@ begin
         pg_temp.essai('service_role', null, format('select 1 from (select public.reserver_places(%L, 7, %L, %L, %L, %L, ''{"cgv":true,"non_remboursable":true,"sans_retractation":true,"prelevement":true}'', ''2026-11-18'') as r) x where (r->>%L)::int = 3500 and (r->>%L)::int = 31500', s_a, 'Grande Famille', 'Famille@Exemple.invalid', '0611111111', 'fr', 'a_payer_centimes', 'reste_sur_place_centimes'))),
       jsonb_build_array('Serveur', 'refuse une place de plus : complet', 'refus',
         pg_temp.essai('service_role', null, format('select public.reserver_places(%L, 1, %L, %L, %L, %L, ''{"cgv":true,"non_remboursable":true,"sans_retractation":true,"prelevement":true}'', ''2026-11-18'')', s_a, 'Dernier Arrivé', 'dernier@exemple.invalid', '0611111111', 'fr'))),
+      jsonb_build_array('Serveur', 'adhérente reconnue par son email : pré-réservation offerte, tarif adhérent de la séance', '1',
+        pg_temp.essai('service_role', null, format('select 1 from (select public.reserver_places(%L, 1, %L, %L, %L, %L, ''{"cgv":true,"sans_retractation":true,"prelevement":true}'', ''2026-11-20'') as r) x where (r->>%L)::int = 0 and (r->>%L)::int = 4000 and (r->>%L)::boolean', s_b, 'Ada Adhérente', 'Ada@Exemple.invalid', '0611111111', 'fr', 'a_payer_centimes', 'reste_sur_place_centimes', 'adherent'))),
+      jsonb_build_array('Serveur', 'adhésion reconnue pour le formulaire (date de fin seulement)', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.adhesion_pour_reservation(''ada@exemple.invalid'') as r) x where (r->>''adherent'')::boolean and not r ? ''nom''')),
+      jsonb_build_array('Serveur', 'email sans adhésion : pas adhérent', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.adhesion_pour_reservation(''inconnu@exemple.invalid'') as r) x where not (r->>''adherent'')::boolean')),
+      jsonb_build_array('Visiteur', 'ne vérifie pas une adhésion par email', 'refus',
+        pg_temp.essai('anon', null, 'select 1 from (select public.adhesion_pour_reservation(''ada@exemple.invalid'') as r) x where r is not null')),
+      jsonb_build_array('Serveur', 'adhérente sans carte enregistrée : confirmation refusée', 'refus',
+        pg_temp.essai('service_role', null, 'select public.confirmer_reservation((select id from public.reservations where email = ''ada@exemple.invalid''), ''cs_ada'', null, 0)')),
+      jsonb_build_array('Serveur', 'adhérente confirmée avec sa carte enregistrée, sans paiement', '1',
+        pg_temp.essai('service_role', null, 'select 1 from (select public.confirmer_reservation((select id from public.reservations where email = ''ada@exemple.invalid''), ''cs_ada'', null, 0, ''cus_ada'', ''pm_ada'', ''seti_ada'') as r) x where r->>''statut'' = ''confirmee''')),
+      jsonb_build_array('Contrôle', 'adhérente : aucun paiement enregistré, carte gardée', '1',
+        pg_temp.essai(null, null, 'select 1 from public.reservations r where r.email = ''ada@exemple.invalid'' and r.adherent and r.stripe_payment_method = ''pm_ada'' and not exists (select 1 from public.paiements p where p.reservation_id = r.id)')),
+      jsonb_build_array('Intervenant B', 'voit le badge adhérent dans ses inscrits', '1',
+        pg_temp.essai('authenticated', u_b, 'select 1 from public.mes_inscrits where adherent and reste_sur_place_centimes = 4000')),
+      jsonb_build_array('Intervenant A', 'ne fixe pas un tarif adhérent plus cher que le prix', 'refus',
+        pg_temp.essai('authenticated', u_a, format('update public.seances set prix_adherent_centimes = 999999 where id = %L', s_a_brouillon))),
+      jsonb_build_array('Serveur', 'frais jamais plus que le solde sur place (6 € au lieu de 20 €)', '1',
+        pg_temp.essai('service_role', null, 'select 1 where interne.frais_dus((select id from public.reservations where email = ''cleo@exemple.invalid'')) = 600')),
       jsonb_build_array('Visiteur', 'voit maintenant 0 place restante', '1',
         pg_temp.essai('anon', null, format('select 1 from public.seances_publiques where id = %L and places_restantes = 0', s_a))),
       jsonb_build_array('Serveur', 'refuse de confirmer avec un montant faux', 'refus',
@@ -405,7 +433,7 @@ begin
         pg_temp.essai('authenticated', u_a, 'select public.code_import_creer()')),
       jsonb_build_array('Intervenant A', 'ne s''enregistre pas comme adhérent', 'refus',
         pg_temp.essai('authenticated', u_a, format('select public.enregistrer_adhesion_ponctuelle(%L, null, %L, %L, %L, now())', 'pi_faux', 'faux@exemple.invalid', 'Faux', 'adhesion'))),
-      jsonb_build_array('Admin', 'lit les adhésions', '3',
+      jsonb_build_array('Admin', 'lit les adhésions', '4',
         pg_temp.essai('authenticated', u_admin, format('select 1 from public.adhesions where email like %L', '%@exemple.invalid'))),
       jsonb_build_array('Admin', 'ajoute une adhésion payée en espèces', '1',
         pg_temp.essai('authenticated', u_admin, format('select public.ajouter_adhesion_manuelle(%L, %L, current_date + 365, %L, %L)', 'especes@exemple.invalid', 'Eva Espèces', 'adhesion', 'payé en espèces'))),

@@ -30,7 +30,8 @@ const T = {
     date: "Date", personnes: "Personnes", avec: "Avec", rdv: "Rendez-vous", ref: "Référence",
     paye: "Payé en ligne", reste: (m, g) => "Le reste, " + m + ", se règle " + (g ? "à " + g + " " : "") + "sur place. Pensez à prendre de la monnaie.",
     mot: "Le mot de votre hôte",
-    regle: (f) => "Vous ne pouvez plus venir ? Prévenez-nous avec le bouton ci-dessous : la place sera proposée à quelqu'un d'autre. La pré-réservation reste acquise. Moins de 24 h avant, ou en cas d'absence sans prévenir, " + f + " de frais par personne sont prélevés sur la carte utilisée.",
+    regle: (f, adh) => "Vous ne pouvez plus venir ? Prévenez-nous avec le bouton ci-dessous : la place sera proposée à quelqu'un d'autre." + (adh ? "" : " La pré-réservation reste acquise.") + " Moins de 24 h avant, ou en cas d'absence sans prévenir, " + f + " par personne sont prélevés sur la carte enregistrée au profit de l'association Mouvement Montmartre, sans dépasser le solde de la séance.",
+    offerte: "Pré-réservation offerte (adhérent)",
     regle_soiree: "Vous ne pouvez plus venir ? Prévenez-nous avec le bouton ci-dessous.",
     bouton_annuler: "Je ne peux plus venir",
     calendrier: "Le fichier joint ajoute la visite à votre calendrier.",
@@ -38,16 +39,17 @@ const T = {
     lien_cgv: "lire les CGV",
     annulation_sujet: (d) => "Annulation enregistrée : " + d,
     annulation_texte: "Votre annulation est enregistrée et votre place a été libérée.",
-    annulation_frais: (m) => "L'annulation intervenant moins de 24 h avant, " + m + " de frais d'annulation tardive vont être prélevés sur la carte utilisée lors de la réservation.",
+    annulation_frais: (m) => "L'annulation intervenant moins de 24 h avant, " + m + " de frais d'annulation tardive vont être prélevés sur la carte enregistrée, au profit de l'association Mouvement Montmartre.",
     annulation_sans_frais: "La pré-réservation reste acquise, aucun autre frais n'est appliqué.",
+    annulation_sans_frais_adh: "Aucun frais n'est appliqué.",
     seance_annulee_sujet: (d) => "Séance annulée : " + d,
     seance_annulee_minimum: "Le nombre minimum de participants n'a pas été atteint : la séance est annulée.",
     seance_annulee_orga: "Nous sommes désolés : la séance est annulée par l'organisation.",
     rembourse: (m) => "Vous êtes remboursé intégralement de " + m + ". Le remboursement apparaît sur votre compte sous 5 à 10 jours.",
     tardif_sujet: (d) => "Réservation impossible, vous êtes remboursé : " + d,
     tardif_texte: "Votre paiement est arrivé après la fin du délai de réservation, et la dernière place a été prise entre-temps.",
-    frais_sujet: "Frais d'annulation tardive",
-    frais_texte: (m) => m + " de frais d'annulation tardive ou d'absence ont été prélevés sur votre carte, conformément aux conditions acceptées lors de la réservation.",
+    frais_sujet: "Frais d'absence ou d'annulation tardive",
+    frais_texte: (m) => m + " de frais d'annulation tardive ou d'absence ont été prélevés sur votre carte au profit de l'association Mouvement Montmartre, conformément aux conditions acceptées lors de la réservation.",
     frais_payer_sujet: "Frais d'annulation tardive à régler",
     frais_payer_texte: (m) => "Votre banque demande une validation pour le prélèvement de " + m + " de frais d'annulation tardive ou d'absence. Merci de le régler avec le bouton ci-dessous.",
     bouton_payer: "Régler les frais",
@@ -63,7 +65,8 @@ const T = {
     date: "Date", personnes: "People", avec: "With", rdv: "Meeting point", ref: "Reference",
     paye: "Paid online", reste: (m, g) => "The rest, " + m + ", is paid on site" + (g ? " to " + g : "") + ". Please bring cash.",
     mot: "A word from your host",
-    regle: (f) => "Can't make it? Let us know with the button below so the spot can go to someone else. The booking fee is non refundable. Less than 24 hours before, or if you do not show up, a " + f + " fee per person is charged to the card you used.",
+    regle: (f, adh) => "Can't make it? Let us know with the button below so the spot can go to someone else." + (adh ? "" : " The booking fee is non refundable.") + " Less than 24 hours before, or if you do not show up, " + f + " per person is charged to the saved card for the Mouvement Montmartre association, never more than the balance of the session.",
+    offerte: "Booking fee waived (member)",
     regle_soiree: "Can't make it? Let us know with the button below.",
     bouton_annuler: "I can no longer come",
     calendrier: "The attached file adds the tour to your calendar.",
@@ -71,16 +74,17 @@ const T = {
     lien_cgv: "read the terms",
     annulation_sujet: (d) => "Cancellation recorded: " + d,
     annulation_texte: "Your cancellation is recorded and your spot has been released.",
-    annulation_frais: (m) => "As you cancelled less than 24 hours before, a late cancellation fee of " + m + " will be charged to the card used for the booking.",
+    annulation_frais: (m) => "As you cancelled less than 24 hours before, a late cancellation fee of " + m + " will be charged to the saved card, for the Mouvement Montmartre association.",
     annulation_sans_frais: "The booking fee is kept; no other fee applies.",
+    annulation_sans_frais_adh: "No fee applies.",
     seance_annulee_sujet: (d) => "Session cancelled: " + d,
     seance_annulee_minimum: "The minimum number of participants was not reached: the session is cancelled.",
     seance_annulee_orga: "We are sorry: the session has been cancelled by the organisers.",
     rembourse: (m) => "You are fully refunded " + m + ". The refund shows on your account within 5 to 10 days.",
     tardif_sujet: (d) => "Booking not possible, you are refunded: " + d,
     tardif_texte: "Your payment arrived after the booking time limit, and the last spot was taken in the meantime.",
-    frais_sujet: "Late cancellation fee",
-    frais_texte: (m) => "A late cancellation or no-show fee of " + m + " has been charged to your card, as agreed when booking.",
+    frais_sujet: "No-show or late cancellation fee",
+    frais_texte: (m) => "A late cancellation or no-show fee of " + m + " has been charged to your card for the Mouvement Montmartre association, as agreed when booking.",
     frais_payer_sujet: "Late cancellation fee to pay",
     frais_payer_texte: (m) => "Your bank asks for a confirmation to charge the late cancellation or no-show fee of " + m + ". Please pay it with the button below.",
     bouton_payer: "Pay the fee",
@@ -96,7 +100,8 @@ const T = {
     date: "Fecha", personnes: "Personas", avec: "Con", rdv: "Punto de encuentro", ref: "Referencia",
     paye: "Pagado en línea", reste: (m, g) => "El resto, " + m + ", se paga en el lugar" + (g ? " a " + g : "") + ". Lleva efectivo.",
     mot: "Unas palabras de tu anfitrión",
-    regle: (f) => "¿Ya no puedes venir? Avísanos con el botón de abajo para ofrecer la plaza a otra persona. La prerreserva no se devuelve. Con menos de 24 h de antelación, o si no te presentas, se cobran " + f + " de gastos por persona en la tarjeta utilizada.",
+    regle: (f, adh) => "¿Ya no puedes venir? Avísanos con el botón de abajo para ofrecer la plaza a otra persona." + (adh ? "" : " La prerreserva no se devuelve.") + " Con menos de 24 h de antelación, o si no te presentas, se cobran " + f + " por persona en la tarjeta guardada a favor de la asociación Mouvement Montmartre, sin superar el saldo de la sesión.",
+    offerte: "Prerreserva gratuita (socio)",
     regle_soiree: "¿Ya no puedes venir? Avísanos con el botón de abajo.",
     bouton_annuler: "Ya no puedo venir",
     calendrier: "El archivo adjunto añade la visita a tu calendario.",
@@ -104,16 +109,17 @@ const T = {
     lien_cgv: "leer las condiciones",
     annulation_sujet: (d) => "Cancelación registrada: " + d,
     annulation_texte: "Tu cancelación está registrada y tu plaza ha quedado libre.",
-    annulation_frais: (m) => "Como la cancelación se hace con menos de 24 h de antelación, se cobrarán " + m + " de gastos de cancelación tardía en la tarjeta utilizada.",
+    annulation_frais: (m) => "Como la cancelación se hace con menos de 24 h de antelación, se cobrarán " + m + " de gastos de cancelación tardía en la tarjeta guardada, a favor de la asociación Mouvement Montmartre.",
     annulation_sans_frais: "La prerreserva no se devuelve; no se aplica ningún otro gasto.",
+    annulation_sans_frais_adh: "No se aplica ningún gasto.",
     seance_annulee_sujet: (d) => "Sesión cancelada: " + d,
     seance_annulee_minimum: "No se alcanzó el número mínimo de participantes: la sesión se cancela.",
     seance_annulee_orga: "Lo sentimos: la organización ha cancelado la sesión.",
     rembourse: (m) => "Se te reembolsan íntegramente " + m + ". El reembolso aparece en tu cuenta en 5 a 10 días.",
     tardif_sujet: (d) => "Reserva imposible, se te reembolsa: " + d,
     tardif_texte: "Tu pago llegó después del plazo de reserva y la última plaza se ocupó mientras tanto.",
-    frais_sujet: "Gastos de cancelación tardía",
-    frais_texte: (m) => "Se han cobrado en tu tarjeta " + m + " de gastos de cancelación tardía o de ausencia, según las condiciones aceptadas al reservar.",
+    frais_sujet: "Gastos de ausencia o de cancelación tardía",
+    frais_texte: (m) => "Se han cobrado en tu tarjeta " + m + " de gastos de cancelación tardía o de ausencia a favor de la asociación Mouvement Montmartre, según las condiciones aceptadas al reservar.",
     frais_payer_sujet: "Gastos de cancelación tardía por pagar",
     frais_payer_texte: (m) => "Tu banco pide una validación para cobrar " + m + " de gastos de cancelación tardía o de ausencia. Págalos con el botón de abajo.",
     bouton_payer: "Pagar los gastos",
@@ -160,7 +166,8 @@ function rediger(envoi) {
   const debut = d.debut ? quand(d.debut, l) : "";
   const recap = '<table style="border-collapse:collapse;margin:12px 0">' +
     ligne(t.date, debut) + ligne(t.personnes, String(d.personnes || "")) + ligne(t.avec, d.intervenant) +
-    ligne(t.rdv, d.point_rdv_precis || d.point_rdv) + ligne(t.paye, euros(d.paye_en_ligne_centimes, l)) +
+    ligne(t.rdv, d.point_rdv_precis || d.point_rdv) +
+    ligne(t.paye, d.adherent && !d.paye_en_ligne_centimes ? t.offerte : euros(d.paye_en_ligne_centimes, l)) +
     ligne(t.ref, d.reference) + "</table>";
   const reste = estVisite(d) && d.reste_sur_place_centimes > 0
     ? "<p><b>" + esc(t.reste(euros(d.reste_sur_place_centimes, l), d.intervenant)) + "</b></p>" : "";
@@ -175,7 +182,7 @@ function rediger(envoi) {
       sujet = c ? t.confirmation_sujet(nomVisite) : t.rappel_sujet(nomVisite);
       corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p><p>" + esc(c ? t.confirmation_intro : t.rappel_intro) + "</p>" +
         "<h2 style=\"font-size:20px;margin:16px 0 4px\">" + esc(nomVisite) + "</h2>" + recap + reste + mot +
-        "<p>" + esc(estVisite(d) ? t.regle(fraisPers) : t.regle_soiree) + "</p>" +
+        "<p>" + esc(estVisite(d) ? t.regle(fraisPers, d.adherent) : t.regle_soiree) + "</p>" +
         (lienResa ? bouton(lienResa, t.bouton_annuler) : "") + "<p style=\"font-size:13px;color:#5A4E44\">" + esc(t.calendrier) + "</p>" +
         (c ? "<p style=\"font-size:13px;color:#5A4E44\">" + esc(t.cgv) + ' <a href="' + esc(SITE_URL + "/cgv.html") + '">' + esc(t.lien_cgv) +
           (d.cgv_version ? " (" + esc(d.cgv_version) + ")" : "") + "</a></p>" : "") + fin;
@@ -185,19 +192,19 @@ function rediger(envoi) {
     case "annulation_client":
       sujet = t.annulation_sujet(nomVisite);
       corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p><p>" + esc(t.annulation_texte) + "</p>" +
-        "<p>" + esc(d.frais_centimes > 0 ? t.annulation_frais(euros(d.frais_centimes, l)) : (estVisite(d) ? t.annulation_sans_frais : "")) + "</p>" +
+        "<p>" + esc(d.frais_centimes > 0 ? t.annulation_frais(euros(d.frais_centimes, l)) : (estVisite(d) ? (d.adherent ? t.annulation_sans_frais_adh : t.annulation_sans_frais) : "")) + "</p>" +
         recap + fin;
       break;
     case "seance_annulee":
       sujet = t.seance_annulee_sujet(nomVisite);
       corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p><p>" +
         esc(d.motif === "minimum_non_atteint" ? t.seance_annulee_minimum : t.seance_annulee_orga) + "</p>" +
-        "<p>" + esc(t.rembourse(euros(d.paye_en_ligne_centimes, l))) + "</p>" + recap + fin;
+        (d.paye_en_ligne_centimes > 0 ? "<p>" + esc(t.rembourse(euros(d.paye_en_ligne_centimes, l))) + "</p>" : "") + recap + fin;
       break;
     case "paiement_tardif":
       sujet = t.tardif_sujet(nomVisite);
       corps = "<p>" + esc(t.bonjour(d.nom || "")) + "</p><p>" + esc(t.tardif_texte) + "</p>" +
-        "<p>" + esc(t.rembourse(euros(d.paye_en_ligne_centimes, l))) + "</p>" + fin;
+        (d.paye_en_ligne_centimes > 0 ? "<p>" + esc(t.rembourse(euros(d.paye_en_ligne_centimes, l))) + "</p>" : "") + fin;
       break;
     case "frais_preleves":
       sujet = t.frais_sujet;
@@ -214,13 +221,13 @@ function rediger(envoi) {
       sujet = "Nouvelle inscription : " + titre(d, "fr") + ", " + quand(d.debut, "fr");
       corps = "<p>Nouvelle inscription confirmée.</p>" + '<table style="border-collapse:collapse">' +
         ligne("Visite", titre(d, "fr")) + ligne("Date", quand(d.debut, "fr")) + ligne("Nom", d.nom) +
-        ligne("Personnes", String(d.personnes)) + ligne("Téléphone", d.telephone) +
+        ligne("Personnes", String(d.personnes)) + ligne("Téléphone", d.telephone) + ligne("Adhérent", d.adherent ? "oui" : "") +
         ligne("Reste à encaisser sur place", euros(d.reste_sur_place_centimes, "fr")) + ligne("Référence", d.reference) + "</table>";
       break;
     case "alerte_annulation":
       sujet = "Annulation : " + titre(d, "fr") + ", " + quand(d.debut, "fr");
       corps = "<p>" + esc(d.nom) + " (" + esc(d.personnes) + " pers.) ne viendra pas. La place est de nouveau disponible.</p>" +
-        (d.frais_centimes > 0 ? "<p>Annulation tardive : " + esc(euros(d.frais_centimes, "fr")) + " de frais seront prélevés.</p>" : "") +
+        (d.frais_centimes > 0 ? "<p>Annulation tardive : " + esc(euros(d.frais_centimes, "fr")) + " de frais seront prélevés au profit de l'association (non reversés à l'intervenant).</p>" : "") +
         '<table style="border-collapse:collapse">' + ligne("Visite", titre(d, "fr")) + ligne("Date", quand(d.debut, "fr")) +
         ligne("Référence", d.reference) + "</table>";
       break;

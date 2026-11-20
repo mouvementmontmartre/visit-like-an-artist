@@ -90,7 +90,7 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   // 2. Formulaire
   await pg.click("#btn-reserver");
   v("formulaire : ouvert avec le résumé", await attendre(pg, "#reserver-body", "Circuit des Peintres") && await attendre(pg, "#reserver-body", "english"));
-  v("formulaire : case d'autorisation avec 10 € par personne, soit 20 € pour 2", await attendre(pg, "#reserver-body", "par personne inscrite, soit 20"));
+  v("formulaire : case d'autorisation avec 10 € par personne, soit 20 € pour 2", await attendre(pg, "#reserver-body", "par personne inscrite, soit au plus 20"));
   v("formulaire : mention « vendue par Sylvain Lesecq, guide ou artiste indépendant »", await attendre(pg, "#reserver-body", "vendue par Sylvain Lesecq, guide ou artiste indépendant"));
   v("formulaire : bouton avec obligation de paiement", await attendre(pg, "#resa-payer", "Payer 10 € et réserver (commande avec obligation de paiement)") || await attendre(pg, "#resa-payer", "(commande avec obligation de paiement)"));
   v("formulaire : 5 cases, aucune pré-cochée, photos facultative", (await pg.$$eval("#resa-form input[type=checkbox]", (l) => l.length + ":" + l.filter((c) => c.checked).length)) === "5:0" && await attendre(pg, "#reserver-body", "(facultatif) J'accepte que des photos"));
@@ -107,9 +107,32 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   await pg.screenshot({ path: OUT + "/resa-formulaire.png", fullPage: true });
   await pg.click("#resa-payer");
   await pg.waitForURL("https://checkout.stripe.test/**", { timeout: 8000 }).catch(() => {});
-  const envoi = st.appels.find((a) => a.f === "reserver");
+  const envoi = st.appels.find((a) => a.f === "reserver" && !a.corps.action);
   v("paiement : envoi vers Stripe avec les bonnes données", pg.url().startsWith("https://checkout.stripe.test/") && envoi && envoi.corps.personnes === 2 && envoi.corps.email === "camille@exemple.invalid" && JSON.stringify(envoi.corps.consentements) === JSON.stringify({ cgv: true, non_remboursable: true, sans_retractation: true, prelevement: true }) && envoi.corps.seance_id === "aaaaaaaa-0000-0000-0000-000000000002", JSON.stringify(envoi));
   v("aucune erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
+  await ctx.close();
+
+  // 2 bis. Adhérent reconnu par son email : pré-réservation offerte, carte enregistrée sans débit (E8.1.1)
+  ({ pg, ctx, st } = await page({ fonctions: (f, c) => f === "reserver" && c.action === "adherent" ? [200, { adherent: c.email === "ada@exemple.invalid", valide_jusqua: "2027-06-30T00:00:00Z" }]
+    : f === "reserver" ? [200, { url: "https://checkout.stripe.test/cs_test_adh", adherent: true }] : [404, {}] }));
+  await ouvrir(pg, "circuit-test");
+  await attendre(pg, "#visite-seances", "Réservez votre place");
+  await pg.click("#btn-reserver");
+  v("adhérent : invitation à saisir l'email d'adhésion", await attendre(pg, "#reserver-body", "Saisissez votre email d'adhésion"));
+  await pg.fill("#resa-nom", "Ada Lovelace"); await pg.fill("#resa-email", "Ada@Exemple.invalid"); await pg.fill("#resa-tel", "0612345678");
+  await pg.$eval("#resa-email", (i) => i.dispatchEvent(new Event("change")));
+  v("adhérent : « Adhérent reconnu », pré-réservation offerte", await attendre(pg, "#reserver-body", "Adhérent reconnu") && await attendre(pg, "#reserver-body", "Pré-réservation offerte"));
+  v("adhérent : 0 € maintenant, bouton « Réserver gratuitement », carte sans débit", await attendre(pg, "#resa-payer", "Réserver gratuitement") &&
+    await attendre(pg, "#reserver-body", "Carte enregistrée par Stripe") && await attendre(pg, "#screen-reserver .back-sub", "Adhérent"));
+  v("adhérent : les champs saisis sont gardés", (await pg.$eval("#resa-nom", (i) => i.value)) === "Ada Lovelace");
+  v("adhérent : pas de case « pré-réservation non remboursable »", (await pg.$("#resa-c-non_remboursable")) === null);
+  await pg.screenshot({ path: OUT + "/resa-adherent.png", fullPage: true });
+  await pg.check("#resa-c-cgv"); await pg.check("#resa-c-sans_retractation"); await pg.check("#resa-c-prelevement");
+  await pg.click("#resa-payer");
+  await pg.waitForURL("https://checkout.stripe.test/**", { timeout: 8000 }).catch(() => {});
+  const envoiAdh = st.appels.find((a) => a.f === "reserver" && !a.corps.action);
+  v("adhérent : réservation envoyée (la base recalcule tout)", envoiAdh && envoiAdh.corps.email === "ada@exemple.invalid" && envoiAdh.corps.consentements.prelevement === true && !envoiAdh.corps.consentements.non_remboursable);
+  v("adhérent : aucune erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
   await ctx.close();
 
   // 3. Retour arrière depuis le formulaire, et erreur « complet »

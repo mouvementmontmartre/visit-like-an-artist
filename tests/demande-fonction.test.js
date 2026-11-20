@@ -42,7 +42,17 @@ const envoyer = (corps) => { st = Object.assign({ appels: [], lignes: [], recent
   r = await envoyer({ formulaire: "prive", nom: "A", email: "a@exemple.invalid", site_web: "http://spam" });
   v("robot (champ piège rempli) : réponse normale, rien d'enregistré", r.status === 200 && !st.lignes.length && !st.appels.length);
   r = await envoyer({ formulaire: "prive", nom: "A", email: "a@exemple.invalid", duree_ms: 500 });
-  v("robot (trop rapide) : rien d'enregistré", r.status === 200 && !st.lignes.length);
+  const alerteRapide = st.appels.find((x) => x.chemin === "/v3/smtp/email");
+  v("envoi très rapide : gardé (pas perdu) et signalé « à vérifier »", r.status === 200 && st.lignes.length === 1 && alerteRapide && /À vérifier/.test(alerteRapide.corps.subject));
+  st = null;
+  process.env.NOTIFY_EMAIL = "alertes@exemple.invalid";
+  r = await envoyer({ formulaire: "rejoindre", type: "guide", nom: "Léa", email: "lea@exemple.invalid", message: "Je suis guide." });
+  const alerteNotif = st.appels.find((x) => x.chemin === "/v3/smtp/email");
+  v("alerte envoyée à NOTIFY_EMAIL, réponse vers la personne, lien vers l'onglet Demandes", r.status === 200 && alerteNotif &&
+    alerteNotif.corps.to[0].email === "alertes@exemple.invalid" && alerteNotif.corps.replyTo.email === "lea@exemple.invalid" && alerteNotif.corps.htmlContent.includes("https://artdive.app/#espace=demandes"));
+  const ordre = st.appels.findIndex((x) => x.m === "POST" && /candidatures/.test(x.chemin)) < st.appels.findIndex((x) => x.chemin === "/v3/smtp/email");
+  v("la demande est enregistrée AVANT l'envoi de l'email", ordre);
+  delete process.env.NOTIFY_EMAIL;
   st = { garder: true, appels: [], lignes: [], recentes: 3 };
   r = await envoyer({ formulaire: "prive", nom: "A", email: "a@exemple.invalid" });
   v("4e demande dans l'heure refusée", r.status === 429 && !st.lignes.length);

@@ -269,16 +269,26 @@ async function renderAdmin(corps, nom, role, moi) {
   ADM.nom = nom || ADM.nom;
   if (role) { if (role !== ADM.role) ADM.onglet = role === "intervenant" ? "seances" : "fiches"; ADM.role = role; ADM.moi = moi || null; }
   const inter = ADM.role === "intervenant";
+  // Onglet demandé par « Mon compte » ou par un lien d'email (#espace=demandes), même après la connexion.
+  let voulu = ADM.ongletVoulu;
+  try { voulu = voulu || localStorage.getItem("ongletVoulu"); localStorage.removeItem("ongletVoulu"); } catch (e) { /* rien */ }
+  ADM.ongletVoulu = null;
+  if (voulu && (inter ? ["seances", "inscrits", "intervenants", "fiches"] : ["valider", "fiches", "seances", "intervenants", "adhesions", "demandes"]).includes(voulu)) {
+    ADM.onglet = voulu;
+  }
   corps.innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>';
   try {
-    const [exps, ints, contacts, profils, props] = await Promise.all([
+    const [exps, ints, contacts, profils, props, dNouvelles, cNouvelles] = await Promise.all([
       supaConnecte("experiences?select=*&order=ordre.asc,cree_le.desc" + (inter ? "&intervenant_id=eq." + ADM.moi : "")),
       supaConnecte("intervenants?select=*&order=nom.asc" + (inter ? "&id=eq." + ADM.moi : "")),
       supaConnecte("intervenants_contacts?select=intervenant_id,email"),
       inter ? Promise.resolve([]) : supaConnecte("profils?select=intervenant_id&role=eq.intervenant"),
       supaConnecte("propositions?select=*&statut=eq.en_attente&order=cree_le.asc"),
+      inter ? Promise.resolve([]) : supaConnecte("demandes_groupes?select=id&statut=eq.nouvelle"),
+      inter ? Promise.resolve([]) : supaConnecte("candidatures?select=id&statut=eq.nouvelle"),
     ]);
     ADM.props = props;
+    ADM.nonTraitees = (dNouvelles || []).length + (cNouvelles || []).length;
     ADM.exps = exps; ADM.ints = ints;
     ADM.contacts = {}; contacts.forEach((c) => { ADM.contacts[c.intervenant_id] = c.email; });
     ADM.comptes = {}; profils.forEach((p) => { if (p.intervenant_id) ADM.comptes[p.intervenant_id] = true; });
@@ -307,7 +317,8 @@ function peindreAdmin(corps) {
     '<h1 class="espace-titre">' + esc(tx("espace.bonjour", { nom: ADM.nom })) + '</h1>' +
     '<div class="adm-sous">' + esc(inter ? t("adm.sousIntervenant") : t("adm.sous")) + '</div>' +
     (inter ? (nProps ? '<div class="resa-etat">' + esc(tx("adm.enAttenteNote", { n: nProps })) + '</div>' : '')
-      : (aValider ? '<div class="resa-etat">' + esc(tx("adm.aValiderNote", { n: aValider })) + '</div>' : '')) +
+      : (aValider ? '<div class="resa-etat">' + esc(tx("adm.aValiderNote", { n: aValider })) + '</div>' : '') +
+        (ADM.nonTraitees ? '<button type="button" class="resa-etat adm-a-traiter" data-adm-onglet="demandes">' + esc(tx("adm.nonTraitees", { n: ADM.nonTraitees })) + '</button>' : '')) +
     '<div class="filter-chips adm-onglets" role="tablist">' +
       (inter
         ? ongletSimple("seances", t("adm.mesSeances")) + ongletSimple("inscrits", t("adm.mesInscrits")) +
@@ -315,7 +326,7 @@ function peindreAdmin(corps) {
         : (nProps ? onglet("valider", t("adm.aValider"), nProps) : '') +
           onglet("fiches", t("adm.fiches"), ADM.exps.length) + ongletSimple("seances", t("adm.seances")) +
           onglet("intervenants", t("adm.intervenants"), ADM.ints.length) + ongletSimple("adhesions", t("adm.adhesions")) +
-          ongletSimple("demandes", t("adm.demandes"))) +
+          (ADM.nonTraitees ? onglet("demandes", t("adm.demandes"), ADM.nonTraitees).replace('class="chip', 'class="chip adm-onglet-alerte') : ongletSimple("demandes", t("adm.demandes")))) +
     '</div>' +
     '<div id="adm-zone"></div>' +
     '<button type="button" class="cta ghost" id="espace-deconnexion">' + esc(t("espace.deconnexion")) + '</button>';
@@ -752,8 +763,8 @@ async function peindreFormSeance(corps, x) {
   const inter = ADM.role === "intervenant";
   if (!n) { admChargement(); try { resas = inter
     // l'intervenant ne voit que la vue mes_inscrits : prénom et initiale, personnes, téléphone, reste à encaisser
-    ? (await supaConnecte("mes_inscrits?select=id,nom,personnes,telephone,reste_sur_place_centimes&seance_id=eq." + x.id)).map((r) => Object.assign({ statut: "confirmee" }, r))
-    : await supaConnecte("reservations?select=id,reference,nom,email,telephone,personnes,statut,annulee_par,absent_le,frais_centimes,frais_statut,reste_sur_place_centimes,paye_en_ligne_centimes&seance_id=eq." + x.id + "&order=cree_le.asc"); } catch (e) { resas = []; } }
+    ? (await supaConnecte("mes_inscrits?select=id,nom,personnes,telephone,reste_sur_place_centimes,adherent&seance_id=eq." + x.id)).map((r) => Object.assign({ statut: "confirmee" }, r))
+    : await supaConnecte("reservations?select=id,reference,nom,email,telephone,personnes,statut,annulee_par,absent_le,frais_centimes,frais_statut,reste_sur_place_centimes,paye_en_ligne_centimes,adherent&seance_id=eq." + x.id + "&order=cree_le.asc"); } catch (e) { resas = []; } }
   const confirmees = resas.filter((r) => r.statut === "confirmee");
   const bloque = confirmees.length > 0;   // inscrits : la date et le lieu ne bougent plus (annuler puis recréer)
   x = x || { langue: "fr", statut: "brouillon" };
@@ -773,6 +784,7 @@ async function peindreFormSeance(corps, x) {
         '<label class="adm-champ"><span>' + esc(t("adm.langue")) + '</span>' + admSelect("s-langue", ADM_LANGUES.map((l) => [l, LANG_META[l].nom]), x.langue) + '</label>' +
         admNombre("s-max", t("adm.placesMax"), x.capacite_max) + admNombre("s-min", t("adm.participantsMin"), x.participants_min) +
       '</div>' +
+      admNombre("s-adh", t("adm.tarifAdh"), x.prix_adherent_centimes == null ? "" : String(x.prix_adherent_centimes / 100).replace(".", ","), t("adm.tarifAdhAide")) +
       (bloque ? '<div class="member-note">' + esc(t("adm.sBloquee")) + '</div>' : '') +
       '<label class="adm-champ"><span>' + esc(t("adm.rdv")) + '</span><input class="input-field" id="s-rdv" value="' + esc(x.point_rdv || "") + '"></label>' +
       '<label class="adm-champ"><span>' + esc(t("adm.rdvPrecis")) + '</span><input class="input-field" id="s-precis" value="' + esc(x.point_rdv_precis || "") + '"><small class="member-note">' + esc(t("adm.rdvPrecisAide")) + '</small></label>' +
@@ -786,8 +798,9 @@ async function peindreFormSeance(corps, x) {
         (resas.length ? '<div class="adm-liste adm-inscrits">' + resas.map((r) => {
           const absent = r.absent_le ? t("adm.absentSignale") : "";
           const etatR = r.statut === "confirmee" ? (absent || t("adm.rConfirmee")) : t("adm.r." + r.statut);
-          return '<div class="adm-ligne"><span class="adm-ligne-corps"><span class="adm-ligne-titre">' + esc(r.nom) + ' · ' + esc(tx("adm.pers", { n: r.personnes })) + '</span>' +
-            '<span class="adm-ligne-meta">' + esc([r.reference, r.telephone, r.email, etatR].filter(Boolean).join(" · ")) + '</span>' +
+          return '<div class="adm-ligne"><span class="adm-ligne-corps"><span class="adm-ligne-titre">' + esc(r.nom) + ' · ' + esc(tx("adm.pers", { n: r.personnes })) +
+              (r.adherent ? ' <span class="badge-adherent">' + esc(t("adm.badgeAdherent")) + '</span>' : '') + '</span>' +
+            '<span class="adm-ligne-meta">' + esc([r.reference, r.telephone, r.email, etatR, r.statut === "confirmee" ? tx("adm.resteSurPlace", { m: euros(r.reste_sur_place_centimes || 0) }) : ""].filter(Boolean).join(" · ")) + '</span>' +
             (r.frais_centimes ? '<span class="adm-ligne-meta">' + esc(tx("adm.frais", { m: euros(r.frais_centimes), s: t("adm.f." + r.frais_statut) })) + '</span>' : '') + '</span>' +
             (r.statut === "confirmee" && !r.absent_le && commencee && finAbsences ? '<button type="button" class="chip" data-adm-absent="' + esc(r.id) + '">' + esc(t("adm.absent")) + '</button>' : '') +
           '</div>';
@@ -836,9 +849,18 @@ async function peindreFormSeance(corps, x) {
     if (!admVal("s-exp") || !/^\d{4}-\d{2}-\d{2}$/.test(jour) || !/^\d{2}:\d{2}$/.test(heure) || !max) { note.textContent = t("adm.sIncomplete"); return; }
     const debut = admParisVersIso(jour, heure), duree = admEntier(admVal("s-duree"));
     if (n && new Date(debut) < new Date()) { note.textContent = t("adm.sPassee"); return; }
+    // Tarif adhérent : euros saisis → centimes ; vide = pas de remise ; jamais plus que le prix normal.
+    const adhTexte = String(admVal("s-adh") || "").trim().replace(",", ".");
+    const prixAdh = adhTexte ? Math.round(parseFloat(adhTexte) * 100) : null;
+    const expSeance = ADM.exps.find((y) => y.id === (admVal("s-exp") || x.experience_id)) || {};
+    if (adhTexte && !(prixAdh >= 0)) { note.textContent = t("adm.sIncomplete"); return; }
+    if (prixAdh != null && expSeance.prix_centimes != null && prixAdh > expSeance.prix_centimes) {
+      note.textContent = tx("adm.tarifAdhErreur", { m: euros(expSeance.prix_centimes) }); return;
+    }
     const d = { capacite_max: max, participants_min: min, point_rdv_precis: admVal("s-precis") || null, message_inscrits: admVal("s-message") || null,
       statut: inter ? (x.statut === "publiee" ? "publiee" : admCoche("s-publiee") ? "en_attente" : "brouillon")
         : admCoche("s-publiee") ? "publiee" : "brouillon" };
+    if (prixAdh != null || x.prix_adherent_centimes != null) d.prix_adherent_centimes = prixAdh;   // envoyé seulement s'il sert
     if (!bloque) Object.assign(d, { experience_id: admVal("s-exp"), debut, fin: duree ? new Date(new Date(debut).getTime() + duree * 6e4).toISOString() : null,
       langue: admVal("s-langue"), point_rdv: admVal("s-rdv") || null });
     if (bloque && d.statut !== "publiee") { note.textContent = t("adm.sDepublierInscrits"); return; }
@@ -904,6 +926,18 @@ async function peindreAdhesions(corps) {
 
 /* ---------- Demandes (visites privées, candidatures) ---------- */
 
+/** Après un changement de statut : le compteur « non traitées » suit (onglet et bandeau). */
+function peindreDemandesCompteur(sel, corps) {
+  const avant = sel.dataset.statut || "nouvelle";
+  if (avant === "nouvelle" && sel.value !== "nouvelle") ADM.nonTraitees = Math.max(0, (ADM.nonTraitees || 0) - 1);
+  else if (avant !== "nouvelle" && sel.value === "nouvelle") ADM.nonTraitees = (ADM.nonTraitees || 0) + 1;
+  sel.dataset.statut = sel.value;
+  const ong = document.querySelector('[data-adm-onglet="demandes"].chip');
+  if (ong) ong.textContent = t("adm.demandes") + (ADM.nonTraitees ? " · " + ADM.nonTraitees : "");
+  const bandeau = document.querySelector(".adm-a-traiter");
+  if (bandeau) { if (ADM.nonTraitees) bandeau.textContent = tx("adm.nonTraitees", { n: ADM.nonTraitees }); else bandeau.remove(); }
+}
+
 async function peindreDemandes(corps) {
   admChargement();
   let groupes = [], cands = [];
@@ -920,7 +954,7 @@ async function peindreDemandes(corps) {
       lignes.filter(Boolean).map((l) => '<span class="adm-ligne-meta">' + esc(l) + '</span>').join("") +
       (d.message ? '<span class="adm-message">' + esc(d.message) + '</span>' : '') +
       '<span class="adm-actions"><a href="mailto:' + esc(d.email) + '">' + esc(d.email) + '</a>' + (d.telephone ? ' · <a href="tel:' + esc(d.telephone) + '">' + esc(d.telephone) + '</a>' : '') + '</span>' +
-      admSelect("d-" + d.id, statuts.map((k) => [k, t("adm.d." + k)]), d.statut).replace("<select ", '<select data-table="' + table + '" data-id="' + esc(d.id) + '" ') +
+      admSelect("d-" + d.id, statuts.map((k) => [k, t("adm.d." + k)]), d.statut).replace("<select ", '<select data-table="' + table + '" data-id="' + esc(d.id) + '" data-statut="' + esc(d.statut) + '" ') +
       (d.statut === "nouvelle" ? '<button type="button" class="cta gaz adm-accepter" data-accepter="' + table + '" data-id="' + esc(d.id) + '">' + esc(t("adm.accepterPrevenir")) + '</button>' : '') +
     '</span></div>';
   admZone().innerHTML =
@@ -934,10 +968,12 @@ async function peindreDemandes(corps) {
       admDate(c.cree_le, { day: "numeric", month: "short" }) + " · " + t("adm.typeInt." + c.type)])).join("") + '</div>'
       : '<div class="member-note">' + esc(t("adm.aucuneCandidature")) + '</div>') +
     '<div class="member-note" id="d-note" role="status"></div>';
+  ADM.nonTraitees = groupes.filter((g) => g.statut === "nouvelle").length + cands.filter((c) => c.statut === "nouvelle").length;
   $$("select[data-table]").forEach((sel) => sel.addEventListener("change", async () => {
     try {
       await supaEcrire("PATCH", sel.dataset.table + "?id=eq." + sel.dataset.id, { statut: sel.value }, "return=minimal");
       $("#d-note").textContent = t("adm.enregistre");
+      peindreDemandesCompteur(sel, corps);
     } catch (e) { $("#d-note").textContent = admErreur(e); }
   }));
   $$("[data-accepter]").forEach((b) => b.addEventListener("click", async () => {
@@ -973,10 +1009,13 @@ async function peindreMesInscrits(corps) {
     return '<h3 class="adm-sous-titre">' + esc(admTitreExp(rs[0].experience_id) + " · " + admDate(d, { weekday: "short", day: "numeric", month: "short" }) + " · " + admHeure(d)) + '</h3>' +
       '<div class="member-note">' + esc(tx("adm.aEncaisser", { n: rs.reduce((k, r) => k + r.personnes, 0), m: euros(reste) })) + '</div>' +
       '<div class="adm-liste adm-inscrits">' + rs.map((r) =>
-        '<div class="adm-ligne"><span class="adm-ligne-corps"><span class="adm-ligne-titre">' + esc(r.nom) + ' · ' + esc(tx("adm.pers", { n: r.personnes })) + '</span>' +
-          '<span class="adm-ligne-meta">' + (r.telephone ? '<a href="tel:' + esc(r.telephone) + '">' + esc(r.telephone) + '</a> · ' : '') + esc(tx("adm.resteSurPlace", { m: euros(r.reste_sur_place_centimes || 0) })) + '</span></span>' +
-          (commencee ? '<button type="button" class="chip" data-adm-absent="' + esc(r.id) + '">' + esc(t("adm.absent")) + '</button>' : '') + '</div>').join("") + '</div>';
-  }).join("") + '<div class="member-note" id="s-absent-note" role="status"></div>'
+        '<div class="adm-ligne"><span class="adm-ligne-corps"><span class="adm-ligne-titre">' + esc(r.nom) +
+            (r.adherent ? ' <span class="badge-adherent">' + esc(t("adm.badgeAdherent")) + '</span>' : '') + '</span>' +
+          '<span class="adm-ligne-meta">' + esc(tx("adm.pers", { n: r.personnes })) + ' · ' + (r.telephone ? '<a href="tel:' + esc(r.telephone) + '">' + esc(r.telephone) + '</a> · ' : '') +
+            '<b>' + esc(tx("adm.resteSurPlace", { m: euros(r.reste_sur_place_centimes || 0) })) + '</b></span>' +
+          (r.absent_le ? '<span class="adm-ligne-meta adm-absent">' + esc(r.frais_centimes ? tx("adm.absentEtat", { m: euros(r.frais_centimes) }) : t("adm.absentSignale")) + '</span>' : '') + '</span>' +
+          (commencee && !r.absent_le ? '<button type="button" class="chip" data-adm-absent="' + esc(r.id) + '">' + esc(t("adm.absent")) + '</button>' : '') + '</div>').join("") + '</div>';
+  }).join("") + '<div class="member-note adm-absent-aide">' + esc(t("adm.absentAide")) + '</div><div class="member-note" id="s-absent-note" role="status"></div>'
     : '<div class="member-note">' + esc(t("adm.aucunInscrit")) + '</div>';
   $$("[data-adm-absent]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm(t("adm.absentConfirmer"))) return;
@@ -995,8 +1034,8 @@ function peindreValidations(corps) {
   const nomInt = (id) => (ADM.ints.find((i) => i.id === id) || {}).nom || "";
   const CHAMPS = { nom: "adm.nom", role: "adm.metier", bio: "adm.bio", photo_url: "adm.photo", instagram: "adm.instagram", langues: "adm.langues",
     debut: "adm.jour", fin: "adm.duree", langue: "adm.langue", capacite_max: "adm.placesMax", participants_min: "adm.participantsMin",
-    point_rdv: "adm.rdv", point_rdv_precis: "adm.rdvPrecis", message_inscrits: "adm.message" };
-  const valeur = (k, v) => v == null || v === "" ? "–" : k === "debut" || k === "fin" ? admDate(v, { weekday: "short", day: "numeric", month: "short" }) + " " + admHeure(v)
+    point_rdv: "adm.rdv", point_rdv_precis: "adm.rdvPrecis", message_inscrits: "adm.message", prix_adherent_centimes: "adm.tarifAdh" };
+  const valeur = (k, v) => v == null || v === "" ? "–" : k === "prix_adherent_centimes" ? euros(v) : k === "debut" || k === "fin" ? admDate(v, { weekday: "short", day: "numeric", month: "short" }) + " " + admHeure(v)
     : Array.isArray(v) ? v.join(", ") : typeof v === "object" ? (v.fr || "") : String(v);
   admZone().innerHTML = '<div class="adm-liste">' + (ADM.props || []).map((p) =>
     '<div class="adm-ligne adm-demande"><span class="adm-ligne-corps">' +

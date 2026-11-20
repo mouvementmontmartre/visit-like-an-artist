@@ -70,7 +70,7 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   await pg.goto("http://localhost:8765/");
   await pg.waitForTimeout(2500);
   await pg.evaluate(() => openTarget("membre"));
-  v("formulaire placé avant « Pourquoi adhérer »", await pg.evaluate(() => !!(document.querySelector("#membre-form").compareDocumentPosition(document.querySelector("#membre-about")) & Node.DOCUMENT_POSITION_FOLLOWING)));
+  v("formulaire placé avant « Pourquoi adhérer »", await pg.evaluate(() => !!(document.querySelector("#membre-form").compareDocumentPosition(document.querySelector("#membre-pas-encore")) & Node.DOCUMENT_POSITION_FOLLOWING)));
   await pg.fill("#membre-email", "pas-un-email");
   await pg.click("#membre-check");
   v("demande : email invalide signalé", await attendre(pg, "#membre-form-note", "adresse email valide"));

@@ -403,6 +403,8 @@ create table public.seances (
   point_rdv        text,            -- PUBLIC
   point_rdv_precis text,            -- envoyé par email aux inscrits seulement
   message_inscrits text,            -- « je porte un chapeau gris »
+  prix_adherent_centimes integer check (prix_adherent_centimes >= 0),
+      -- tarif adhérent par personne, facultatif, fixé par l'intervenant (E11.2) ; vide = pas de remise
   statut        text not null default 'brouillon'
                 check (statut in ('brouillon', 'en_attente', 'publiee', 'annulee')),
   annulee_le       timestamptz,
@@ -435,6 +437,10 @@ begin
 
   if new.capacite_max is null then new.capacite_max := e.capacite_max; end if;
   if new.participants_min is null then new.participants_min := e.participants_min; end if;
+  if new.prix_adherent_centimes is not null and e.prix_centimes is not null
+     and new.prix_adherent_centimes > e.prix_centimes then
+    raise exception 'Tarif adhérent : il ne peut pas dépasser le prix normal (%).', e.prix_centimes;
+  end if;
 
   if restreint then
     if new.capacite_max > e.capacite_max then
@@ -505,6 +511,8 @@ create table public.reservations (
   frais_payment_intent text unique,
   frais_tentatives integer not null default 0,
   frais_pris_le timestamptz,
+  adherent      boolean not null default false,   -- adhésion valable reconnue à la réservation
+  stripe_setup_intent text unique,                -- adhérent : carte enregistrée sans débit
   check (total_centimes = paye_en_ligne_centimes + reste_sur_place_centimes)
 );
 create index reservations_seance_statut on public.reservations (seance_id, statut);
@@ -895,7 +903,8 @@ select s.id, s.experience_id, s.debut, s.fin, s.langue,
        s.capacite_max, s.participants_min, s.point_rdv, s.statut,
        coalesce(r.inscrits, 0)::integer                             as inscrits,
        greatest(s.capacite_max - coalesce(r.prises, 0), 0)::integer as places_restantes,
-       coalesce(r.inscrits, 0) >= s.participants_min                as confirmee
+       coalesce(r.inscrits, 0) >= s.participants_min                as confirmee,
+       s.prix_adherent_centimes
 from public.seances s
 join public.experiences e on e.id = s.experience_id and e.publie and e.actif
 left join lateral (
@@ -913,7 +922,8 @@ where s.statut in ('publiee', 'annulee')
 create view public.mes_inscrits with (security_barrier = true) as
 select r.id, r.seance_id, s.experience_id, s.debut,
        interne.nom_court(r.nom) as nom,
-       r.personnes, r.telephone, r.langue, r.reste_sur_place_centimes
+       r.personnes, r.telephone, r.langue, r.reste_sur_place_centimes,
+       r.adherent, r.absent_le, r.frais_centimes
 from public.reservations r
 join public.seances s on s.id = r.seance_id
 join public.experiences e on e.id = s.experience_id
@@ -996,7 +1006,9 @@ as $$
     'paye_en_ligne_centimes', r.paye_en_ligne_centimes,
     'reste_sur_place_centimes', r.reste_sur_place_centimes,
     'total_centimes', r.total_centimes,
+    'prix_unitaire_centimes', r.prix_unitaire_centimes,
     'frais_centimes', r.frais_centimes,
+    'adherent', r.adherent,
     'type', e.type, 'titre', e.titre, 'duree_minutes', e.duree_minutes,
     'frais_par_personne_centimes', e.frais_annulation_tardive_centimes,
     'cgv_version', r.cgv_version,
@@ -1064,6 +1076,40 @@ begin
      and not exists (select 1 from public.remboursements x where x.paiement_id = p.id);
 end $$;
 
+-- Adhésion valable aujourd'hui pour cet email (réservation : pré-réservation offerte).
+create function interne.adhesion_valide_jusqua(p_email text) returns timestamptz
+language sql stable set search_path = ''
+as $$
+  select max(valide_jusqua) from public.adhesions
+   where email = lower(btrim(coalesce(p_email, ''))) and statut <> 'remboursee'
+     and debut <= now() and valide_jusqua > now();
+$$;
+
+-- Frais d'absence ou d'annulation tardive d'une réservation (décision du 20/11) :
+-- 10 € par personne par défaut (experiences.frais_annulation_tardive_centimes),
+-- jamais plus que le solde à régler sur place ; visites et ateliers seulement,
+-- carte enregistrée. Versés à l'association.
+create function interne.frais_dus(p_reservation uuid) returns integer
+language sql stable set search_path = ''
+as $$
+  select case
+    when r.stripe_payment_method is null or e.frais_annulation_tardive_centimes <= 0
+         or e.type not in ('visite_guidee', 'atelier') then 0
+    else least(e.frais_annulation_tardive_centimes * r.personnes, r.reste_sur_place_centimes)
+  end
+  from public.reservations r join public.experiences e on e.id = r.experience_id
+  where r.id = p_reservation;
+$$;
+
+-- Formulaire de réservation : l'email est-il celui d'une adhésion valable ?
+-- (serveur ; ne rend que la date de fin, jamais le nom).
+create function public.adhesion_pour_reservation(p_email text) returns jsonb
+language sql stable set search_path = ''
+as $$
+  select jsonb_build_object('adherent', v is not null, 'valide_jusqua', v)
+    from (select interne.adhesion_valide_jusqua(p_email) as v) x;
+$$;
+
 -- ---- Réserver et confirmer (serveur) ----
 
 -- Bloque des places 15 minutes. La séance est verrouillée pendant le
@@ -1084,12 +1130,15 @@ declare
   v_email text := lower(btrim(coalesce(p_email, '')));
   v_tel   text := nullif(btrim(coalesce(p_telephone, '')), '');
   v_prises integer;
+  v_unitaire integer;
   v_total integer;
   v_en_ligne integer;
   v_frais boolean;
+  v_visite boolean;
+  v_adherent boolean := false;
   v_accords jsonb;
 begin
-  -- Cases cochées (CGV, section 2) : chacune est gardée avec son heure.
+  -- Cases cochées : chacune est gardée avec son heure.
   select coalesce(jsonb_object_agg(k, now()), '{}'::jsonb) into v_accords
     from jsonb_each(coalesce(p_consentements, '{}'::jsonb)) as c(k, v)
    where v = 'true'::jsonb
@@ -1103,16 +1152,14 @@ begin
   end if;
   select * into e from public.experiences where id = s.experience_id;
   if not (e.publie and e.actif) then raise exception 'SEANCE_INDISPONIBLE'; end if;
+  v_visite := e.type in ('visite_guidee', 'atelier');
 
   if p_personnes is null or p_personnes < 1 or p_personnes > s.capacite_max then
     raise exception 'NOMBRE_INVALIDE';
   end if;
   if e.telephone_obligatoire and v_tel is null then raise exception 'TELEPHONE_REQUIS'; end if;
-  if not (v_accords ? 'non_remboursable' and v_accords ? 'sans_retractation') then
-    raise exception 'CONSENTEMENTS_MANQUANTS';
-  end if;
   if e.age_minimum is not null and not v_accords ? 'age' then raise exception 'AGE_NON_CONFIRME'; end if;
-  v_frais := e.type in ('visite_guidee', 'atelier') and e.frais_annulation_tardive_centimes > 0;
+  v_frais := v_visite and e.frais_annulation_tardive_centimes > 0;
   if v_frais and not v_accords ? 'prelevement' then raise exception 'ACCORD_FRAIS_REQUIS'; end if;
 
   v_prises := interne.places_prises(s.id);
@@ -1120,20 +1167,27 @@ begin
     raise exception 'COMPLET' using detail = (s.capacite_max - v_prises)::text;
   end if;
 
-  v_total := e.prix_centimes * p_personnes;
-  v_en_ligne := case when e.type in ('visite_guidee', 'atelier')
-                     then e.prereservation_centimes * p_personnes
-                     else v_total end;
+  -- Adhérent (visites et ateliers) : pré-réservation offerte et tarif adhérent de la séance s'il existe.
+  v_adherent := v_visite and interne.adhesion_valide_jusqua(v_email) is not null;
+  v_unitaire := case when v_adherent and s.prix_adherent_centimes is not null
+                     then least(s.prix_adherent_centimes, e.prix_centimes) else e.prix_centimes end;
+  v_total := v_unitaire * p_personnes;
+  v_en_ligne := case when not v_visite then v_total
+                     when v_adherent then 0
+                     else least(e.prereservation_centimes, v_unitaire) * p_personnes end;
+
+  if v_en_ligne > 0 and not v_accords ? 'non_remboursable' then raise exception 'CONSENTEMENTS_MANQUANTS'; end if;
+  if not v_accords ? 'sans_retractation' then raise exception 'CONSENTEMENTS_MANQUANTS'; end if;
 
   insert into public.reservations
     (seance_id, experience_id, nom, email, telephone, langue, personnes, statut, bloque_jusqua,
      prix_unitaire_centimes, total_centimes, paye_en_ligne_centimes, reste_sur_place_centimes,
-     cgv_acceptees_le, accord_frais_le, cgv_version, consentements)
+     cgv_acceptees_le, accord_frais_le, cgv_version, consentements, adherent)
   values
     (s.id, e.id, btrim(p_nom), v_email, v_tel, coalesce(p_langue, 'fr'), p_personnes,
      'en_attente', now() + interval '15 minutes',
-     e.prix_centimes, v_total, v_en_ligne, v_total - v_en_ligne, now(),
-     case when v_frais then now() end, p_cgv_version, v_accords)
+     v_unitaire, v_total, v_en_ligne, v_total - v_en_ligne, now(),
+     case when v_frais then now() end, p_cgv_version, v_accords, v_adherent)
   returning * into r;
 
   return jsonb_build_object(
@@ -1141,8 +1195,8 @@ begin
     'a_payer_centimes', r.paye_en_ligne_centimes,
     'reste_sur_place_centimes', r.reste_sur_place_centimes,
     'bloque_jusqua', r.bloque_jusqua,
-    'garder_carte', v_frais, 'age_minimum', e.age_minimum,
-    'frais_centimes', case when v_frais then e.frais_annulation_tardive_centimes * p_personnes else 0 end,
+    'garder_carte', v_frais, 'age_minimum', e.age_minimum, 'adherent', v_adherent,
+    'frais_centimes', case when v_frais then least(e.frais_annulation_tardive_centimes * p_personnes, v_total - v_en_ligne) else 0 end,
     'experience_type', e.type, 'experience_titre', e.titre, 'debut', s.debut);
 end $$;
 
@@ -1152,7 +1206,7 @@ end $$;
 create function public.confirmer_reservation(
   p_reservation_id uuid, p_stripe_session_id text, p_stripe_payment_intent text,
   p_montant_centimes integer, p_stripe_customer text default null,
-  p_stripe_payment_method text default null
+  p_stripe_payment_method text default null, p_stripe_setup_intent text default null
 ) returns jsonb
 language plpgsql set search_path = ''
 as $$
@@ -1168,11 +1222,16 @@ begin
   select * into s from public.seances where id = r.seance_id for update;
   select * into r from public.reservations where id = p_reservation_id for update;
 
-  if r.stripe_payment_intent is not null then
+  if r.stripe_payment_intent is not null or r.stripe_setup_intent is not null then
     return jsonb_build_object('statut', r.statut, 'deja_traitee', true, 'reference', r.reference);
   end if;
   if p_montant_centimes is distinct from r.paye_en_ligne_centimes then
     raise exception 'MONTANT_INCOHERENT';
+  end if;
+  -- Paiement : un PaymentIntent ; adhérent (rien à payer) : une carte enregistrée (SetupIntent).
+  if (r.paye_en_ligne_centimes > 0 and p_stripe_payment_intent is null)
+     or (r.paye_en_ligne_centimes = 0 and p_stripe_setup_intent is null) then
+    raise exception 'PAIEMENT_INCOMPLET';
   end if;
 
   if s.statut <> 'publiee' or s.debut <= now() or r.statut not in ('en_attente', 'expiree') then
@@ -1182,16 +1241,19 @@ begin
   end if;
 
   select * into e from public.experiences where id = r.experience_id;
-  insert into public.paiements
-    (reservation_id, experience_id, experience_type, localite_id, intervenant_id,
-     montant_centimes, stripe_session_id, stripe_payment_intent)
-  values
-    (r.id, e.id, e.type, e.localite_id, e.intervenant_id,
-     p_montant_centimes, p_stripe_session_id, p_stripe_payment_intent);
+  if p_montant_centimes > 0 then
+    insert into public.paiements
+      (reservation_id, experience_id, experience_type, localite_id, intervenant_id,
+       montant_centimes, stripe_session_id, stripe_payment_intent)
+    values
+      (r.id, e.id, e.type, e.localite_id, e.intervenant_id,
+       p_montant_centimes, p_stripe_session_id, p_stripe_payment_intent);
+  end if;
 
   update public.reservations
      set stripe_session_id = p_stripe_session_id,
          stripe_payment_intent = p_stripe_payment_intent,
+         stripe_setup_intent = p_stripe_setup_intent,
          stripe_customer = p_stripe_customer,
          stripe_payment_method = case when accord_frais_le is not null then p_stripe_payment_method end,
          bloque_jusqua = null,
@@ -1211,7 +1273,7 @@ begin
 
   perform interne.rembourser(r.id, 'paiement_tardif');
   perform interne.envoyer('paiement_tardif', r.email, r.langue, r.id);
-  return jsonb_build_object('statut', 'annulee', 'deja_traitee', false, 'a_rembourser', true);
+  return jsonb_build_object('statut', 'annulee', 'deja_traitee', false, 'a_rembourser', p_montant_centimes > 0);
 end $$;
 
 -- Paiement abandonné (session Stripe expirée) : la place est libérée.
@@ -1248,10 +1310,8 @@ begin
     'statut', r.statut, 'seance_statut', s.statut,
     'peut_annuler', r.statut = 'confirmee' and s.statut = 'publiee' and s.debut > now(),
     'annulation_tardive', v_tardif,
-    'frais_si_annulation_centimes',
-      case when v_tardif and r.stripe_payment_method is not null
-           then e.frais_annulation_tardive_centimes * r.personnes else 0 end,
-    'frais_statut', r.frais_statut);
+    'frais_si_annulation_centimes', case when v_tardif then interne.frais_dus(r.id) else 0 end,
+    'frais_statut', r.frais_statut, 'adherent', r.adherent);
 end $$;
 
 -- « Je ne peux plus venir » : la place est libérée. Moins de 24 h avant
@@ -1279,9 +1339,9 @@ begin
   if r.statut <> 'confirmee' then raise exception 'NON_ANNULABLE'; end if;
   if s.debut <= now() then raise exception 'TROP_TARD'; end if;
 
-  if now() > s.debut - make_interval(hours => e.delai_frais_heures)
-     and r.stripe_payment_method is not null and e.frais_annulation_tardive_centimes > 0 then
-    v_frais := e.frais_annulation_tardive_centimes * r.personnes;
+  -- Moins de 24 h avant (délai de l'expérience) : frais d'annulation tardive, plafonnés au solde.
+  if now() > s.debut - make_interval(hours => e.delai_frais_heures) then
+    v_frais := interne.frais_dus(r.id);
   end if;
 
   update public.reservations set
@@ -1360,9 +1420,7 @@ begin
   if now() > s.debut + interval '7 days' then raise exception 'TROP_TARD'; end if;
   if r.absent_le is not null then return jsonb_build_object('deja_signale', true); end if;
 
-  if r.stripe_payment_method is not null and e.frais_annulation_tardive_centimes > 0 then
-    v_frais := e.frais_annulation_tardive_centimes * r.personnes;
-  end if;
+  v_frais := interne.frais_dus(r.id);
   update public.reservations set absent_le = now(), frais_centimes = v_frais,
          frais_statut = case when v_frais > 0 then 'a_prelever' else 'aucun' end
    where id = r.id;
@@ -1774,7 +1832,9 @@ begin
       participants_min = v_min,
       point_rdv        = case when d ? 'point_rdv' then d->>'point_rdv' else point_rdv end,
       point_rdv_precis = case when d ? 'point_rdv_precis' then d->>'point_rdv_precis' else point_rdv_precis end,
-      message_inscrits = case when d ? 'message_inscrits' then d->>'message_inscrits' else message_inscrits end
+      message_inscrits = case when d ? 'message_inscrits' then d->>'message_inscrits' else message_inscrits end,
+      prix_adherent_centimes = case when d ? 'prix_adherent_centimes'
+                                    then (d->>'prix_adherent_centimes')::integer else prix_adherent_centimes end
     where id = s.id;
   end if;
 

@@ -16,7 +16,7 @@ process.env.SUPABASE_SECRET_KEY = "sb_secret_faux";
 process.env.BREVO_API_KEY = "xkeysib-faux";
 
 /* ---------- faux Stripe ---------- */
-const ST = { sessions: {}, pis: {}, refunds: [], idem: {}, appels: [] };
+const ST = { sessions: {}, pis: {}, setis: {}, refunds: [], idem: {}, appels: [] };
 let n = 0;
 const nouvelId = (p) => p + "_test_" + (++n);
 let stripeEnPanne = false;
@@ -32,7 +32,10 @@ function stripePost(chemin, f, cle) {
       created: Math.floor(Date.now() / 1000), metadata: {}, amount_total: Number(f["line_items[0][price_data][unit_amount]"]),
       params: f };
     for (const k of Object.keys(f)) { const m = k.match(/^metadata\[(.+)\]$/); if (m) s.metadata[m[1]] = f[k]; }
+    if (f.mode === "setup") Object.assign(s, { mode: "setup", customer: f.customer, payment_status: "no_payment_required", amount_total: 0 });
     ST.sessions[id] = s; rep = [200, s];
+  } else if (chemin === "customers") {
+    rep = [200, { id: nouvelId("cus"), email: f.email }];
   } else if (chemin === "refunds") {
     const r = { id: nouvelId("re"), payment_intent: f.payment_intent, amount: Number(f.amount) };
     ST.refunds.push(r); rep = [200, r];
@@ -45,6 +48,13 @@ function stripePost(chemin, f, cle) {
   ST.appels.push({ chemin, f, cle, status: rep[0] });
   if (cle) ST.idem[cle] = rep;
   return rep;
+}
+function enregistrerCarte(sessionId, pm = "pm_adh") {   // adhérent : session « setup » terminée
+  const s = ST.sessions[sessionId];
+  const si = { id: nouvelId("seti"), customer: s.customer, payment_method: pm, status: "succeeded" };
+  ST.setis[si.id] = si;
+  Object.assign(s, { status: "complete", setup_intent: si.id });
+  return s;
 }
 function payer(sessionId, pm = "pm_carte") {
   const s = ST.sessions[sessionId];
@@ -93,6 +103,7 @@ global.fetch = async (url, init = {}) => {
     let m;
     if ((m = chemin.match(/^checkout\/sessions\/([^/]+)$/))) return ST.sessions[m[1]] ? reponse(200, ST.sessions[m[1]]) : reponse(404, { error: { message: "No such" } });
     if ((m = chemin.match(/^payment_intents\/([^/]+)$/))) return ST.pis[m[1]] ? reponse(200, ST.pis[m[1]]) : reponse(404, { error: { message: "No such" } });
+    if ((m = chemin.match(/^setup_intents\/([^/]+)$/))) return ST.setis[m[1]] ? reponse(200, ST.setis[m[1]]) : reponse(404, { error: { message: "No such" } });
     return reponse(404, { error: { message: "inconnu" } });
   }
   if (url.startsWith("https://mepcwassmoespzzsdjxf.supabase.co/")) { const [s, d] = await supabaseRepond(url, init); return reponse(s, d); }
@@ -122,6 +133,9 @@ function verifier(nom, cond, detail) {
 
 (async () => {
   await db.connect();
+  // Les adhésions d'autres essais ne doivent pas changer les prix ici (pré-réservation offerte aux adhérents).
+  await db.query("delete from public.cartes_liens where email like '%@exemple.invalid'");
+  await db.query("delete from public.adhesions where email like '%@exemple.invalid'");
   // Données : un guide (avec email privé), une visite publiée, des séances.
   const g = (await db.query("insert into public.intervenants (localite_id, slug, type, nom, publie) values ('montmartre','guide-test','guide','Sylvain Test',true) returning id")).rows[0].id;
   await db.query("insert into public.intervenants_contacts (intervenant_id, email) values ($1, 'guide@exemple.invalid')", [g]);
@@ -169,7 +183,7 @@ function verifier(nom, cond, detail) {
   verifier("webhook : réservation confirmée, carte gardée", r.statusCode === 200 && a.statut === "confirmee" && a.stripe_payment_method === "pm_carte", a && a.statut);
   const conf = mails("confirmation")[0];
   verifier("email de confirmation envoyé tout de suite, au client", conf && conf.to[0].email === "camille@exemple.invalid");
-  verifier("confirmation : récapitulatif, reste sur place, monnaie, frais", conf && /90\s€/.test(conf.textContent) && /monnaie/.test(conf.textContent) && /10\s€ de frais/.test(conf.textContent) && /Devant le kiosque/.test(conf.textContent), conf && conf.textContent);
+  verifier("confirmation : récapitulatif, reste sur place, monnaie, frais", conf && /90\s€/.test(conf.textContent) && /monnaie/.test(conf.textContent) && /10\s€ par personne/.test(conf.textContent) && /au profit de l'association/.test(conf.textContent) && /Devant le kiosque/.test(conf.textContent), conf && conf.textContent);
   verifier("confirmation : textes venus de la base échappés (pas de HTML injecté)", conf && !conf.htmlContent.includes("<b>Durand") && conf.htmlContent.includes("&lt;gris&gt;"));
   const m1 = conf && conf.htmlContent.match(/https:\/\/artdive\.app\/#reservation=([0-9a-f]{64})/);
   verifier("confirmation : bouton « Je ne peux plus venir » avec lien personnel", !!m1);
@@ -272,6 +286,27 @@ function verifier(nom, cond, detail) {
   await evenement("checkout.session.completed", { id: sess8.id, metadata: sess8.metadata });
   const en = mails("confirmation").pop();
   verifier("email en anglais pour une réservation en anglais", /Your spot is booked: Painters walk/.test(en.subject) && /bring cash/.test(en.textContent), en.subject);
+
+  // ---- Adhérent : pré-réservation offerte, carte enregistrée sans débit, tarif adhérent de la séance ----
+  await db.query("insert into public.adhesions (email, nom, source, debut, valide_jusqua) values ('ada@exemple.invalid', 'Ada', 'manuelle', now() - interval '1 day', now() + interval '200 days')");
+  const sAdh = await seance(150);
+  await db.query("update public.seances set prix_adherent_centimes = 4500 where id = $1", [sAdh]);
+  r = await post(reserver, { action: "adherent", email: " Ada@Exemple.invalid " });
+  verifier("adhérent : reconnu par son email (formulaire)", r.statusCode === 200 && lire(r).adherent === true && !("nom" in lire(r)), lire(r));
+  r = await post(reserver, { action: "adherent", email: "personne@exemple.invalid" });
+  verifier("adhérent : email inconnu, pas adhérent", r.statusCode === 200 && lire(r).adherent === false);
+  r = await post(reserver, Object.assign({}, base, { seance_id: sAdh, email: "Ada@Exemple.invalid", consentements: { cgv: true, sans_retractation: true, prelevement: true } }));
+  const sessAdh = Object.values(ST.sessions).pop();
+  verifier("adhérent : session Stripe « setup » (aucun débit), client Stripe créé", r.statusCode === 200 && sessAdh.params.mode === "setup" && /^cus_/.test(sessAdh.params.customer) && lire(r).adherent === true, lire(r));
+  const resaAdh = sessAdh.metadata.reservation_id;
+  const ra = await ligne("select paye_en_ligne_centimes, reste_sur_place_centimes, prix_unitaire_centimes, adherent from public.reservations where id = $1", [resaAdh]);
+  verifier("adhérent : 0 € en ligne, tarif adhérent 45 € × 2 sur place", ra.paye_en_ligne_centimes === 0 && ra.reste_sur_place_centimes === 9000 && ra.prix_unitaire_centimes === 4500 && ra.adherent, JSON.stringify(ra));
+  enregistrerCarte(sessAdh.id);
+  r = await post(reservation, { action: "session", session_id: sessAdh.id });
+  verifier("adhérent : carte enregistrée → réservation confirmée", r.statusCode === 200 && lire(r).reservation.statut === "confirmee" && lire(r).reservation.adherent === true, lire(r));
+  const rb = await ligne("select stripe_payment_method, stripe_setup_intent, (select count(*)::int from public.paiements where reservation_id = $1) as n from public.reservations where id = $1", [resaAdh]);
+  verifier("adhérent : carte gardée pour les frais, aucun paiement enregistré", rb.stripe_payment_method === "pm_adh" && /^seti_/.test(rb.stripe_setup_intent) && rb.n === 0, JSON.stringify(rb));
+  verifier("adhérent : frais plafonnés au solde (2 × 10 € ≤ 90 €)", (await ligne("select interne.frais_dus($1) as f", [resaAdh])).f === 2000);
 
   console.log("\n" + ok + " réussis, " + ko + " en échec");
   await db.end();

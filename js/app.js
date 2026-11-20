@@ -119,6 +119,9 @@ function openTarget(target, arg) {
 }
 
 document.addEventListener("click", (e) => {
+  // Logo ArtDive (en haut à gauche) : retour à l'accueil, sans recharger la page.
+  const logo = e.target.closest("[data-accueil]");
+  if (logo) { e.preventDefault(); showScreen("accueil"); return; }
   const scroller = e.target.closest("[data-scroll]");
   if (scroller) {
     const el = document.getElementById(scroller.dataset.scroll);
@@ -1478,7 +1481,7 @@ function renderDayDetail() {
 
 const RESA_TYPES = ["visite_guidee", "atelier", "soiree"];
 const LANGUE_SEANCE = { fr: "français", en: "english", es: "español", zh: "中文", ar: "العربية", ru: "русский" };
-let RESA = null;   // { exp, seances, seance, personnes, guide }
+let RESA = null;   // { exp, seances, seance, personnes, guide, adherent: { valide_jusqua } | null }
 
 async function supa(chemin) {
   const res = await fetch(CONFIG.supabase.url + "/rest/v1/" + chemin, {
@@ -1563,9 +1566,56 @@ function prixHtml() {
     '<div class="resa-accent">' + esc(tx("resa.bookFor", { m: euros(enLigne) })) + '</div>' +
     '<div class="member-note">' + esc(tx("resa.prereserv", { n, u: euros(e.prereservation_centimes) })) + '</div>' +
     '<p class="resa-reste"><b>' + esc(tx("resa.restOnSite", { m: euros(total - enLigne), g: RESA.guide ? tx("resa.to", { g: RESA.guide }) : "" })) +
-    '</b> ' + esc(t("resa.cash")) + '</p></div>';
+    '</b> ' + esc(t("resa.cash")) + '</p>' +
+    (RESA.seance && RESA.seance.prix_adherent_centimes != null && RESA.seance.prix_adherent_centimes < e.prix_centimes
+      ? '<p class="member-note">' + esc(tx("resa.tarifAdhFiche", { m: euros(RESA.seance.prix_adherent_centimes) })) + '</p>' : '') + '</div>';
 }
-const aPayerResa = () => (estVisiteResa(RESA.exp.type) ? RESA.exp.prereservation_centimes : RESA.exp.prix_centimes) * RESA.personnes;
+/* Adhérent reconnu (visites et ateliers) : pré-réservation offerte, tarif adhérent de la séance s'il existe.
+   Indicatif : le serveur recalcule tout à partir de l'email. */
+const estAdherentResa = () => !!(RESA && RESA.adherent && estVisiteResa(RESA.exp.type));
+function unitaireResa() {
+  const e = RESA.exp, s = RESA.seance;
+  return estAdherentResa() && s && s.prix_adherent_centimes != null ? Math.min(s.prix_adherent_centimes, e.prix_centimes) : e.prix_centimes;
+}
+const aPayerResa = () => estAdherentResa() ? 0
+  : (estVisiteResa(RESA.exp.type) ? RESA.exp.prereservation_centimes : RESA.exp.prix_centimes) * RESA.personnes;
+/** Frais d'annulation tardive ou d'absence de la réservation : 10 € par personne, jamais plus que le solde sur place. */
+const fraisMaxResa = () => Math.min(RESA.exp.frais_annulation_tardive_centimes * RESA.personnes, unitaireResa() * RESA.personnes - aPayerResa());
+
+/** Bloc prix du formulaire (E8.1, E8.2 ; adhérent : E8.1.1, E8.2.1). */
+function prixFormHtml() {
+  const e = RESA.exp, n = RESA.personnes, u = unitaireResa(), total = u * n, enLigne = aPayerResa();
+  const g = RESA.guide ? tx("resa.to", { g: RESA.guide }) : "";
+  if (!estVisiteResa(e.type)) return prixHtml();
+  const remise = estAdherentResa() && u < e.prix_centimes;
+  const frais = e.frais_annulation_tardive_centimes > 0;
+  return '<div class="resa-prix resa-prix-form">' +
+    '<div class="resa-ligne"><span>' + esc(remise ? t("resa.tarifAdh") : t("resa.fullPrice")) + '<br><span class="resa-mono">' + esc(n + " × ") +
+      (remise ? '<s>' + esc(euros(e.prix_centimes)) + '</s> ' : '') + esc(euros(u)) + '</span></span><b class="resa-gros">' + esc(euros(total)) + '</b></div>' +
+    (estAdherentResa()
+      ? '<div class="resa-filet"><div class="resa-accent">' + esc(t("resa.offerte")) + '</div><div class="member-note">' +
+          esc(tx("resa.offerteTexte", { u: euros(e.prereservation_centimes) })) + '</div></div>' +
+        '<p class="resa-reste"><b>' + esc(tx("resa.resteAdh", { m: euros(total), g })) + '</b> ' + esc(t("resa.cash")) + '</p>' +
+        (frais ? '<p class="member-note"><b>' + esc(t("resa.carteAEnregistrer")) + '</b> ' +
+          esc(tx("resa.carteAdhNote", { u: euros(e.frais_annulation_tardive_centimes) })) + '</p>' : '')
+      : '<div class="resa-filet"><div class="resa-accent">' + esc(tx("resa.bookFor", { m: euros(enLigne) })) + '</div><div class="member-note">' +
+          esc(tx("resa.prereserv", { n, u: euros(e.prereservation_centimes) })) + '</div></div>' +
+        '<p class="resa-reste"><b>' + esc(tx("resa.restOnSite", { m: euros(total - enLigne), g })) + '</b> ' + esc(t("resa.cash")) + '</p>' +
+        (frais ? '<p class="member-note">' + esc(tx("resa.carteNote", { u: euros(e.frais_annulation_tardive_centimes) })) + '</p>' : '')) +
+    '<div class="resa-ligne resa-total"><span>' + esc(t("resa.total")) + '</span><b>' + esc(euros(enLigne)) + '</b></div>' +
+    '<div class="member-note">' + esc(t("resa.vat")) + '</div></div>';
+}
+
+/** Adhérent : invitation à saisir l'email d'adhésion, ou « Adhérent reconnu ». */
+function adherentHtml() {
+  if (!estVisiteResa(RESA.exp.type)) return '';
+  if (estAdherentResa()) {
+    return '<div class="resa-adherent"><span class="badge-adherent">' + esc(t("resa.adhReconnu")) + '</span><span class="member-note">' +
+      esc(tx("resa.adhValide", { date: new Date(RESA.adherent.valide_jusqua).toLocaleDateString(localeResa(), { timeZone: "Europe/Paris" }) })) + '</span></div>';
+  }
+  const remise = RESA.seance && RESA.seance.prix_adherent_centimes != null && RESA.seance.prix_adherent_centimes < RESA.exp.prix_centimes;
+  return '<p class="member-note resa-indice">' + esc(t("resa.adhHint1")) + ' <b>' + esc(t("resa.adhHintB")) + '</b>' + esc(t(remise ? "resa.adhHint2" : "resa.adhHint2b")) + '</p>';
+}
 
 function stepperHtml(idPrefix) {
   const max = RESA.seance ? Math.min(RESA.seance.places_restantes, RESA.seance.capacite_max) : 1;
@@ -1609,11 +1659,11 @@ function casesResa() {
   const lienCgv = ' <a href="cgv.html" target="_blank" rel="noopener">' + esc(t("resa.cgvLink")) + '</a>';
   const cases = [{ cle: "cgv", obligatoire: true, html: esc(t("resa.c.cgv")) + lienCgv }];
   if (visite) {
-    cases.push({ cle: "non_remboursable", obligatoire: true, html: esc(t("resa.c.nonRemb")) });
+    if (!estAdherentResa()) cases.push({ cle: "non_remboursable", obligatoire: true, html: esc(t("resa.c.nonRemb")) });
     cases.push({ cle: "sans_retractation", obligatoire: true, html: esc(t("resa.c.retract")) });
     if (e.frais_annulation_tardive_centimes > 0) {
       cases.push({ cle: "prelevement", obligatoire: true, html: esc(tx("resa.c.prel", {
-        u: euros(e.frais_annulation_tardive_centimes), m: euros(e.frais_annulation_tardive_centimes * RESA.personnes) })) });
+        u: euros(e.frais_annulation_tardive_centimes), m: euros(fraisMaxResa()) })) });
     }
     cases.push({ cle: "photos", obligatoire: false, html: esc(t("resa.c.photos")) });
   } else {
@@ -1629,6 +1679,10 @@ function mentionResa() {
   const e = RESA.exp, s = RESA.seance, n = RESA.personnes;
   if (!estVisiteResa(e.type)) {
     return '<p class="resa-mention">' + esc(tx("resa.m.soiree", { m: euros(aPayerResa()), lieu: s.point_rdv || "" })) + '</p>';
+  }
+  if (estAdherentResa()) {
+    return '<p class="resa-mention">' + esc(tx("resa.m.visiteAdh", { g: RESA.guide || t("resa.m.intervenant"),
+      r: euros(unitaireResa()), min: s.participants_min })) + '</p>';
   }
   return '<p class="resa-mention">' + esc(tx("resa.m.visite", {
     m: euros(aPayerResa()), g: RESA.guide || t("resa.m.intervenant"),
@@ -1647,27 +1701,36 @@ function ouvrirReservation() {
   const e = RESA.exp, s = RESA.seance, visite = estVisiteResa(e.type);
   if ($("#screen-reserver")) $("#screen-reserver").dataset.offre = offreDeResa(e.type);
   const champs = (window.__resaChamps = window.__resaChamps || { nom: "", email: "", tel: "" });
+  champs.cases = {};
   const peindre = () => {
+    const sous = $("#screen-reserver .back-sub");
+    if (sous) sous.textContent = t(estAdherentResa() ? "resa.subAdh" : "resa.sub");
     $("#reserver-body").innerHTML =
       '<div class="resa-resume"><b>' + esc(titreResa(e.titre)) + '</b><span>' + esc(dateLongueResa(s.debut)) + '</span>' +
         '<span>' + esc((LANGUE_SEANCE[s.langue] || s.langue) + (s.point_rdv ? " · " + s.point_rdv : "")) + '</span></div>' +
       stepperHtml("form") +
-      '<div class="member-note">' + esc(t("resa.hold")) + '</div>' +
+      '<div class="member-note">' + esc(tx("resa.holdLeft", { n: s.places_restantes, max: s.capacite_max })) + '</div>' +
+      (e.type === "atelier" ? '<div class="resa-min"><b>' + esc(tx("resa.atelierMin", { n: s.participants_min })) + '</b><span>' +
+        esc(t("resa.atelierMinNote")) + '</span></div>' : '') +
       '<form id="resa-form" novalidate>' +
         '<div class="mini-label">' + esc(t("resa.contact")) + '</div>' +
         '<label class="resa-champ"><span>' + esc(t("resa.name")) + '</span><input class="input-field" id="resa-nom" autocomplete="name" required value="' + esc(champs.nom) + '"></label>' +
         '<label class="resa-champ"><span>' + esc(t("resa.email")) + '</span><input class="input-field" id="resa-email" type="email" inputmode="email" autocomplete="email" required value="' + esc(champs.email) + '"></label>' +
         '<label class="resa-champ"><span>' + esc(e.telephone_obligatoire ? t("resa.phone") : t("resa.phoneOpt")) + '</span><input class="input-field" id="resa-tel" type="tel" inputmode="tel" autocomplete="tel"' + (e.telephone_obligatoire ? " required" : "") + ' value="' + esc(champs.tel) + '"></label>' +
-        prixHtml() +
-        '<div class="resa-ligne resa-total"><span>' + esc(t("resa.total")) + '</span><b>' + esc(euros(aPayerResa())) + '</b></div>' +
-        '<div class="member-note">' + esc(t("resa.vat")) + '</div>' +
+        adherentHtml() +
+        prixFormHtml() +
+        (estVisiteResa(e.type) ? '' : '<div class="resa-ligne resa-total"><span>' + esc(t("resa.total")) + '</span><b>' + esc(euros(aPayerResa())) + '</b></div>' +
+          '<div class="member-note">' + esc(t("resa.vat")) + '</div>') +
         mentionResa() + casesResa().map((c) =>
-          '<label class="resa-case"><input type="checkbox" id="resa-c-' + c.cle + '"><span>' + c.html + '</span></label>').join("") +
-        '<button type="submit" class="cta fee" id="resa-payer">' + esc(tx("resa.payOblig", { m: euros(aPayerResa()) })) + '</button>' +
+          '<label class="resa-case"><input type="checkbox" id="resa-c-' + c.cle + '"' + (champs.cases[c.cle] ? " checked" : "") + '><span>' + c.html + '</span></label>').join("") +
+        '<button type="submit" class="cta fee" id="resa-payer">' + esc(aPayerResa() === 0 && estVisiteResa(e.type) ? t("resa.btnGratuit") : tx("resa.payOblig", { m: euros(aPayerResa()) })) + '</button>' +
         '<div id="resa-note" class="resa-erreur" role="alert"></div>' +
-        '<div class="member-note resa-centre">' + esc(t("resa.m.secure")) + '</div>' +
+        '<div class="member-note resa-centre">' + esc(aPayerResa() === 0 && estVisiteResa(e.type) ? t("resa.setupSecure") : t("resa.m.secure")) + '</div>' +
       '</form>';
     brancherStepper("form", () => { garder(); peindre(); });
+    // Email d'adhésion : vérifié dès que la personne quitte le champ (visites et ateliers).
+    const champEmail = $("#resa-email");
+    if (champEmail && estVisiteResa(e.type)) champEmail.addEventListener("change", () => verifierAdherent(champEmail.value));
     $("#resa-form").addEventListener("submit", payer);
     $$("#resa-form input").forEach((i) => i.addEventListener("input", () => { $("#resa-note").textContent = ""; }));
   };
@@ -1675,7 +1738,24 @@ function ouvrirReservation() {
     champs.nom = ($("#resa-nom") || {}).value || champs.nom;
     champs.email = ($("#resa-email") || {}).value || champs.email;
     champs.tel = ($("#resa-tel") || {}).value || champs.tel;
+    $$("#resa-form .resa-case input").forEach((c) => { champs.cases[c.id.replace("resa-c-", "")] = c.checked; });
   };
+  const verifierAdherent = async (valeur) => {
+    const email = String(valeur || "").trim().toLowerCase();
+    let adh = null;
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      try {
+        const res = await fetch("/.netlify/functions/reserver", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "adherent", email }) });
+        const d = await res.json().catch(() => ({}));
+        if (res.ok && d.adherent) adh = { valide_jusqua: d.valide_jusqua };
+      } catch (err) { /* hors ligne : tarif normal affiché, le serveur tranchera */ }
+    }
+    if (!!adh === !!RESA.adherent) { RESA.adherent = adh; return; }
+    RESA.adherent = adh;
+    garder(); peindre();
+  };
+  if (champs.email && estVisiteResa(e.type)) verifierAdherent(champs.email);
   const payer = async (ev) => {
     ev.preventDefault();
     garder();
@@ -1717,7 +1797,7 @@ function peindreReservation(r, jeton, intro) {
   const lignes = [
     [t("resa.date"), r.debut ? dateLongueResa(r.debut) : ""], [t("resa.people"), String(r.personnes)],
     [t("resa.host"), r.intervenant], [t("resa.meet"), r.point_rdv_precis || r.point_rdv],
-    [t("resa.paid"), euros(r.paye_en_ligne_centimes)], [t("resa.ref"), r.reference],
+    [t("resa.paid"), r.adherent && !r.paye_en_ligne_centimes ? t("resa.offerteLigne") : euros(r.paye_en_ligne_centimes)], [t("resa.ref"), r.reference],
   ].filter((l) => l[1]);
   let etat = "";
   if (r.statut === "annulee" || r.statut === "remboursee") {
@@ -1963,18 +2043,30 @@ function dateCarte(isoDate) {
 
 function carteHtml(c, note) {
   const valide = new Date(c.valide_jusqua) > new Date();
+  const annee = new Date(c.valide_jusqua).getFullYear();
+  const avantages = [1, 2, 3, 4, 5].map((n) => '<li>' + esc(t("member.benefit" + n)) + '</li>').join("");
   return (
-    '<div class="member-card' + (valide ? '' : ' expired') + '"><div class="mc-inner"><div class="mc-core">' +
-      '<div class="mc-eyebrow">Mouvement Montmartre</div>' +
-      '<div class="mc-name">' + esc(c.nom || t("member.formula.adhesion")) + '</div>' +
-      '<div class="mc-since">' + esc(t("member.formula." + (c.formule === "bienfaiteur" ? "bienfaiteur" : "adhesion"))) + '</div>' +
-      '<div class="mc-since">' + esc(t(valide ? "member.validUntil" : "member.expiredOn").replace("{date}", dateCarte(c.valide_jusqua))) + '</div>' +
-      (c.membre_depuis ? '<div class="mc-since">' + esc(t("member.since").replace("{date}", dateCarte(c.membre_depuis))) + '</div>' : '') +
-      '<img class="mc-logo" src="icons/logo.png" alt="">' +
-    '</div></div></div>' +
+    '<div class="mb-etat">' + esc(t(valide ? "member.enCours" : "member.expiree")) + '</div>' +
+    '<div class="mb-carte' + (valide ? '' : ' expired') + '">' +
+      '<div class="mb-carte-haut"><div><div class="mb-eyebrow">Mouvement Montmartre</div>' +
+        '<div class="mb-carte-titre">' + esc(t("member.carteDe")) + ' <i>' + esc(t("member.carteMembre")) + '</i></div></div>' +
+        '<span class="mb-annee">' + esc(String(annee)) + '</span></div>' +
+      '<div class="mb-carte-bas"><div class="mb-carte-id">' +
+        '<div class="mb-k">' + esc(t("member.titulaire")) + '</div><div class="mb-nom">' + esc(c.nom || t("member.formula.adhesion")) + '</div>' +
+        '<div class="mb-v">' + esc(t("member.formula." + (c.formule === "bienfaiteur" ? "bienfaiteur" : "adhesion"))) + ' · ' +
+          esc(t(valide ? "member.validUntil" : "member.expiredOn").replace("{date}", dateCarte(c.valide_jusqua))) + '</div>' +
+        (c.membre_depuis ? '<div class="mb-v">' + esc(t("member.since").replace("{date}", dateCarte(c.membre_depuis))) + '</div>' : '') +
+        // Numéro de membre et QR code : seulement s'ils existent un jour dans les données (pas aujourd'hui).
+        (c.numero ? '<div class="mb-k mb-k-num">' + esc(t("member.numero")) + '</div><div class="mb-num">' + esc(c.numero) + '</div>' : '') +
+      '</div>' +
+      (c.qr_svg ? '<div class="mb-qr">' + c.qr_svg + '</div>' : '<img class="mb-logo" src="icons/logo.png" alt="">') +
+    '</div></div>' +
     (note ? '<div class="member-note">' + esc(note) + '</div>' : '') +
-    (!valide ? '<a class="cta gaz" style="text-decoration:none;" href="' + esc(CONFIG.liens.adhesion) + '" target="_blank" rel="noopener">' + esc(t("member.renew")) + '</a>' : '') +
-    '<button class="cta ghost" type="button" id="membre-oublier">' + esc(t("member.forget")) + '</button>'
+    (!valide ? '<a class="cta ocre" style="text-decoration:none;" href="' + esc(CONFIG.liens.adhesion) + '" target="_blank" rel="noopener">' + esc(t("member.renew")) + '</a>' : '') +
+    '<h2 class="mb-titre mb-titre-petit">' + esc(t("member.avantages1")) + ' <i>' + esc(t("member.avantages2")) + '</i></h2>' +
+    '<ul class="mb-avantages">' + avantages + '</ul>' +
+    '<a class="cta ocre" style="text-decoration:none;" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener">' + esc(t("cta.donate")) + '</a>' +
+    '<button class="lien-bouton mb-autre" type="button" id="membre-oublier">' + esc(t("member.autreEmail")) + '</button>'
   );
 }
 
@@ -1984,8 +2076,8 @@ async function renderMembre(note) {
   if (!result || !form) return;
   const st = carteLue();
   const afficher = (s, n) => {
-    const adherer = $("#membre-adherer");
-    if (adherer) adherer.hidden = !!(s && s.carte);   // la carte propose déjà « Renouveler » si besoin
+    const pasEncore = $("#membre-pas-encore");
+    if (pasEncore) pasEncore.hidden = !!(s && s.carte);   // la carte propose déjà « Renouveler » et ses avantages
     if (s && s.carte) {
       result.innerHTML = carteHtml(s.carte, n);
       form.hidden = true;
@@ -2116,41 +2208,53 @@ function legalBlockHtml() {
 function renderInfos() {
   const c = CONFIG.contacts;
   const l = CONFIG.liens;
+  const don = "https://donate.stripe.com/eVadTj2nd5IP8ZWeVi";
+  const fleche = '<span class="infos-fleche" aria-hidden="true">›</span>';
+  const pastille = (k, couleur) => '<span class="infos-pastille" style="--p:' + couleur + '">' + esc(t(k)) + '</span>';
+  const ligne = (titre, sous, attrs) => '<button type="button" class="infos-ligne"' + attrs + '><span><span class="infos-ligne-t">' + esc(titre) + '</span>' +
+    (sous ? '<span class="infos-ligne-s">' + esc(sous) + '</span>' : '') + '</span>' + fleche + '</button>';
+  const deplie = (titre, html) => '<details class="infos-ligne infos-deplie"><summary><span class="infos-ligne-t">' + esc(titre) + '</span>' + fleche + '</summary>' +
+    '<div class="infos-ligne-corps">' + html + '</div></details>';
   $("#infos-body").innerHTML =
-    '<a class="cta ghost" style="text-decoration:none;" href="' + esc(l.siteAssociation) + '" target="_blank" rel="noopener">' +
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12 H21 M12 3 C14.5 6 14.5 18 12 21 C9.5 18 9.5 6 12 3 Z"/></svg>' +
-      t("cta.seeWebsite") +
-    '</a>' +
-    '<div class="icon-row">' +
-      '<a class="icon-btn" href="' + esc(l.instagram) + '" target="_blank" rel="noopener" aria-label="Instagram">' +
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5.5"/><circle cx="12" cy="12" r="4.2"/><circle cx="17.2" cy="6.8" r="1.1" fill="currentColor" stroke="none"/></svg>' +
-      '</a>' +
-      '<a class="icon-btn" href="' + esc(l.facebook) + '" target="_blank" rel="noopener" aria-label="Facebook">' +
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4.2 H13.2 A3.3 3.3 0 0 0 9.9 7.5 V10.2 H7.8 V13.4 H9.9 V20.5 H13.1 V13.4 H15.4 L15.8 10.2 H13.1 V7.9 C13.1 7 13.4 6.4 14.4 6.4 H15.8 Z"/></svg>' +
-      '</a>' +
-      '<a class="icon-btn" href="mailto:' + esc(c.general) + '" aria-label="Envoyer un email">' +
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 6 L12 13 L21 6"/></svg>' +
-      '</a>' +
+    '<div class="infos-hero"><h1>' + esc(t("infos.hero1")) + ' <i>' + esc(t("infos.hero2")) + '</i></h1><p>' + esc(t("infos.heroTexte")) + '</p></div>' +
+    '<div class="infos-label">' + esc(t("infos.engager")) + '</div>' +
+    '<div class="infos-carte infos-asso">' +
+      '<div class="infos-label infos-label-or">' + esc(t("infos.assoLabel")) + '</div>' +
+      '<h2>' + esc(t("infos.assoTitre")) + '</h2><p>' + esc(t("infos.assoTexte")) + '</p>' +
+      '<button type="button" class="cta ocre" data-open="membre">' + esc(t("infos.devenirMembre")) + '</button>' +
+      '<a class="lien-bouton infos-don" href="' + don + '" target="_blank" rel="noopener">' + esc(t("cta.donate")) + '</a>' +
     '</div>' +
-    '<a class="cta gaz" style="text-decoration:none; margin-top:10px;" href="https://tally.so/r/wbq651" target="_blank" rel="noopener">' + t("cta.joinMovement") + '</a>' +
-    '<a class="cta ghost" style="text-decoration:none; margin-top:10px;" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener">' + t("cta.donate") + '</a>' +
-    '<button type="button" class="cta ghost" style="margin-top:10px;" data-open="espace">' + esc(t("espace.entree")) + '</button>' +
-    '<button type="button" class="cta ghost" style="margin-top:10px;" data-open="rejoindre">' + esc(t("form.nousRejoindre")) + '</button>' +
-    accItem(ICON_TOPIC.about, t("infos.aboutTitle"),
-      "<p>" + t("infos.about1") + "</p>" +
-      "<p>" + t("infos.about2") + "</p>" +
-      "<p>" + t("infos.about3") + "</p>", true) +
-    accItem(ICON_TOPIC.mail, t("infos.contactTitle"),
-      "<p>" + t("infos.contactGeneral") + " : " + esc(c.general) +
-      (CONFIG.festivalActif
-        ? "<br>" + t("infos.contactFestival") + " : " + esc(c.festival) + "<br>" +
-          t("infos.contactKit") + " : " + esc(c.kitPresse)
-        : "") + "</p>", true) +
-    accItem(ICON_TOPIC.legal, t("infos.legalTitle"),
-      "<p>" + legalBlockHtml() + "</p>") +
-    accItem(ICON_TOPIC.shield, t("infos.privacyTitle"),
-      "<p>" + t("infos.privacyBody") + "</p>");
-  bindAccordion($("#infos-body"));
+    '<div class="infos-carte">' +
+      '<div class="infos-label">' + esc(t("infos.appLabel")) + '</div>' +
+      '<h2>' + esc(t("infos.proposerTitre")) + '</h2><p>' + esc(t("infos.proposerTexte")) + '</p>' +
+      '<div class="infos-pastilles">' + pastille("infos.tVisite", "var(--type-visite)") + pastille("infos.tAtelier", "var(--type-atelier)") +
+        pastille("infos.tSoiree", "var(--type-soiree)") + pastille("infos.tEscape", "var(--type-escape)") + '</div>' +
+      '<button type="button" class="cta ocre" data-open="rejoindre">' + esc(t("infos.proposerBtn")) + '</button>' +
+      '<button type="button" class="infos-intervenant" data-open="espace"><span>' + esc(t("infos.dejaIntervenant")) + '</span><b>' + esc(t("espace.entree")) + ' ›</b></button>' +
+    '</div>' +
+    '<div class="infos-label">' + esc(t("infos.pratique")) + '</div>' +
+    '<div class="infos-liste">' +
+      ligne(t("infos.langue"), LANG_META[getLang()].nom, ' class="infos-ligne lang-btn"').replace('class="infos-ligne" class="infos-ligne lang-btn"', 'class="infos-ligne lang-btn"') +
+      '<a class="infos-ligne" href="cgv.html" target="_blank" rel="noopener"><span><span class="infos-ligne-t">' + esc(t("infos.conditions")) + '</span><span class="infos-ligne-s">' +
+        esc(t("infos.conditionsSous")) + '</span></span>' + fleche + '</a>' +
+      '<a class="infos-ligne" href="mailto:' + esc(c.general) + '"><span><span class="infos-ligne-t">' + esc(t("infos.contactPresse")) + '</span><span class="infos-ligne-s">' +
+        esc(c.general) + '</span></span>' + fleche + '</a>' +
+      deplie(t("infos.legalTitle"), "<p>" + legalBlockHtml() + "</p>") +
+      deplie(t("infos.confidentialite"), "<p>" + t("infos.privacyBody") + "</p>") +
+    '</div>' +
+    '<div class="infos-reseaux">' +
+      '<a class="icon-btn" href="' + esc(l.siteAssociation) + '" target="_blank" rel="noopener" aria-label="' + esc(t("infos.siteWeb")) + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg></a>' +
+      '<a class="icon-btn" href="' + esc(l.instagram) + '" target="_blank" rel="noopener" aria-label="Instagram"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17" cy="7" r=".8" fill="currentColor"/></svg></a>' +
+      '<a class="icon-btn" href="' + esc(l.facebook) + '" target="_blank" rel="noopener" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 4.2 H13.2 A3.3 3.3 0 0 0 9.9 7.5 V10.2 H7.8 V13.4 H9.9 V20.5 H13.1 V13.4 H15.4 L15.8 10.2 H13.1 V7.9 C13.1 7 13.4 6.4 14.4 6.4 H15.8 Z"/></svg></a>' +
+      '<a class="icon-btn" href="mailto:' + esc(c.general) + '" aria-label="' + esc(t("infos.ecrire")) + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M4 7l8 6 8-6"/></svg></a>' +
+    '</div>' +
+    '<div class="infos-pied">' + esc(t("infos.pied")) + '<br>' + esc(t("infos.beta")) + '</div>';
+}
+
+/** « Mon compte » (E13) : connectée → l'espace (intervenant : Mes séances) ; sinon la connexion par email. */
+function ouvrirMonCompte() {
+  if (typeof ADM !== "undefined") ADM.ongletVoulu = "seances";
+  openTarget("espace");
 }
 
 function renderInfosFestival() {
@@ -2166,6 +2270,21 @@ function renderInfosFestival() {
   bindAccordion($("#infos-festival-body"));
 }
 
+/** Liens directs à partager : https://artdive.app/#rejoindre, et #espace=demandes (emails d'alerte). */
+function handleLienDirect() {
+  const h = window.location.hash || "";
+  const m = h.match(/^#espace(?:=([a-z]+))?$/);
+  if (h !== "#rejoindre" && !m) return false;
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  if (h === "#rejoindre") { openTarget("rejoindre"); return true; }
+  if (m[1]) {
+    if (typeof ADM !== "undefined") ADM.ongletVoulu = m[1];
+    try { localStorage.setItem("ongletVoulu", m[1]); } catch (e) { /* rien */ }   // après la connexion par email
+  }
+  openTarget("espace");
+  return true;
+}
+
 /* ============================================================
    DÉMARRAGE
    ============================================================ */
@@ -2179,24 +2298,18 @@ document.addEventListener("DOMContentLoaded", () => {
   applyBrand();
   renderAccueil();
   handleCheckoutReturn();
+  const compte = $("#infos-compte");
+  if (compte) compte.addEventListener("click", ouvrirMonCompte);
 
   // L'ancienne liste des adhérents (Sheet publique) ne doit plus rester sur les téléphones.
   try { localStorage.removeItem("csv:membres"); } catch (e) { /* rien */ }
-  if (!handleConnexionRetour()) {
+  if (!handleConnexionRetour() && !handleLienDirect()) {
     handleCarteRetour();
     handleReservationRetour();
     if (typeof handleParcoursRetour === "function") handleParcoursRetour();
   }
 
-  // Encadré "À propos" + lien adhésion sur l'écran "Ma carte de membre"
-  const membreAbout = $("#membre-about");
-  if (membreAbout) {
-    membreAbout.innerHTML = accItem(ICON_TOPIC.about, t("infos.aboutTitle"),
-      "<p>" + t("infos.about1") + "</p>" +
-      "<p>" + t("infos.about2") + "</p>" +
-      "<p>" + t("infos.about3") + "</p>", true);
-    bindAccordion(membreAbout);
-  }
+  // Lien d'adhésion sur l'écran « Ma carte de membre » (E15)
   const membreAdherer = $("#membre-adherer");
   if (membreAdherer) membreAdherer.href = CONFIG.liens.adhesion;
 

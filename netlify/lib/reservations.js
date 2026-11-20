@@ -10,10 +10,22 @@
 const { rpc, stripe, stripePost, idDe, EMAIL_EXPEDITEUR, NOM_EXPEDITEUR, EMAIL_REPONSE, SITE_URL } = require("./commun");
 const { rediger } = require("./emails");
 
-/** Confirme la réservation d'une session Checkout payée (idempotent). */
+/** Confirme la réservation d'une session Checkout payée (idempotent).
+    Adhérent (session « setup ») : rien de payé, la carte est enregistrée. */
 async function confirmerSession(session) {
   const id = session.metadata && session.metadata.reservation_id;
-  if (!id || session.payment_status !== "paid") return null;
+  if (!id) return null;
+  if (session.mode === "setup") {
+    if (session.status !== "complete" || !session.setup_intent) return null;
+    const si = await stripe("setup_intents/" + idDe(session.setup_intent));
+    if (si.status !== "succeeded") return null;
+    return rpc("confirmer_reservation", {
+      p_reservation_id: id, p_stripe_session_id: session.id, p_stripe_payment_intent: null,
+      p_montant_centimes: 0, p_stripe_customer: idDe(si.customer) || idDe(session.customer),
+      p_stripe_payment_method: idDe(si.payment_method), p_stripe_setup_intent: si.id,
+    });
+  }
+  if (session.payment_status !== "paid") return null;
   const pi = await stripe("payment_intents/" + idDe(session.payment_intent));
   return rpc("confirmer_reservation", {
     p_reservation_id: id, p_stripe_session_id: session.id, p_stripe_payment_intent: pi.id,
@@ -82,7 +94,7 @@ async function traiterFrais(limite = 20) {
           amount: String(f.montant_centimes), currency: "eur",
           customer: f.stripe_customer, payment_method: f.stripe_payment_method,
           off_session: "true", confirm: "true",
-          description: "Frais d'annulation tardive ou d'absence, réservation " + f.reference,
+          description: "Frais d'annulation tardive ou d'absence, au profit de l'association Mouvement Montmartre, réservation " + f.reference,
           "metadata[frais_reservation_id]": f.id, receipt_email: f.email,
         }, "frais-" + f.id);
       }
@@ -102,7 +114,7 @@ async function traiterFrais(limite = 20) {
         "line_items[0][quantity]": "1",
         "line_items[0][price_data][currency]": "eur",
         "line_items[0][price_data][unit_amount]": String(f.montant_centimes),
-        "line_items[0][price_data][product_data][name]": "Frais d'annulation tardive, réservation " + f.reference,
+        "line_items[0][price_data][product_data][name]": "Frais d'annulation tardive ou d'absence, Mouvement Montmartre, réservation " + f.reference,
         ...(f.stripe_customer ? { customer: f.stripe_customer } : { customer_email: f.email }),
         "metadata[frais_reservation_id]": f.id,
         "payment_intent_data[metadata][frais_reservation_id]": f.id,

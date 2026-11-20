@@ -38,14 +38,13 @@
   <!-- ================= SPLASH (tracé du logo) ================= -->
   <div class="splash" id="splash" aria-hidden="true">
     <img class="splash-mm" src="icons/logo-splash.png" alt="">
-    <img class="splash-ad" src="icons/artdive-wordmark-cream.svg" alt="">
   </div>
 
   <!-- ================= ONGLET ACCUEIL ================= -->
   <section class="screen active" id="screen-accueil">
     <header class="app-header">
       <div class="brand">
-        <img class="brand-logo" src="icons/artdive-wordmark-cream.svg" alt="ArtDive">
+        <a class="logo-accueil" href="./" data-accueil><img class="brand-logo" src="icons/artdive-wordmark-cream.svg" alt="ArtDive, accueil"></a>
         <div class="screen-label" data-i18n="header.sous">Mouvement Montmartre, Paris</div>
       </div>
       <button class="header-lang-btn lang-btn" aria-label="Changer de langue">
@@ -125,7 +124,7 @@
   <section class="screen" id="screen-carte">
     <header class="app-header">
       <div class="brand">
-        <img class="brand-logo" src="icons/artdive-wordmark-cream.svg" alt="ArtDive">
+        <a class="logo-accueil" href="./" data-accueil><img class="brand-logo" src="icons/artdive-wordmark-cream.svg" alt="ArtDive, accueil"></a>
         <div class="screen-label" data-i18n="nav.mapNeighborhood">Carte de l'écosystème</div>
       </div>
       <button class="header-lang-btn lang-btn" aria-label="Changer de langue">
@@ -144,7 +143,6 @@
       </div>
       <div class="filter-chips" id="eco-filters">
         <button class="chip active" data-filter="tout" data-i18n="filter.tout">Tout</button>
-        <button class="chip" data-filter="depart" data-i18n="filter.visites">Visites</button>
         <button class="chip" data-filter="bar" data-i18n="filter.bars">Bars</button>
         <button class="chip" data-filter="cafe" data-i18n="filter.cafes">Cafés</button>
         <button class="chip" data-filter="musee" data-i18n="filter.musees">Musées</button>
@@ -157,7 +155,7 @@
         <button class="chip" data-filter="ecole" data-i18n="filter.ecoles">Écoles</button>
         <button class="chip" data-filter="createur" data-i18n="filter.createurs">Créateurs</button>
         <button class="chip" data-filter="presse" data-i18n="filter.presse">Média</button>
-        <button class="chip" data-filter="vue" data-i18n="filter.vue">Vue</button>
+        <button class="chip" data-filter="vue" data-i18n="filter.vue">Lieu historique</button>
       </div>
       <div class="map-wrap" id="eco-map"></div>
       <div class="map-legend" data-i18n="map.legendButte">Votre position est approximative : la précision du GPS varie dans les rues étroites de la Butte.</div>
@@ -170,7 +168,7 @@
   <section class="screen" id="screen-agenda">
     <header class="app-header">
       <div class="brand">
-        <img class="brand-logo" src="icons/artdive-wordmark-cream.svg" alt="ArtDive">
+        <a class="logo-accueil" href="./" data-accueil><img class="brand-logo" src="icons/artdive-wordmark-cream.svg" alt="ArtDive, accueil"></a>
         <div class="screen-label" data-i18n="nav.agenda">Agenda culturel local</div>
       </div>
       <button class="header-lang-btn lang-btn" aria-label="Changer de langue">
@@ -380,45 +378,42 @@
     <div class="screen-inner">
       <div id="membre-result"></div>
       <form id="membre-form" novalidate>
-        <div class="mini-label" data-i18n="member.findCard">Retrouver ma carte</div>
+        <h2 class="mb-titre"><span data-i18n="member.findTitle1">Retrouver</span> <i data-i18n="member.findTitle2">ma carte.</i></h2>
         <p class="member-note" data-i18n="member.linkHelp">Entrez l'adresse email de votre adhésion pour afficher votre carte.</p>
-        <label class="visually-hidden" for="membre-email" data-i18n="member.emailPlaceholder">Votre adresse email d'adhésion</label>
-        <input class="input-field" id="membre-email" type="email" inputmode="email" autocomplete="email" placeholder="Votre adresse email d'adhésion" data-i18n-placeholder="member.emailPlaceholder">
+        <label class="mb-label" for="membre-email" data-i18n="member.emailLabel">Votre email d'adhésion</label>
+        <input class="input-field" id="membre-email" type="email" inputmode="email" autocomplete="email" placeholder="prenom@exemple.fr" data-i18n-placeholder="member.emailExemple">
         <button class="cta fee" id="membre-check" type="submit" data-i18n="member.sendLink">Afficher ma carte</button>
         <div id="membre-form-note" role="status" aria-live="polite"></div>
       </form>
-      <div id="membre-about"></div>
-
-      <div class="mini-label" data-i18n="member.benefitsTitle">Pourquoi adhérer ?</div>
-      <div class="cartouche">
-        <div class="cartouche-inner">
-          <div class="cartouche-core">
-            <ul class="benefits-list">
-              <li data-i18n="member.benefit1">Accès au réseau d'artistes, d'espaces d'art et d'organisations culturelles</li>
-              <li data-i18n="member.benefit2">Invitations à des événements</li>
-              <li data-i18n="member.benefit3">Publication gratuite sur l'agenda</li>
-              <li data-i18n="member.benefit4">Tarif réduit sur les visites guidées et certains événements</li>
-              <li data-i18n="member.benefit5">Soutien à la création locale</li>
-            </ul>
-          </div>
+      <div id="membre-pas-encore">
+        <div class="mb-separateur"><span data-i18n="member.pasEncore">Pas encore membre ?</span></div>
+        <div class="mb-encart">
+          <h2 class="mb-titre"><span data-i18n="member.pourquoi1">Pourquoi</span> <i data-i18n="member.pourquoi2">adhérer ?</i></h2>
+          <ul class="mb-avantages">
+            <li data-i18n="member.benefit1">Accès au réseau d'artistes, d'espaces d'art et d'organisations culturelles</li>
+            <li data-i18n="member.benefit2">Invitations à des événements</li>
+            <li data-i18n="member.benefit3">Publication gratuite sur l'agenda</li>
+            <li data-i18n="member.benefit4">Tarif réduit sur les visites guidées et certains événements</li>
+            <li data-i18n="member.benefit5">Soutien à la création locale</li>
+          </ul>
+          <a class="cta ocre" style="text-decoration:none;" href="" id="membre-adherer" target="_blank" rel="noopener" data-i18n="cta.join">Adhérer</a>
+          <a class="lien-bouton mb-don" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener" data-i18n="cta.donate">Faire un don</a>
         </div>
       </div>
-
-      <a class="cta gaz" style="text-decoration:none; margin-top:10px;" href="" id="membre-adherer" target="_blank" rel="noopener" data-i18n="cta.join">Adhérer</a>
-      <a class="cta ghost" style="text-decoration:none; margin-top:10px;" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener" data-i18n="cta.donate">Faire un don</a>
     </div>
   </section>
 
   <!-- ================= INFOS ASSOCIATION (empilé) ================= -->
   <section class="screen stack" id="screen-infos">
-    <header class="back-header">
+    <header class="back-header infos-header">
       <button class="back-btn" data-back aria-label="Retour">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5 L8 12 L15 19"/></svg>
       </button>
-      <div>
-        <div class="back-title" data-i18n="nav.infosAssociation">Infos association</div>
-        <div class="back-sub">Mouvement Montmartre</div>
-      </div>
+      <a class="logo-accueil" href="./" data-accueil><img class="infos-logo" src="icons/artdive-wordmark-cream.svg" alt="ArtDive, accueil"></a>
+      <button type="button" class="infos-compte" id="infos-compte">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c.8-3.8 3.7-5.8 7.5-5.8s6.7 2 7.5 5.8"/></svg>
+        <span data-i18n="infos.compte">Mon compte</span>
+      </button>
     </header>
     <div class="screen-inner" id="infos-body"></div>
   </section>
