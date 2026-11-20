@@ -346,7 +346,7 @@ async function renderAdmin(corps, nom, role, moi) {
   corps.innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>';
   try {
     const [exps, ints, contacts, profils, props, dNouvelles, cNouvelles] = await Promise.all([
-      supaConnecte("experiences?select=*&order=ordre.asc,cree_le.desc" + (inter ? "&intervenant_id=eq." + ADM.moi : "")),
+      supaConnecte("experiences?select=*&supprimee_le=is.null&order=ordre.asc,cree_le.desc" + (inter ? "&intervenant_id=eq." + ADM.moi : "")),
       supaConnecte("intervenants?select=*&order=nom.asc" + (inter ? "&id=eq." + ADM.moi : "")),
       supaConnecte("intervenants_contacts?select=intervenant_id,email"),
       inter ? Promise.resolve([]) : supaConnecte("profils?select=intervenant_id&role=eq.intervenant"),
@@ -500,7 +500,10 @@ function peindreFormFiche(corps, e) {
       admBoutonTraduire("f-traduire") +
       '<button type="submit" class="cta fee" id="f-enregistrer">' + esc(t("adm.enregistrer")) + '</button>' +
       '<div class="resa-erreur" id="f-note" role="alert"></div>' +
-      '<button type="button" class="cta ghost" id="f-retour">' + esc(t("adm.retourListe")) + '</button>' +
+(n ? '' : '<div class="adm-encart adm-suppression"><b>' + esc(t("adm.supprimerExp")) + '</b><p class="member-note">' + esc(t("adm.supprimerExpAide")) + '</p>' +
+        '<button type="button" class="cta ghost adm-danger" id="f-supprimer">' + esc(t("adm.supprimerExp")) + '</button>' +
+        '<div class="resa-erreur" id="f-suppr-note" role="alert"></div></div>') +
+            '<button type="button" class="cta ghost" id="f-retour">' + esc(t("adm.retourListe")) + '</button>' +
     '</form>';
   admBrancherLangues("f-langues");
   const inter = ADM.role === "intervenant";
@@ -519,6 +522,7 @@ function peindreFormFiche(corps, e) {
   const pos = { lat: e.point_rdv_lat, lng: e.point_rdv_lng };
   admCarte("f-carte", pos, () => { $("#f-carte-note").textContent = t("adm.rdvPlace"); });
   $("#f-retour").addEventListener("click", () => peindreAdmin(corps));
+  if (!n) admBrancherSuppressionExp(corps, e, "f");
   $("#adm-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const note = $("#f-note"), b = $("#f-enregistrer");
@@ -817,7 +821,7 @@ async function peindreListeSeances(corps) {
   admChargement();
   let seances = [], resas = [];
   try {
-    seances = await supaConnecte("seances?select=*&debut=gt." + encodeURIComponent(new Date(Date.now() - 8 * 864e5).toISOString()) + "&order=debut.asc");
+    seances = await supaConnecte("seances?select=*&supprimee_le=is.null&debut=gt." + encodeURIComponent(new Date(Date.now() - 8 * 864e5).toISOString()) + "&order=debut.asc");
     if (seances.length) resas = await supaConnecte("reservations?select=seance_id,personnes,statut&statut=eq.confirmee&seance_id=in.(" + seances.map((x) => x.id).join(",") + ")");
   } catch (e) { admZone().innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>'; return; }
   const inscrits = (id) => resas.filter((r) => r.seance_id === id).reduce((n, r) => n + r.personnes, 0);
@@ -901,7 +905,8 @@ async function peindreFormSeance(corps, x, modele) {
         (publiee ? '' : '<button type="button" class="cta ghost" id="s-brouillon">' + esc(t("adm.enregistrerBrouillon")) + '</button>')) +
       '<div class="resa-erreur" id="s-note" role="alert"></div>' +
       (n ? '' : '<div class="adm-boutons"><button type="button" class="cta ghost" id="s-dupliquer">' + esc(t("adm.dupliquer")) + '</button>' +
-        (resas.length || annulee ? '' : '<button type="button" class="cta ghost adm-danger" id="s-supprimer">' + esc(t("adm.supprimerSeance")) + '</button>') + '</div>') +
+        (nInscrits && !annulee && !commencee ? '' : '<button type="button" class="cta ghost adm-danger" id="s-supprimer">' + esc(t("adm.supprimerSeance")) + '</button>') + '</div>' +
+        (nInscrits && !annulee && !commencee ? '<div class="member-note">' + esc(t("adm.supprimerSeanceInscrits")) + '</div>' : '')) +
       (n ? '' :
         '<h3 class="adm-sous-titre">' + esc(tx("adm.inscritsTitre", { n: nInscrits })) + '</h3>' +
         (resas.length ? '<div class="adm-liste adm-inscrits">' + resas.map((r) => {
@@ -967,11 +972,12 @@ async function peindreFormSeance(corps, x, modele) {
   if ($("#s-supprimer")) $("#s-supprimer").addEventListener("click", async () => {
     if (!confirm(t("adm.supprimerSeanceConfirmer"))) return;
     try {
-      const r = await supaEcrire("DELETE", "seances?id=eq." + x.id, undefined, "return=representation");
-      if (!r || !r.length) throw new Error("RESERVATIONS");
+      // Sans réservation : effacée ; avec un historique : retirée des listes et de l'app, gardée en base.
+      const r = await supaEcrire("POST", "rpc/supprimer_seance", { p_id: x.id });
+      ADM.onglet = "seances";
       await peindreAdmin(corps);
-      admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t("adm.seanceSupprimee")) + '</div>');
-    } catch (e) { $("#s-note").textContent = e.message === "RESERVATIONS" ? t("adm.supprimerSeanceImpossible") : admErreur(e); }
+      admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t(r && r.etat === "retiree" ? "adm.seanceRetiree" : "adm.seanceSupprimee")) + '</div>');
+    } catch (e) { $("#s-note").textContent = /SEANCE_AVEC_INSCRITS/.test(e.message) ? t("adm.supprimerSeanceInscrits") : admErreur(e); }
   });
   if ($("#s-annuler")) $("#s-annuler").addEventListener("click", async () => {
     if (!confirm(inter ? tx("adm.annulerConfirmerIntervenant", { n: nInscrits }) : tx("adm.annulerConfirmer", { n: confirmees.length }))) return;
@@ -1459,7 +1465,7 @@ async function peindreTableauIntervenant(corps) {
   let seances = [], inscrits = [];
   try {
     [seances, inscrits] = await Promise.all([
-      supaConnecte("seances?select=*&debut=gt." + encodeURIComponent(new Date(Date.now() - 3 * 3600e3).toISOString()) + "&order=debut.asc"),
+      supaConnecte("seances?select=*&supprimee_le=is.null&debut=gt." + encodeURIComponent(new Date(Date.now() - 3 * 3600e3).toISOString()) + "&order=debut.asc"),
       supaConnecte("mes_inscrits?select=seance_id,debut,personnes,reste_sur_place_centimes&debut=gt." + encodeURIComponent(depuis)),
     ]);
   } catch (e) { admZone().innerHTML = '<div class="member-note">' + esc(t("member.error")) + '</div>'; return; }
@@ -1538,7 +1544,10 @@ function peindreFormExperience(corps, e) {
       '<button type="submit" class="cta ocre" id="x-enregistrer">' + esc(n ? t("adm.envoyerValidation") : refusee ? t("adm.renvoyerValidation") : t("adm.enregistrer")) + '</button>' +
       (n || refusee ? '<div class="member-note adm-centre">' + esc(t("adm.reponse48h")) + '</div>' : '') +
       '<div class="resa-erreur" id="x-note" role="alert"></div>' +
-      '<button type="button" class="cta ghost" id="x-retour">' + esc(t("adm.retour")) + '</button>' +
+(n ? '' : '<div class="adm-encart adm-suppression"><b>' + esc(t("adm.supprimerExp")) + '</b><p class="member-note">' + esc(t("adm.supprimerExpAide")) + '</p>' +
+        '<button type="button" class="cta ghost adm-danger" id="x-supprimer">' + esc(t("adm.supprimerExp")) + '</button>' +
+        '<div class="resa-erreur" id="x-suppr-note" role="alert"></div></div>') +
+            '<button type="button" class="cta ghost" id="x-retour">' + esc(t("adm.retour")) + '</button>' +
     '</form>';
   if (enLigne) $$("[id^=x-titre-]").forEach((x) => { x.disabled = true; });
   // Description : 200 caractères au plus, avec le compteur (« 123 / 200 »).
@@ -1555,6 +1564,7 @@ function peindreFormExperience(corps, e) {
   const pos = { lat: e.point_rdv_lat, lng: e.point_rdv_lng };
   admCarte("x-carte", pos, () => { $("#x-carte-note").textContent = t("adm.rdvPlace"); });
   $("#x-retour").addEventListener("click", () => peindreAdmin(corps));
+  if (!n) admBrancherSuppressionExp(corps, e, "x");
   $("#adm-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const note = $("#x-note"), b = $("#x-enregistrer");
@@ -1714,4 +1724,28 @@ async function admSupprimerIntervenant(corps, i) {
   } catch (e) {
     note.textContent = e.code === "SEANCES_AVEC_INSCRITS" ? t("adm.supprimerIntInscrits") : e.code === "RESERVE_ADMIN" ? t("adm.erreurDroits") : admErreur(e);
   }
+}
+
+/* ---------- Suppression d'une expérience (admin et intervenant, maj-21) ---------- */
+
+/** Sans aucune réservation : effacée ; avec un historique : retirée de l'app, gardée en base.
+    Refusée tant qu'une séance à venir a des inscrits (l'annuler d'abord : ils sont prévenus). */
+function admBrancherSuppressionExp(corps, e, prefixe) {
+  const b = document.getElementById(prefixe + "-supprimer");
+  if (!b) return;
+  b.addEventListener("click", async () => {
+    if (!confirm(tx("adm.supprimerExpConfirmer", { t: (e.titre && e.titre.fr) || e.slug }))) return;
+    const note = document.getElementById(prefixe + "-suppr-note");
+    b.disabled = true; note.textContent = t("member.loading");
+    try {
+      const r = await supaEcrire("POST", "rpc/supprimer_experience", { p_id: e.id });
+      VISITES_CACHE = null;
+      ADM.onglet = "fiches";
+      await renderAdmin(corps);
+      admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(t(r && r.etat === "retiree" ? "adm.expRetiree" : "adm.expSupprimee")) + '</div>');
+    } catch (err) {
+      note.textContent = /SEANCES_AVEC_INSCRITS/.test(err.message) ? t("adm.supprimerExpInscrits") : admErreur(err);
+      b.disabled = false;
+    }
+  });
 }

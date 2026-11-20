@@ -362,6 +362,17 @@ begin
         pg_temp.essai('authenticated', u_a, format('insert into public.seances (experience_id, debut, fin, statut, capacite_max, participants_min, prix_centimes) select id, now() + interval %L, now() + interval %L, %L, 6, 2, 2500 from public.experiences where titre->>%L = %L', '20 days', '20 days 90 minutes', 'publiee', 'fr', 'Mon escape'))),
       jsonb_build_array('Visiteur', 'voit la séance, réservée aux adhérents, prix net 25 €', '1',
         pg_temp.essai('anon', null, format('select 1 from public.seances_publiques p join public.experiences e on e.id = p.experience_id where e.titre->>%L = %L and p.reservee_adherents and p.prix_centimes = 2500', 'fr', 'Mon escape'))),
+      -- Suppression (maj-21)
+      jsonb_build_array('Intervenant B', 'ne supprime pas l''expérience de A', 'refus',
+        pg_temp.essai('authenticated', u_b, format('select public.supprimer_experience(%L)', x_a))),
+      jsonb_build_array('Intervenant A', 'ne supprime pas une expérience dont une séance à venir a des inscrits', 'refus',
+        pg_temp.essai('authenticated', u_a, format('select public.supprimer_experience(%L)', x_a))),
+      jsonb_build_array('Visiteur', 'ne supprime rien', 'refus',
+        pg_temp.essai('anon', null, format('select public.supprimer_experience(%L)', x_a))),
+      jsonb_build_array('Intervenant A', 'supprime son expérience sans réservation, séance comprise (effacées)', '1',
+        pg_temp.essai('authenticated', u_a, format('select 1 from (select public.supprimer_experience(id) as r from public.experiences where titre->>%L = %L) x where r->>%L = %L', 'fr', 'Mon escape', 'etat', 'effacee'))),
+      jsonb_build_array('Contrôle', 'plus aucune trace de l''expérience ni de sa séance', '0',
+        pg_temp.essai(null, null, format('select 1 from public.experiences where titre->>%L = %L', 'fr', 'Mon escape'))),
       jsonb_build_array('Serveur', 'accepte une candidature (fiche, compte, accès)', '1',
         pg_temp.essai('service_role', null, format('select public.accepter_candidature(c.id, %L, %L) from public.candidatures c where c.email = %L', (select id from auth.users where email = 'candidat@exemple.invalid'), u_admin, 'candidat@exemple.invalid'))),
       jsonb_build_array('Contrôle', 'intervenant non publié, profil, contact, email d''accès', '1',
@@ -696,6 +707,12 @@ begin
         pg_temp.essai(null, null, format('select 1 from public.seances s where s.id = %L and s.statut = %L and s.motif_annulation = %L and exists (select 1 from public.envois v join public.reservations r on r.id = v.reservation_id where r.seance_id = s.id and v.type = %L and v.donnees->>%L = %L)', s_loin, 'annulee', 'intervenant_empeche', 'seance_annulee', 'message_intervenant', 'Je suis malade, désolé.'))),
       jsonb_build_array('Contrôle', 'l''association est prévenue (Répondre vers l''intervenant)', '1',
         pg_temp.essai(null, null, format('select 1 from public.envois where type = %L and cible_id = %L and (donnees->>%L)::boolean and donnees->>%L = %L and (donnees->>%L)::int = 1', 'alerte_annulation_intervenant', s_loin, 'pour_association', 'repondre_a', 'guide-a@exemple.invalid', 'inscrits_rembourses'))),
+      jsonb_build_array('Intervenant A', 'supprime sa séance annulée : retirée, gardée pour l''historique', '1',
+        pg_temp.essai('authenticated', u_a, format('select 1 from (select public.supprimer_seance(%L) as r) x where r->>%L = %L', s_loin, 'etat', 'retiree'))),
+      jsonb_build_array('Contrôle', 'séance retirée : en base, invisible pour le visiteur', '1',
+        pg_temp.essai(null, null, format('select 1 from public.seances s where s.id = %L and s.supprimee_le is not null and not exists (select 1 from public.seances_publiques p where p.id = s.id) and exists (select 1 from public.reservations r where r.seance_id = s.id)', s_loin))),
+      jsonb_build_array('Intervenant A', 'ne supprime pas deux fois la même séance', 'refus',
+        pg_temp.essai('authenticated', u_a, format('select public.supprimer_seance(%L)', s_loin))),
       jsonb_build_array('Admin', 'une séance déjà annulée ne l''est pas deux fois', '1',
         pg_temp.essai('authenticated', u_admin, format('select 1 from (select public.annuler_seance(%L) as r) x where (r->>%L)::boolean', s_loin, 'deja_annulee'))),
       jsonb_build_array('Intervenant A', 'n''appelle pas la file des emails', 'refus',
@@ -765,7 +782,7 @@ begin
   select count(*)::text into v from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and has_function_privilege('authenticated', p.oid, 'execute')
      and p.proname not in ('valider_proposition', 'refuser_proposition', 'code_import_creer', 'ajouter_adhesion_manuelle', 'annuler_seance', 'signaler_absence', 'registre_adherents',
-                         'notifications_non_envoyees', 'notification_reessayer');
+                         'notifications_non_envoyees', 'notification_reessayer', 'supprimer_seance', 'supprimer_experience');
   res := res || jsonb_build_array(jsonb_build_array('Structure', 'fonctions serveur appelables par un compte connecté', '0', v));
 
   begin

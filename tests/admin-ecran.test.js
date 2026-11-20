@@ -162,6 +162,14 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   await attendre(pg, "#adm-zone", "Enregistré.");
   const atelier = st.db.experiences.find((e) => e.slug === "atelier-peinture-sur-la-butte");
   v("nouvelle fiche : adresse tirée du titre, type, prix, brouillon", atelier && atelier.type === "atelier" && atelier.prix_centimes === 4500 && atelier.publie === false && atelier.localite_id === "montmartre", JSON.stringify(atelier));
+  // Supprimer une expérience (maj-21) : fonction de la base, message selon le résultat.
+  await pg.click('[data-adm-fiche="' + atelier.id + '"]');
+  await pg.waitForSelector("#f-supprimer");
+  pg.once("dialog", (d) => d.accept());
+  await pg.click("#f-supprimer");
+  v("supprimer une expérience : fonction de la base avec la session, message", await attendre(pg, "#adm-zone", "Expérience supprimée") &&
+    st.rpc.some((r) => r.nom === "supprimer_experience" && r.args.p_id === atelier.id && r.auth === "Bearer JETON-ADMIN"));
+  v("les listes ne lisent que les expériences non supprimées", st.appels.some((x) => x.m === "GET" && /\/rest\/v1\/experiences\?.*supprimee_le=is\.null/.test(x.chemin)));
   v("pas d'erreur JavaScript (fiches)", st.erreurs.length === 0, st.erreurs.join(" | "));
 
   // 5. Intervenant : email privé et invitation
@@ -216,6 +224,12 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   await pg.click("#s-publier");
   v("répétition chaque semaine : 4 séances publiées d'un coup", await attendre(pg, "#adm-zone", "4 séances publiées") && st.lots && st.lots[0] === 4 &&
     st.db.seances.slice(1).every((x) => new Date(x.debut).toLocaleTimeString("en-GB", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" }) === "18:30"));
+  // Supprimer une séance sans inscrit
+  await pg.click('[data-adm-seance="' + st.db.seances[1].id + '"]');
+  await pg.waitForSelector("#s-supprimer");
+  pg.once("dialog", (d) => d.accept());
+  await pg.click("#s-supprimer");
+  v("supprimer une séance : fonction de la base", await attendre(pg, "#adm-zone", "Séance supprimée") && st.rpc.some((r) => r.nom === "supprimer_seance" && r.args.p_id === st.db.seances[1].id));
   // Dupliquer
   await pg.click('[data-adm-seance="' + sea.id + '"]');
   await pg.waitForSelector("#s-dupliquer"); await pg.click("#s-dupliquer");
