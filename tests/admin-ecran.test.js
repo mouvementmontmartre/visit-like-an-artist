@@ -118,7 +118,21 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   // 2. Compléter et publier une fiche, avec photo
   await pg.click('[data-adm-fiche="' + circuit.id + '"]');
   v("formulaire de la fiche ouvert, champs remplis", await attendre(pg, "#adm-form", "Circuit des Peintres") && (await pg.inputValue("#f-prix")) === "50" && (await pg.inputValue("#f-titre-fr")) === "Circuit des Peintres");
+  // Photo carrée pour un format 4:3 : la fenêtre de recadrage s'ouvre (annuler n'envoie rien).
   await pg.setInputFiles("#f-photo-fichier", { name: "photo.png", mimeType: "image/png", buffer: PNG });
+  await pg.waitForSelector(".adm-recadrage canvas");
+  v("photo hors format : fenêtre de recadrage (4:3), avertissement si trop petite", await attendre(pg, ".adm-recadrage", "Recadrer la photo") &&
+    await attendre(pg, ".adm-recadrage", "plus petite que l'idéal (1600 × 1200 px)") &&
+    Math.abs(await pg.$eval(".adm-recadrage canvas", (c) => c.width / c.height) - 4 / 3) < 0.01);
+  if (OUT) await pg.screenshot({ path: OUT + "/recadrage.png" });
+  await pg.click('.adm-recadrage [data-r="annuler"]');
+  v("recadrage annulé : rien n'est envoyé", (await pg.$(".adm-recadrage")) === null && st.photos.length === 0);
+  await pg.setInputFiles("#f-photo-fichier", { name: "photo.png", mimeType: "image/png", buffer: PNG });
+  await pg.waitForSelector(".adm-recadrage canvas");
+  await pg.fill(".adm-recadrage-zoom", "2");
+  const boiteToile = await pg.$(".adm-recadrage canvas").then((e) => e.boundingBox());
+  await pg.mouse.move(boiteToile.x + 100, boiteToile.y + 100); await pg.mouse.down(); await pg.mouse.move(boiteToile.x + 60, boiteToile.y + 80); await pg.mouse.up();
+  await pg.click('.adm-recadrage [data-r="ok"]');
   const okPhoto = await attendre(pg, "#f-photo-note", "Photo enregistrée");
   if (!okPhoto) console.log("   note photo : " + await pg.textContent("#f-photo-note"));
   v("photo envoyée réduite en JPEG, avec la session", okPhoto &&

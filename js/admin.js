@@ -218,12 +218,79 @@ function admPhotoHtml(id, url) {
       '<input type="file" accept="image/*" id="' + id + '-fichier" hidden></label>' +
     '<div class="member-note" id="' + id + '-note" role="status"></div></div>';
 }
-function admBrancherPhoto(id, dossier) {
+/* Recadrage (22/11) : quand la photo n'a pas le format voulu (4:3 pour une expérience, carré pour un
+   portrait), une fenêtre permet de la déplacer et de zoomer dans le cadre avant l'envoi.
+   Rend le fichier recadré (JPEG), le fichier tel quel s'il a déjà le bon format, ou null si annulé. */
+function admRecadrer(fichier, ratio, ideal) {
+  return new Promise(async (fin) => {
+    let img;
+    try { img = await createImageBitmap(fichier, { imageOrientation: "from-image" }); }
+    catch (e) { try { img = await createImageBitmap(fichier); } catch (e2) { fin(fichier); return; } }
+    if (Math.abs(img.width / img.height - ratio) / ratio < 0.01) { fin(fichier); return; }
+    const boite = document.createElement("div");
+    boite.className = "adm-recadrage";
+    boite.setAttribute("role", "dialog"); boite.setAttribute("aria-modal", "true");
+    const petite = Math.min(img.width, img.height * ratio) < ideal;
+    boite.innerHTML = '<div class="adm-recadrage-boite"><h2 class="adm-titre">' + esc(t("adm.recadrerTitre")) + '</h2>' +
+      '<p class="member-note">' + esc(t(ratio === 1 ? "adm.recadrerAideCarre" : "adm.recadrerAide")) + '</p>' +
+      (petite ? '<p class="member-note adm-recadrage-petite">' + esc(tx("adm.recadrerPetite", { w: ideal, h: Math.round(ideal / ratio) })) + '</p>' : '') +
+      '<canvas class="adm-recadrage-toile"></canvas>' +
+      '<label class="adm-champ"><span>' + esc(t("adm.recadrerZoom")) + '</span><input type="range" min="1" max="4" step="0.01" value="1" class="adm-recadrage-zoom"></label>' +
+      '<div class="adm-boutons"><button type="button" class="cta ghost" data-r="annuler">' + esc(t("adm.recadrerAnnuler")) + '</button>' +
+      '<button type="button" class="cta ocre" data-r="ok">' + esc(t("adm.recadrerOk")) + '</button></div></div>';
+    document.body.appendChild(boite);
+    const toile = boite.querySelector("canvas"), ctx = toile.getContext("2d"), zoom = boite.querySelector("input");
+    toile.width = 800; toile.height = Math.round(800 / ratio);
+    const couvre = Math.max(toile.width / img.width, toile.height / img.height);
+    let z = 1, cx = img.width / 2, cy = img.height / 2;
+    const borner = () => {
+      const e = couvre * z, dx = toile.width / 2 / e, dy = toile.height / 2 / e;
+      cx = Math.min(img.width - dx, Math.max(dx, cx)); cy = Math.min(img.height - dy, Math.max(dy, cy));
+    };
+    const peindre = () => {
+      borner();
+      const e = couvre * z;
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, toile.width, toile.height);
+      ctx.drawImage(img, toile.width / 2 - cx * e, toile.height / 2 - cy * e, img.width * e, img.height * e);
+    };
+    peindre();
+    let pris = null;
+    toile.addEventListener("pointerdown", (ev) => { pris = { x: ev.clientX, y: ev.clientY }; toile.setPointerCapture(ev.pointerId); });
+    toile.addEventListener("pointermove", (ev) => {
+      if (!pris) return;
+      const f = toile.width / toile.clientWidth / (couvre * z);
+      cx -= (ev.clientX - pris.x) * f; cy -= (ev.clientY - pris.y) * f;
+      pris = { x: ev.clientX, y: ev.clientY }; peindre();
+    });
+    const lacher = () => { pris = null; };
+    toile.addEventListener("pointerup", lacher); toile.addEventListener("pointercancel", lacher);
+    zoom.addEventListener("input", () => { z = +zoom.value; peindre(); });
+    const fermer = (resultat) => { boite.remove(); document.removeEventListener("keydown", clavier); fin(resultat); };
+    const clavier = (ev) => { if (ev.key === "Escape") fermer(null); };
+    document.addEventListener("keydown", clavier);
+    boite.querySelector('[data-r="annuler"]').addEventListener("click", () => fermer(null));
+    boite.querySelector('[data-r="ok"]').addEventListener("click", () => {
+      const e = couvre * z, lw = toile.width / e, lh = toile.height / e;
+      const w = Math.round(Math.min(ideal, lw)), h = Math.round(w / ratio);
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, cx - lw / 2, cy - lh / 2, lw, lh, 0, 0, w, h);
+      c.toBlob((b) => fermer(b || fichier), "image/jpeg", 0.88);
+    });
+  });
+}
+
+/** ratio (facultatif) : format voulu, largeur / hauteur ; ideal : largeur idéale en pixels. */
+function admBrancherPhoto(id, dossier, ratio, ideal) {
   const input = document.getElementById(id + "-fichier");
   input.addEventListener("change", async () => {
-    const f = input.files && input.files[0];
+    let f = input.files && input.files[0];
     if (!f) return;
     const note = document.getElementById(id + "-note");
+    if (ratio) {
+      f = await admRecadrer(f, ratio, ideal || 1600);
+      input.value = "";
+      if (!f) { note.textContent = ""; return; }   // recadrage annulé : rien n'est envoyé
+    }
     note.textContent = t("adm.photoEnvoi");
     try {
       const url = await admEnvoyerPhoto(f, dossier);
@@ -446,7 +513,7 @@ function peindreFormFiche(corps, e) {
     if (e.publie) $$("[id^=f-titre-]").forEach((x) => { x.disabled = true; });
     if (n) $("#f-enregistrer").textContent = t("adm.envoyerProposition");
   }
-  admBrancherPhoto("f-photo", inter ? "fiches/" + ADM.moi : "fiches");
+  admBrancherPhoto("f-photo", inter ? "fiches/" + ADM.moi : "fiches", 4 / 3, 1600);
   admBrancherTraduire("f-traduire", ["f-titre", "f-accroche", "f-description", "f-rdv"]);
   if ($("#f-etapes")) $("#f-etapes").addEventListener("click", () => peindreEtapesAdmin(corps, e));
   const pos = { lat: e.point_rdv_lat, lng: e.point_rdv_lng };
@@ -572,7 +639,7 @@ function peindreFormIntervenant(corps, i) {
     if (i.publie) $("#i-enregistrer").insertAdjacentHTML("afterend", '<button type="button" class="cta ghost" id="i-voir">' + esc(t("adm.voirPagePublique")) + '</button>');
     if ($("#i-voir")) $("#i-voir").addEventListener("click", () => openTarget("hote", i.id));
   }
-  admBrancherPhoto("i-photo", inter ? "intervenants/" + ADM.moi : "intervenants");
+  admBrancherPhoto("i-photo", inter ? "intervenants/" + ADM.moi : "intervenants", 1, 1000);
   admBrancherVideo("i-video", "intervenants/" + (inter ? ADM.moi : (i.id || "nouveau")));
   admBrancherTraduire("i-traduire", ["i-role", "i-bio"]);
   if (!inter) $("#i-retour").addEventListener("click", () => peindreAdmin(corps));
@@ -1482,7 +1549,7 @@ function peindreFormExperience(corps, e) {
   desc.addEventListener("input", compter); compter();
   admBrancherChoix("x-type");
   admBrancherLangues("x-langues");
-  admBrancherPhoto("x-photo", "fiches/" + ADM.moi);
+  admBrancherPhoto("x-photo", "fiches/" + ADM.moi, 4 / 3, 1600);
   const duree = admBrancherStepper("x-duree", { pas: 15, min: 15, max: 24 * 60, format: dureeAffichee });
   const places = admBrancherStepper("x-places", { pas: 1, min: 1, max: 100 });
   const pos = { lat: e.point_rdv_lat, lng: e.point_rdv_lng };

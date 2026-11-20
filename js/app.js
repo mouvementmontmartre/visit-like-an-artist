@@ -2272,8 +2272,8 @@ function compteHtml(c, resas, note) {
     liste +
     '<div class="infos-label">' + esc(t("compte.animer")) + '</div>' +
     '<div class="infos-liste">' +
-      '<button type="button" class="infos-ligne" data-open="espace"><span><span class="infos-ligne-t">' + esc(t("espace.entree")) + '</span>' +
-        (session ? '' : '<span class="infos-ligne-s">' + esc(t("compte.espaceSous")) + '</span>') + '</span><span class="infos-fleche" aria-hidden="true">›</span></button>' +
+      '<button type="button" class="cta ghost infos-espace-btn" data-open="espace">' + esc(t("espace.entree")) + '</button>' +
+      (session ? '' : '<div class="member-note cpt-espace-note">' + esc(t("compte.espaceSous")) + '</div>') +
       '<button type="button" class="infos-ligne" id="cpt-proposer"><span><span class="infos-ligne-t">' + esc(t("infos.proposerBtn")) + '</span></span><span class="infos-fleche" aria-hidden="true">›</span></button>' +
     '</div>' +
     (c.renouvelable ? '<button type="button" class="lien-bouton cpt-gerer" id="cpt-portail">' + esc(t("member.gerer")) + '</button><div class="resa-erreur" id="cpt-portail-note" role="alert"></div>' : '') +
@@ -2600,7 +2600,8 @@ function renderInfos() {
       '<div class="infos-pastilles">' + pastille("infos.tVisite", "var(--type-visite)") + pastille("infos.tAtelier", "var(--type-atelier)") +
         pastille("infos.tSoiree", "var(--type-soiree)") + pastille("infos.tEscape", "var(--type-escape)") + '</div>' +
       '<button type="button" class="cta ocre" data-open="rejoindre">' + esc(t("infos.proposerBtn")) + '</button>' +
-      '<button type="button" class="infos-intervenant" data-open="espace"><span>' + esc(t("infos.dejaIntervenant")) + '</span><b>' + esc(t("espace.entree")) + ' ›</b></button>' +
+      '<div class="infos-intervenant"><span>' + esc(t("infos.dejaIntervenant")) + '</span></div>' +
+      '<button type="button" class="cta ghost infos-espace-btn" data-open="espace">' + esc(t("espace.entree")) + '</button>' +
     '</div>' +
     '<div class="infos-label">' + esc(t("infos.pratique")) + '</div>' +
     '<div class="infos-liste">' +
