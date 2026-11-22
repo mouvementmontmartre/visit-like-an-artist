@@ -397,9 +397,10 @@ function peindreAdmin(corps) {
         ? ongletSimple("seances", t("adm.mesSeances")) + ongletSimple("inscrits", t("adm.mesInscrits")) +
           ongletSimple("fiches", t("adm.mesExperiences")) + ongletSimple("intervenants", t("adm.maFiche"))
         : (aValider ? onglet("valider", t("adm.validations"), aValider).replace('class="chip', 'class="chip adm-onglet-alerte') : ongletSimple("valider", t("adm.validations"))) +
+          (ADM.nonTraitees ? onglet("demandes", t("adm.demandes"), ADM.nonTraitees).replace('class="chip', 'class="chip adm-onglet-alerte') : ongletSimple("demandes", t("adm.demandes"))) +
+          onglet("intervenants", t("adm.intervenants"), ADM.ints.length) +
           onglet("fiches", t("adm.fiches"), ADM.exps.length) + ongletSimple("seances", t("adm.seances")) +
-          onglet("intervenants", t("adm.intervenants"), ADM.ints.length) + ongletSimple("adhesions", t("adm.adhesions")) +
-          (ADM.nonTraitees ? onglet("demandes", t("adm.demandes"), ADM.nonTraitees).replace('class="chip', 'class="chip adm-onglet-alerte') : ongletSimple("demandes", t("adm.demandes")))) +
+          ongletSimple("adhesions", t("adm.adhesions"))) +
     '</div>' +
     '<div id="adm-zone"></div>' +
     '<button type="button" class="cta ghost" id="espace-deconnexion">' + esc(t("espace.deconnexion")) + '</button>';

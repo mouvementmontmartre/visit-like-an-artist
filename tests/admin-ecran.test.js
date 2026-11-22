@@ -99,7 +99,9 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   // 1. Accueil de l'administration et reprise de la Sheet
   let { pg, ctx, st } = await page({});
   await ouvrirEspace(pg);
-  v("admin : onglets Fiches et Intervenants", await attendre(pg, "#espace-body", "Fiches · 0") && await attendre(pg, "#espace-body", "Intervenants · 0"));
+  v("admin : onglets Expériences et Intervenants", await attendre(pg, "#espace-body", "Expériences · 0") && await attendre(pg, "#espace-body", "Intervenants · 0"));
+  v("onglets dans l'ordre : Validations, Demandes, Intervenants, Expériences, Séances, Adhésions",
+    (await pg.$$eval(".adm-onglets [data-adm-onglet]", (l) => l.map((b) => b.dataset.admOnglet).join(","))) === "valider,demandes,intervenants,fiches,seances,adhesions");
   v("reprise proposée : 2 fiches de la Sheet", await attendre(pg, "#adm-reprise", "2 fiche(s) de la Sheet"));
   await pg.click("#adm-reprendre");
   v("reprise faite, message affiché", await attendre(pg, "#adm-zone", "2 fiche(s) reprise(s) en brouillon"));

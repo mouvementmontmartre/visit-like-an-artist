@@ -69,7 +69,7 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   await pg.fill("#esp-code", "111111"); await pg.click("#esp-valider");
   v("code faux : message clair", await attendre(pg, "#esp-note", "code"));
   await pg.fill("#esp-code", "123 456"); await pg.click("#esp-valider");
-  v("code bon : connectée, accueil administration", await attendre(pg, "#espace-body", "Bonjour admin@exemple.invalid") && await attendre(pg, "#espace-body", "Fiches · 0"));
+  v("code bon : connectée, accueil administration", await attendre(pg, "#espace-body", "Bonjour admin@exemple.invalid") && await attendre(pg, "#espace-body", "Expériences · 0"));
   v("session gardée sur cet appareil", (await pg.evaluate(() => JSON.parse(localStorage.getItem("sessionEspace")).refresh_token)) === "RRR");
   v("pas de lien magique demandé (plus d'envoi par Supabase)", !st.appels.some((a) => a.chemin && a.chemin.startsWith("/auth/v1/otp")));
   v("pas d'erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
@@ -91,7 +91,7 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   // 2. Retour par le lien : administratrice
   ({ pg, ctx, st } = await page({ supabase: supabaseAdmin }));
   await pg.goto("http://localhost:8768/#access_token=AAA&expires_in=3600&refresh_token=RRR&token_type=bearer&type=magiclink");
-  v("retour du lien : connectée, accueil administration", await attendre(pg, "#espace-body", "Bonjour admin@exemple.invalid") && await attendre(pg, "#espace-body", "Fiches · 0"));
+  v("retour du lien : connectée, accueil administration", await attendre(pg, "#espace-body", "Bonjour admin@exemple.invalid") && await attendre(pg, "#espace-body", "Expériences · 0"));
   v("la session disparaît de l'adresse", !pg.url().includes("access_token"), pg.url());
   v("session gardée sur le téléphone", (await pg.evaluate(() => JSON.parse(localStorage.getItem("sessionEspace")).refresh_token)) === "RRR");
   v("lectures de la base au nom de la personne connectée", (() => { const priv = st.appels.filter((a) => /^\/rest\/v1\/(profils|intervenants_contacts)/.test(a.chemin)); return priv.length >= 2 && priv.every((a) => a.auth === "Bearer AAA"); })());
