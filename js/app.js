@@ -962,6 +962,19 @@ function attachMontantChips(suffix) {
   });
 }
 
+/* ---------- Partage d'une expérience (22/11) ---------- */
+const ICONE_PARTAGE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>';
+/** Lien court d'une expérience : https://artdive.app/e/<slug> (aperçu avec photo et titre sur les réseaux). */
+const lienExperience = (slug) => window.location.origin + "/e/" + slug;
+/** Partage du téléphone (WhatsApp, messages…) quand il existe, sinon copie du lien. */
+async function partagerLien(url, titre, note) {
+  try {
+    if (navigator.share) { await navigator.share({ title: titre, url }); return; }
+  } catch (e) { if (e && e.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(url); if (note) note.textContent = t("partage.copie"); }
+  catch (e) { if (note) note.textContent = url; }
+}
+
 async function renderVisite(id) {
   const visites = await loadVisites();
   const v = visites.find(x => x["id"] === id);
@@ -994,6 +1007,8 @@ async function renderVisite(id) {
       '<h1 class="fiche-title">' + esc(trField(v, "Nom")) + '</h1>' +
       (description ? '<p class="fiche-desc">' + esc(description) + '</p>' : '') +
       (traductionAuto(v) ? '<p class="trad-auto">' + esc(t("trad.auto")) + '</p>' : '') +
+      (v._source === "supabase" ? '<button type="button" class="partage-btn" id="fiche-partager">' + ICONE_PARTAGE + '<span>' + esc(t("partage.bouton")) + '</span></button>' +
+        '<span class="member-note partage-note" id="fiche-partager-note" role="status"></span>' : '') +
     '</div>' +
     (guide && v._intervenant
       ? '<button type="button" class="fiche-host fiche-host-lien" data-open="hote" data-arg="' + esc(v._intervenant) + '"><span class="fiche-avatar" aria-hidden="true">' + esc(initiales) + '</span>' +
@@ -1029,6 +1044,8 @@ async function renderVisite(id) {
 
   const btnLibre = $("#btn-libre");
   if (btnLibre) btnLibre.addEventListener("click", () => startCheckout(id, "libre"));
+  const btnPartage = $("#fiche-partager");
+  if (btnPartage) btnPartage.addEventListener("click", () => partagerLien(lienExperience(id), trField(v, "Nom"), $("#fiche-partager-note")));
   attachMontantChips("");
   RESA = null;
   afficherSeances(id, guide);
@@ -2645,6 +2662,13 @@ function handleLienDirect() {
     connexionParLien(cx[1], cx[2]);
     return true;
   }
+  // Lien partagé d'une expérience (https://artdive.app/e/<slug> renvoie ici).
+  const fiche = h.match(/^#visite=([a-z0-9-]{1,120})$/);
+  if (fiche) {
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    openTarget("visite", fiche[1]);
+    return true;
+  }
   const m = h.match(/^#espace(?:=([a-z]+))?$/);
   if (h !== "#rejoindre" && h !== "#membre" && !m) return false;
   history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -2671,6 +2695,8 @@ document.addEventListener("DOMContentLoaded", () => {
   applyBrand();
   renderAccueil();
   handleCheckoutReturn();
+  // Lien partagé ouvert alors que l'app est déjà affichée (#visite=…, #espace=…).
+  window.addEventListener("hashchange", () => { handleLienDirect(); });
   const compte = $("#infos-compte");
   if (compte) compte.addEventListener("click", ouvrirMonCompte);
 

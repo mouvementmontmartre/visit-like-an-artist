@@ -685,3 +685,10 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
    la phrase du bas suit la colonne. */
 #adm-zone > details.adm-trad { margin-top: 14px; }
 #adm-zone > .adm-centre { text-align: start; }
+
+/* Partage d'une expérience (22/11) */
+.partage-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px; margin-block-start: 10px; border-radius: 999px;
+  border: 1px solid var(--bord); background: transparent; color: var(--velin); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.partage-btn svg { inline-size: 16px; block-size: 16px; }
+.partage-note { display: block; margin-block-start: 6px; }
+.adm-partage-lien { font-family: var(--mono); font-size: 13px; }

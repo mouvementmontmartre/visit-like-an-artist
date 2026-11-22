@@ -9,7 +9,7 @@
    une modification du code : incrémenter CACHE_VERSION.
    ============================================================ */
 
-const CACHE_VERSION = "mm-v110";
+const CACHE_VERSION = "mm-v111";
 
 const SHELL = [
   "./",
@@ -68,6 +68,8 @@ self.addEventListener("fetch", (e) => {
 
   // Fonctions serveur (paiement, carte de membre) : jamais en cache.
   if (url.pathname.startsWith("/.netlify/functions/")) return;
+  // Lien court d'une expérience (/e/<slug>) : toujours le serveur (aperçu à jour, puis la fiche).
+  if (url.pathname.startsWith("/e/")) return;
 
   // Base de données (places restantes, dates) : toujours fraîche, jamais en cache.
   if (url.hostname.endsWith(".supabase.co")) return;

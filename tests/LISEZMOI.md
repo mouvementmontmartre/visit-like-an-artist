@@ -26,3 +26,4 @@ La base locale imite aussi le stockage de Supabase (`storage.buckets`, `storage.
    `NODE_PATH=<dossier avec pg> node tests/intervenants-fonctions.test.js <dépôt> <base>` (vraie base locale, à jour de maj-18 ;
    faux Supabase Auth et Brevo) et `node tests/compte-ecran.test.js <dépôt> [captures]` (Mon compte, routage, lien de connexion,
    pilules sur une ligne, affichage sur ordinateur).
+11. Lien court d'une expérience (aperçu pour les réseaux) : `node tests/partage-fonction.test.js <dépôt>`.

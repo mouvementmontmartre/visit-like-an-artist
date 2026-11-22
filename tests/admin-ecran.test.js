@@ -355,6 +355,7 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
     !st.db.propositions.length && !("publie" in JSON.parse(patchI.corps)) && !("type" in JSON.parse(patchI.corps)), patchI && patchI.corps);
   await pg.click('[data-adm-onglet="fiches"]');
   await pg.click('[data-adm-fiche="x-1"]');
+  v("expérience en ligne : lien à partager /e/<adresse>", (await pg.inputValue("#x-lien")) === "http://localhost:8772/e/circuit" && await attendre(pg, ".adm-partage", "Copier le lien"));
   v("expérience en ligne : titre et type figés, prix modifiable", await pg.$eval("#x-titre-fr", (x) => x.disabled) && await pg.$eval('#x-type [data-valeur="atelier"]', (x) => x.disabled) && (await pg.inputValue("#x-prix")) === "50");
   await pg.fill("#x-prix", "48"); await pg.click("#x-enregistrer");
   await attendre(pg, "#adm-zone", "Enregistré.");
@@ -411,6 +412,9 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   v("carte : guide et prix lus dans la base", await attendre(pg, "#visites-list", "Sylvain Lesecq") && (await pg.textContent("#visites-list")).replace(/\s/g, " ").includes("50 €"));
   await pg.evaluate(() => openTarget("visite", "circuit-test"));
   v("fiche ouverte depuis Supabase", await attendre(pg, "#visite-body", "Circuit des Peintres"));
+  v("fiche : bouton « Partager »", await pg.isVisible("#fiche-partager"));
+  await pg.goto("about:blank"); await pg.goto("http://localhost:8772/#visite=circuit-test"); await pg.waitForTimeout(2800);
+  v("lien partagé (#visite=…) : la fiche s'ouvre directement", await pg.$eval("#screen-visite", (e) => e.classList.contains("active")) && await attendre(pg, "#visite-body", "Circuit des Peintres") && !pg.url().includes("#visite"));
   v("pas d'erreur JavaScript (app publique)", st.erreurs.length === 0, st.erreurs.join(" | "));
   await ctx.close();
 

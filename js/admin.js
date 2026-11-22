@@ -501,7 +501,13 @@ function peindreFormFiche(corps, e) {
       admBoutonTraduire("f-traduire") +
       '<button type="submit" class="cta fee" id="f-enregistrer">' + esc(t("adm.enregistrer")) + '</button>' +
       '<div class="resa-erreur" id="f-note" role="alert"></div>' +
-(n ? '' : '<div class="adm-encart adm-suppression"><b>' + esc(t("adm.supprimerExp")) + '</b><p class="member-note">' + esc(t("adm.supprimerExpAide")) + '</p>' +
+(!n && e.slug ? '<div class="adm-encart adm-partage"><b>' + esc(t("partage.titre")) + '</b>' +
+        '<p class="member-note">' + esc(t(e.publie && e.actif !== false ? "partage.aide" : "partage.horsLigne")) + '</p>' +
+        '<input class="input-field adm-partage-lien" id="f-lien" readonly value="' + esc(lienExperience(e.slug)) + '">' +
+        '<div class="adm-boutons"><button type="button" class="cta ghost" id="f-copier">' + esc(t("partage.copier")) + '</button>' +
+        '<button type="button" class="cta ghost" id="f-partager">' + esc(t("partage.bouton")) + '</button></div>' +
+        '<div class="member-note" id="f-lien-note" role="status"></div></div>' : '') +
+      (n ? '' : '<div class="adm-encart adm-suppression"><b>' + esc(t("adm.supprimerExp")) + '</b><p class="member-note">' + esc(t("adm.supprimerExpAide")) + '</p>' +
         '<button type="button" class="cta ghost adm-danger" id="f-supprimer">' + esc(t("adm.supprimerExp")) + '</button>' +
         '<div class="resa-erreur" id="f-suppr-note" role="alert"></div></div>') +
             '<button type="button" class="cta ghost" id="f-retour">' + esc(t("adm.retourListe")) + '</button>' +
@@ -524,6 +530,7 @@ function peindreFormFiche(corps, e) {
   admCarte("f-carte", pos, () => { $("#f-carte-note").textContent = t("adm.rdvPlace"); });
   $("#f-retour").addEventListener("click", () => peindreAdmin(corps));
   if (!n) admBrancherSuppressionExp(corps, e, "f");
+  if (!n) admBrancherPartage(e, "f");
   $("#adm-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const note = $("#f-note"), b = $("#f-enregistrer");
@@ -1546,7 +1553,13 @@ function peindreFormExperience(corps, e) {
       '<button type="submit" class="cta ocre" id="x-enregistrer">' + esc(n ? t("adm.envoyerValidation") : refusee ? t("adm.renvoyerValidation") : t("adm.enregistrer")) + '</button>' +
       (n || refusee ? '<div class="member-note adm-centre">' + esc(t("adm.reponse48h")) + '</div>' : '') +
       '<div class="resa-erreur" id="x-note" role="alert"></div>' +
-(n ? '' : '<div class="adm-encart adm-suppression"><b>' + esc(t("adm.supprimerExp")) + '</b><p class="member-note">' + esc(t("adm.supprimerExpAide")) + '</p>' +
+(!n && e.slug ? '<div class="adm-encart adm-partage"><b>' + esc(t("partage.titre")) + '</b>' +
+        '<p class="member-note">' + esc(t(e.publie && e.actif !== false ? "partage.aide" : "partage.horsLigne")) + '</p>' +
+        '<input class="input-field adm-partage-lien" id="x-lien" readonly value="' + esc(lienExperience(e.slug)) + '">' +
+        '<div class="adm-boutons"><button type="button" class="cta ghost" id="x-copier">' + esc(t("partage.copier")) + '</button>' +
+        '<button type="button" class="cta ghost" id="x-partager">' + esc(t("partage.bouton")) + '</button></div>' +
+        '<div class="member-note" id="x-lien-note" role="status"></div></div>' : '') +
+      (n ? '' : '<div class="adm-encart adm-suppression"><b>' + esc(t("adm.supprimerExp")) + '</b><p class="member-note">' + esc(t("adm.supprimerExpAide")) + '</p>' +
         '<button type="button" class="cta ghost adm-danger" id="x-supprimer">' + esc(t("adm.supprimerExp")) + '</button>' +
         '<div class="resa-erreur" id="x-suppr-note" role="alert"></div></div>') +
             '<button type="button" class="cta ghost" id="x-retour">' + esc(t("adm.retour")) + '</button>' +
@@ -1567,6 +1580,7 @@ function peindreFormExperience(corps, e) {
   admCarte("x-carte", pos, () => { $("#x-carte-note").textContent = t("adm.rdvPlace"); });
   $("#x-retour").addEventListener("click", () => peindreAdmin(corps));
   if (!n) admBrancherSuppressionExp(corps, e, "x");
+  if (!n) admBrancherPartage(e, "x");
   $("#adm-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const note = $("#x-note"), b = $("#x-enregistrer");
@@ -1750,4 +1764,17 @@ function admBrancherSuppressionExp(corps, e, prefixe) {
       b.disabled = false;
     }
   });
+}
+
+/* ---------- Lien à partager d'une expérience (22/11) ---------- */
+function admBrancherPartage(e, prefixe) {
+  const champ = document.getElementById(prefixe + "-lien");
+  if (!champ) return;
+  const note = document.getElementById(prefixe + "-lien-note");
+  champ.addEventListener("focus", () => champ.select());
+  document.getElementById(prefixe + "-copier").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(champ.value); note.textContent = t("partage.copie"); }
+    catch (err) { champ.select(); note.textContent = t("partage.copieManuelle"); }
+  });
+  document.getElementById(prefixe + "-partager").addEventListener("click", () => partagerLien(champ.value, (e.titre && e.titre.fr) || e.slug, note));
 }

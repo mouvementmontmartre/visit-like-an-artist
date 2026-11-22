@@ -12,3 +12,10 @@
 # frais, emails) : toutes les 15 minutes. Ne tourne qu'en production.
 [functions."taches"]
   schedule = "*/15 * * * *"
+
+# Lien court d'une expérience à partager (22/11) : aperçu (photo, titre) puis la fiche dans l'app.
+[[redirects]]
+  from = "/e/:slug"
+  to = "/.netlify/functions/partage?slug=:slug"
+  status = 200
+  force = true
