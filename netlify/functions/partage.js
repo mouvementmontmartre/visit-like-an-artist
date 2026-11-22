@@ -33,13 +33,23 @@ function page({ titre, description, image, cible, url }) {
 }
 
 exports.handler = async (event) => {
-  const slug = String((event.queryStringParameters && event.queryStringParameters.slug) || "").toLowerCase();
+  // L'adresse arrive par le chemin (/e/<adresse> ou /.netlify/functions/partage/<adresse>), sinon par ?slug=.
+  const morceaux = String(event.path || "").split("/").filter(Boolean);
+  const dernier = morceaux.length && !["partage", "e", "functions", ".netlify"].includes(morceaux[morceaux.length - 1]) ? morceaux[morceaux.length - 1] : "";
+  let slug = decodeURIComponent(dernier || (event.queryStringParameters && event.queryStringParameters.slug) || "").toLowerCase();
   if (!/^[a-z0-9-]{1,120}$/.test(slug)) return { statusCode: 302, headers: { Location: SITE_URL + "/" }, body: "" };
-  const cible = SITE_URL + "/#visite=" + slug, url = SITE_URL + "/e/" + slug;
+  const CHAMPS = "experiences?select=slug,type,titre,accroche,description,photo_url&publie=eq.true&actif=eq.true&supprimee_le=is.null&slug=";
   let e = null;
   try {
-    e = (await table("GET", "experiences?select=slug,type,titre,accroche,description,photo_url&publie=eq.true&actif=eq.true&supprimee_le=is.null&slug=eq." + encodeURIComponent(slug)))[0] || null;
+    e = (await table("GET", CHAMPS + "eq." + encodeURIComponent(slug)))[0] || null;
+    // Expérience d'un intervenant : son adresse finit par 4 caractères (ex. studio-nomade-a3f9) ; le lien sans eux marche aussi.
+    if (!e) {
+      const proches = await table("GET", CHAMPS + "like." + encodeURIComponent(slug + "-____") + "&limit=2");
+      if (proches.length === 1) e = proches[0];
+    }
   } catch (err) { console.error("partage", err.message); }
+  if (e) slug = e.slug;
+  const cible = SITE_URL + "/#visite=" + slug, url = SITE_URL + "/e/" + slug;
   const titre = e ? ((e.titre && e.titre.fr) || "ArtDive") + " · ArtDive" : "ArtDive · Mouvement Montmartre";
   const texte = e ? ((e.accroche && e.accroche.fr) || (e.description && e.description.fr) || "") : "";
   const description = (e ? (TYPES[e.type] ? TYPES[e.type] + " à Montmartre. " : "") : "") +

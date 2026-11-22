@@ -16,6 +16,6 @@
 # Lien court d'une expérience à partager (22/11) : aperçu (photo, titre) puis la fiche dans l'app.
 [[redirects]]
   from = "/e/:slug"
-  to = "/.netlify/functions/partage?slug=:slug"
+  to = "/.netlify/functions/partage/:slug"
   status = 200
   force = true

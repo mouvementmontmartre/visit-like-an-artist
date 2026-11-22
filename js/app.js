@@ -977,7 +977,9 @@ async function partagerLien(url, titre, note) {
 
 async function renderVisite(id) {
   const visites = await loadVisites();
-  const v = visites.find(x => x["id"] === id);
+  // Lien partagé sans les 4 caractères ajoutés à l'adresse d'une expérience d'intervenant (ex. studio-nomade → studio-nomade-a3f9).
+  let v = visites.find(x => x["id"] === id);
+  if (!v) { const proches = visites.filter((x) => new RegExp("^" + String(id).replace(/[^a-z0-9-]/g, "") + "-[a-z0-9]{4}$").test(x["id"] || "")); if (proches.length === 1) { v = proches[0]; id = v["id"]; } }
   const body = $("#visite-body");
   if (!v) { body.innerHTML = '<div class="load-error">Visite introuvable.</div>'; return; }
 
