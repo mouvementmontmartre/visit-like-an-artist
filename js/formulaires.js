@@ -58,7 +58,7 @@ async function renderDemande(arg) {
   const options = () => [["", t("form.pasDePreference")]].concat(visites.filter((v) => offreTypeOf(v) === type)
     .map((v) => [v["id"], trField(v, "Nom") + (v["Guide"] ? ", " + t("card.with").toLowerCase() + " " + v["Guide"] : "")]));
   corps.innerHTML =
-    '<h1 class="espace-titre">' + esc(t("form.priveTitre")) + ' <em>' + esc(t("form.priveTitreFin")) + '</em></h1>' +
+    '<h1 class="espace-titre" id="f-titre-prive"></h1>' +
     '<p class="espace-texte">' + esc(t("form.priveTexte")) + '</p>' +
     '<form id="form-prive" class="adm-form" novalidate>' + formPiege +
       formChips("f-type", [["visite", t("badge.visite")], ["atelier", t("badge.atelier")]], type) +
@@ -80,8 +80,9 @@ async function renderDemande(arg) {
       '<div class="resa-erreur" id="f-note" role="alert"></div>' +
     '</form>';
   const remplir = () => { $("#f-exp").innerHTML = options().map((o) => '<option value="' + esc(o[0]) + '"' + (choisie && o[0] === choisie["id"] ? " selected" : "") + '>' + esc(o[1]) + '</option>').join(""); };
-  remplir();
-  formBrancherChips("f-type", (v) => { type = v; remplir(); });
+  const titrer = () => { $("#f-titre-prive").innerHTML = esc(t(type === "atelier" ? "form.priveTitreAtelier" : "form.priveTitre")) + ' <em>' + esc(t("form.priveTitreFin")) + '</em>'; };
+  remplir(); titrer();
+  formBrancherChips("f-type", (v) => { type = v; remplir(); titrer(); });
   formBrancherChips("f-occasion"); formBrancherChips("f-langue");
   $("#form-prive").addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -150,6 +151,9 @@ async function renderHote(id) {
   const l = getLang(), auto = l !== "fr" && !(h.langues_relues || []).includes(l) && ((h.bio && h.bio[l]) || (h.role && h.role[l]));
   const initiales = String(h.nom).split(/\s+/).map((m) => m[0]).join("").slice(0, 2).toUpperCase();
   const priveesPossibles = visites.filter((v) => ["visite", "atelier"].includes(offreTypeOf(v)));
+  // Encadré « … rien que pour vous ? » selon ce que propose l'intervenant : visites, ateliers, ou les deux.
+  const ateliers = priveesPossibles.filter((v) => offreTypeOf(v) === "atelier").length;
+  const sorte = !ateliers ? "" : ateliers === priveesPossibles.length ? "Atelier" : "Mixte";
   corps.innerHTML =
     '<div class="hote-tete">' +
       (h.photo_url ? '<img class="hote-photo" src="' + esc(h.photo_url) + '" alt="">' : '<span class="hote-photo hote-initiales" aria-hidden="true">' + esc(initiales) + '</span>') +
@@ -170,9 +174,10 @@ async function renderHote(id) {
         '<span class="adm-ligne-titre">' + esc(trField(v, "Nom")) + '</span>' +
         ((trField(v, "Accroche") || trField(v, "Description")) ? '<span class="adm-ligne-meta">' + esc(trField(v, "Accroche") || trField(v, "Description")) + '</span>' : '') +
       '</span>' + (v["Tarif direct"] ? '<span class="act-price">' + esc(v["Tarif direct"]) + '</span>' : '') + '</button>').join("") + '</div>' : '') +
-    (priveesPossibles.length ? '<div class="adm-encart prive-encart"><div class="prive-titre">' + esc(t("hote.priveTitre")) + '</div>' +
-      '<p class="member-note">' + esc(tx("hote.priveTexte", { nom: mots[0] })) + '</p>' +
-      '<button type="button" class="cta fee" data-open="demande" data-arg="' + esc(priveesPossibles[0]["id"]) + '">' + esc(t("form.demanderVisite")) + '</button></div>' : '') +
+    (priveesPossibles.length ? '<div class="adm-encart prive-encart"><div class="prive-titre">' + esc(t("hote.priveTitre" + sorte)) + '</div>' +
+      '<p class="member-note">' + esc(tx("hote.priveTexte" + sorte, { nom: mots[0] })) + '</p>' +
+      '<button type="button" class="cta fee" data-open="demande" data-arg="' + esc(priveesPossibles[0]["id"]) + '">' +
+        esc(t(sorte === "Atelier" ? "form.demanderAtelier" : sorte === "Mixte" ? "form.demanderPrive" : "form.demanderVisite")) + '</button></div>' : '') +
     (h.instagram ? '<p class="espace-texte"><a href="https://www.instagram.com/' + esc(String(h.instagram).replace(/^@/, "").replace(/[^\w.]/g, "")) + '/" target="_blank" rel="noopener">Instagram ' + esc(h.instagram) + '</a></p>' : '');
   const v = $("#hote-video");
   if (v) v.addEventListener("click", () => ouvrirVideo(h.video_url, h.sous_titres_url, h.nom));

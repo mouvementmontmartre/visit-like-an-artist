@@ -34,7 +34,7 @@ const CSV = "id,Nom,Type,Actif,Guide,Tarif direct\ncircuit,Circuit des Peintres,
   v("accueil : encart « Une réservation privée ? »", await attendre(".prive-encart", "Une réservation privée"));
   await pg.evaluate(() => openTarget("visite", "atelier-p"));
   await pg.click('#visite-body [data-open="demande"]');
-  v("depuis la fiche d'un atelier : formulaire avec l'atelier choisi", await attendre("#demande-body", "Une visite rien que") &&
+  v("depuis la fiche d'un atelier : formulaire avec l'atelier choisi", await attendre("#demande-body", "Un atelier rien que") &&
     (await pg.inputValue("#f-exp")) === "atelier-p" && (await pg.$eval('#f-type .chip.active', (x) => x.dataset.v)) === "atelier");
   await pg.click('#f-type [data-v="visite"]');
   v("changer de type change la liste", (await pg.$$eval("#f-exp option", (l) => l.map((o) => o.value))).join() === ",circuit");

@@ -325,8 +325,8 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
   v("E11.6 : Visite, Atelier, Escape game (pas de Soirée)", (await pg.$$eval("#x-type [data-valeur]", (l) => l.map((b) => b.dataset.valeur).join(","))) === "visite_guidee,atelier,escape_game");
   await pg.click('#x-type [data-valeur="escape_game"]');
   await pg.fill("#x-titre-fr", "Le trésor du Bateau-Lavoir");
-  await pg.fill("#x-description-fr", "x".repeat(260));
-  v("description : 200 caractères au plus, compteur", (await pg.inputValue("#x-description-fr")).length === 200 && await attendre(pg, "#x-compteur", "200 / 200"));
+  await pg.fill("#x-description-fr", "x".repeat(700));
+  v("description : 600 caractères au plus, compteur", (await pg.inputValue("#x-description-fr")).length === 600 && await attendre(pg, "#x-compteur", "600 / 600"));
   await pg.click('.adm-stepper:has(#x-duree) [data-pas="-1"]');
   if (OUT) await pg.screenshot({ path: OUT + "/experience-e11-6.png", fullPage: true });
   if (OUT) { await pg.setViewportSize({ width: 1280, height: 900 }); await pg.screenshot({ path: OUT + "/experience-ordinateur.png" }); await pg.setViewportSize({ width: 390, height: 844 }); }

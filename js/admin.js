@@ -1386,6 +1386,7 @@ function peindreEtapeForm(corps, exp, x, etapes, codeActuel) {
    ============================================================ */
 
 const ADM_TYPES_INTERVENANT = ["visite_guidee", "atelier", "escape_game"];
+const ADM_DESCRIPTION_MAX = 600;   // même limite dans interne.experiences_garde (maj-22)
 const ADM_TYPES_SEANCE = ["visite_guidee", "atelier", "soiree", "escape_game"];
 const admExpValidee = (e) => e.publie && !e.a_valider && ADM_TYPES_SEANCE.includes(e.type);
 
@@ -1550,11 +1551,11 @@ function peindreFormExperience(corps, e) {
             '<button type="button" class="cta ghost" id="x-retour">' + esc(t("adm.retour")) + '</button>' +
     '</form>';
   if (enLigne) $$("[id^=x-titre-]").forEach((x) => { x.disabled = true; });
-  // Description : 200 caractères au plus, avec le compteur (« 123 / 200 »).
+  // Description : 600 caractères au plus, avec le compteur (« 123 / 600 »).
   const desc = $("#x-description-fr");
-  desc.maxLength = 200; desc.rows = 4;
+  desc.maxLength = ADM_DESCRIPTION_MAX; desc.rows = 6;
   desc.closest("label").querySelector("span").insertAdjacentHTML("beforeend", ' <small class="adm-compteur" id="x-compteur"></small>');
-  const compter = () => { $("#x-compteur").textContent = desc.value.length + " / 200"; };
+  const compter = () => { $("#x-compteur").textContent = desc.value.length + " / " + ADM_DESCRIPTION_MAX; };
   desc.addEventListener("input", compter); compter();
   admBrancherChoix("x-type");
   admBrancherLangues("x-langues");
@@ -1590,7 +1591,7 @@ function peindreFormExperience(corps, e) {
       await renderAdmin(corps);
       admZone().insertAdjacentHTML("afterbegin", '<div class="resa-etat">' + esc(n || refusee ? t("adm.expEnvoyee") : t("adm.enregistre")) + '</div>');
     } catch (err) {
-      note.textContent = /200 caract/.test(err.message) ? t("adm.descriptionTropLongue") : /Prix/.test(err.message) ? t("adm.prixManquant") : admErreur(err);
+      note.textContent = /caractères maximum/.test(err.message) ? t("adm.descriptionTropLongue") : /Prix/.test(err.message) ? t("adm.prixManquant") : admErreur(err);
       b.disabled = false;
     }
   });
