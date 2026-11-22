@@ -981,7 +981,7 @@ async function renderVisite(id) {
   const body = $("#visite-body");
   if (!v) { body.innerHTML = '<div class="load-error">Visite introuvable.</div>'; return; }
 
-  /* Fond de l'écran selon le type d'expérience (visite vert, atelier chocolat, soirée lie-de-vin, escape violet). */
+  /* Fond de l'écran selon le type d'expérience (visite marron, atelier vert depuis le 22/11, soirée lie-de-vin, escape violet). */
   const screenVisite = $("#screen-visite");
   if (screenVisite) screenVisite.dataset.offre = offreTypeOf(v);
   $("#visite-title").textContent = trField(v, "Nom");

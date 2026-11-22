@@ -182,13 +182,14 @@ a { color: var(--lien); }
 
 /* ---------- Fiche, réservation et confirmation : fond, panneaux et bouton selon le type ---------- */
 #screen-visite, #screen-reserver, #screen-reservation {
-  --fond: var(--fond-visite); --pan: var(--panneau-visite); --filet: var(--filet-visite); --barre: var(--barre-visite);
+  /* 22/11 : fond marron pour les visites, vert pour les ateliers (inversés à la demande de la propriétaire) */
+  --fond: var(--fond-atelier); --pan: var(--panneau-atelier); --filet: var(--filet-atelier); --barre: var(--barre-atelier);
   --cta-type: var(--succes); --cta-texte: var(--velin);     /* visite : « Réserver » en vert (canvas E2.2) */
   --cta-payer: var(--type-visite);
   background: var(--fond);
 }
 [data-offre="atelier"]#screen-visite, [data-offre="atelier"]#screen-reserver, [data-offre="atelier"]#screen-reservation {
-  --fond: var(--fond-atelier); --pan: var(--panneau-atelier); --filet: var(--filet-atelier); --barre: var(--barre-atelier);
+  --fond: var(--fond-visite); --pan: var(--panneau-visite); --filet: var(--filet-visite); --barre: var(--barre-visite);
   --cta-type: var(--type-visite); --cta-texte: var(--nuit); --cta-payer: var(--type-visite);
 }
 [data-offre="diner"]#screen-visite, [data-offre="diner"]#screen-reserver, [data-offre="diner"]#screen-reservation {
