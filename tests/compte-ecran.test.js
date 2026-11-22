@@ -163,7 +163,7 @@ const RESAS = [
   await attendre(pg, ".cpt-liste", "Circuit des Peintres");
   const largeur = await pg.$eval("#compte-body", (e) => e.getBoundingClientRect().width);
   const colonnes = await pg.$eval(".cpt-liste", (e) => getComputedStyle(e).gridTemplateColumns.split(" ").length);
-  v("ordinateur : page élargie, réservations sur deux colonnes", largeur > 800 && colonnes === 2, largeur + " / " + colonnes);
+  v("ordinateur : même largeur que les autres pages (820 px), réservations sur deux colonnes", largeur > 700 && largeur <= 820 && colonnes === 2, largeur + " / " + colonnes);
   if (OUT) await pg.screenshot({ path: OUT + "/compte-ordinateur.png" });
   v("pas d'erreur JavaScript (ordinateur)", st.erreurs.length === 0, st.erreurs.join(" | "));
   await ctx.close();
