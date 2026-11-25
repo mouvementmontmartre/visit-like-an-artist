@@ -1102,7 +1102,6 @@ async function renderCarteVisite(id) {
   const body = $("#carte-visite-body");
   body.innerHTML = '<div class="map-wrap" id="visite-map"></div>' +
     '<button class="cta ghost" id="visite-geoloc" style="margin-top:10px;">' + t("cta.showPosition") + '</button>' +
-    '<a class="cta gaz" style="text-decoration:none; margin-top:10px;" href="https://tally.so/r/wbq651" target="_blank" rel="noopener">' + t("cta.joinMovement") + '</a>' +
     '<div class="map-legend" id="visite-map-note"></div>' +
     '<div id="visite-map-unlock"></div>';
   attachGeoloc($("#visite-geoloc"), $("#visite-map"));
