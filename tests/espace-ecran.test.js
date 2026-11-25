@@ -57,9 +57,8 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
     : [400, { error: "invalide", code: "INVALIDE" }];
   let { pg, ctx, st } = await page({ supabase: supabaseAdmin, carte: carteAdmin });
   await pg.goto("http://localhost:8768/"); await pg.waitForTimeout(2600);
-  await pg.evaluate(() => openTarget("infos"));
-  await pg.click('#infos-body [data-open="espace"]');
-  v("Infos → bouton « Espace intervenants » → connexion par code", await attendre(pg, "#espace-body", "Gérez vos séances vous-même.") && await attendre(pg, "#espace-body", "code de connexion"));
+  await pg.evaluate(() => openTarget("espace"));
+  v("écran « Espace intervenants » → connexion par code", await attendre(pg, "#espace-body", "Gérez vos séances vous-même.") && await attendre(pg, "#espace-body", "code de connexion"));
   await pg.fill("#esp-email", "pas-un-email"); await pg.click("#esp-envoyer");
   v("email invalide signalé", await attendre(pg, "#esp-note", "adresse email valide"));
   await pg.fill("#esp-email", "  Admin@Exemple.invalid "); await pg.click("#esp-envoyer");

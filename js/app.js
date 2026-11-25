@@ -92,6 +92,7 @@ function showScreen(id) {
     currentTab = id;
     $$(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.tab === id));
   }
+  if (id === "accueil") peindreAdhesionAccueil();
   window.scrollTo(0, 0);
   closePointSheet();
 }
@@ -489,20 +490,33 @@ const IMAGES_PAR_TYPE = {
   diner: "icons/fond-soiree.jpg",
 };
 
-/** Bandeaux sponsors (image + nom en overlay, cliquable) : rendus depuis
-    CONFIG.sponsors, identiques sur Accueil et Festival. targetId : id du conteneur. */
-function renderSponsors(targetId) {
-  const el = $("#" + targetId);
-  if (!el) return;
-  const sponsors = CONFIG.sponsors || [];
-  if (sponsors.length === 0) { el.innerHTML = ""; return; }
-  el.innerHTML = sponsors.map(s =>
-    '<a class="bandeau bandeau-sponsor" href="' + esc(s.lien) + '" target="_blank" rel="noopener sponsored">' +
-      '<img class="media-photo" src="' + esc(s.logo) + '" alt="' + esc(s.nom) + '" loading="lazy">' +
-      '<div class="scrim"></div>' +
-      '<div class="content"><div class="e-name">' + esc(s.nom) + '</div></div>' +
-    '</a>'
+/** Rangée de logos des partenaires (CONFIG.partenaires), sur l'accueil et le festival.
+    Liste vide : la rangée et son titre restent masqués. blocId : id du bloc. */
+function renderPartenaires(blocId) {
+  const bloc = $("#" + blocId);
+  if (!bloc) return;
+  const liste = (CONFIG.partenaires || []).filter(p => p && p.logo);
+  bloc.hidden = liste.length === 0;
+  bloc.querySelector(".partenaires-list").innerHTML = liste.map(p =>
+    '<a class="partenaire" href="' + esc(p.lien || "#") + '" target="_blank" rel="noopener sponsored">' +
+      '<img src="' + esc(p.logo) + '" alt="' + esc(p.nom || "") + '" loading="lazy"></a>'
   ).join("");
+}
+
+/** Liens « Faire un don » écrits dans index.html : adresse unique CONFIG.liens.don. */
+function brancherLiensDon(racine) {
+  (racine || document).querySelectorAll("a[data-don]").forEach(a => {
+    a.href = CONFIG.liens.don;
+    a.target = "_blank";
+    a.rel = "noopener";
+  });
+}
+
+/** Panneau d'adhésion de l'accueil (E1.1) : repeint à chaque retour sur l'accueil
+    (la carte de membre peut avoir changé entre-temps). */
+function peindreAdhesionAccueil() {
+  const el = $("#accueil-adhesion");
+  if (el) el.innerHTML = adhesionMenuHtml(statutAppareil(), "accueil");
 }
 
 /** Type d'expérience d'une ligne du Sheet Visites (colonne optionnelle "Type") :
@@ -541,7 +555,8 @@ async function renderAccueil() {
   if (CONFIG.edition.accent) {
     document.documentElement.style.setProperty("--accent-edition", CONFIG.edition.accent);
   }
-  renderSponsors("sponsors-list");
+  renderPartenaires("partenaires-accueil");
+  peindreAdhesionAccueil();
   renderLocalitePicker();
 
   /* Bloc d'accroche de la localité (texte venant de CONFIG.localites) */
@@ -698,7 +713,7 @@ async function loadProgramme() {
 
 async function renderFestival() {
   $("#festival-sub").textContent = CONFIG.edition.datesAffichees;
-  renderSponsors("sponsors-festival");
+  renderPartenaires("partenaires-festival");
 
   const jours = festivalDates();
   if (!festivalDay && jours.length) festivalDay = jours[0].key;
@@ -2499,7 +2514,7 @@ function carteHtml(c, note) {
     '<h2 class="mb-titre mb-titre-petit">' + esc(t("member.avantages1")) + ' <i>' + esc(t("member.avantages2")) + '</i></h2>' +
     '<ul class="mb-avantages">' + avantages + '</ul>' +
     (c.renouvelable ? '<button type="button" class="cta ocre" id="membre-portail">' + esc(t("member.gerer")) + '</button><div class="resa-erreur" id="membre-portail-note" role="alert"></div>' : '') +
-    '<a class="lien-bouton mb-don" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener">' + esc(t("cta.donate")) + '</a>' +
+    '<a class="lien-bouton mb-don" href="' + esc(CONFIG.liens.don) + '" target="_blank" rel="noopener">' + esc(t("cta.donate")) + '</a>' +
     '<button class="lien-bouton mb-autre" type="button" id="membre-oublier">' + esc(t("member.autreEmail")) + '</button>'
   );
 }
@@ -2679,34 +2694,22 @@ function legalBlockHtml() {
 function renderInfos() {
   const c = CONFIG.contacts;
   const l = CONFIG.liens;
-  const don = "https://donate.stripe.com/eVadTj2nd5IP8ZWeVi";
   const fleche = '<span class="infos-fleche" aria-hidden="true">›</span>';
-  const pastille = (k, couleur) => '<span class="infos-pastille" style="--p:' + couleur + '">' + esc(t(k)) + '</span>';
   const ligne = (titre, sous, attrs) => '<button type="button" class="infos-ligne"' + attrs + '><span><span class="infos-ligne-t">' + esc(titre) + '</span>' +
     (sous ? '<span class="infos-ligne-s">' + esc(sous) + '</span>' : '') + '</span>' + fleche + '</button>';
   const deplie = (titre, html) => '<details class="infos-ligne infos-deplie"><summary><span class="infos-ligne-t">' + esc(titre) + '</span>' + fleche + '</summary>' +
     '<div class="infos-ligne-corps">' + html + '</div></details>';
   $("#infos-body").innerHTML =
     '<div class="infos-hero"><h1>' + esc(t("infos.hero1")) + ' <i>' + esc(t("infos.hero2")) + '</i></h1><p>' + esc(t("infos.heroTexte")) + '</p></div>' +
-    '<div class="infos-label">' + esc(t("infos.engager")) + '</div>' +
     '<div class="infos-carte infos-asso">' +
       '<div class="infos-label infos-label-or">' + esc(t("infos.assoLabel")) + '</div>' +
       '<h2>' + esc(t("infos.assoTitre")) + '</h2><p>' + esc(t("infos.assoTexte")) + '</p>' +
-      '<button type="button" class="cta ocre" data-open="membre">' + esc(t("infos.devenirMembre")) + '</button>' +
-      '<a class="lien-bouton infos-don" href="' + don + '" target="_blank" rel="noopener">' + esc(t("cta.donate")) + '</a>' +
-    '</div>' +
-    '<div class="infos-carte">' +
-      '<div class="infos-label">' + esc(t("infos.appLabel")) + '</div>' +
-      '<h2>' + esc(t("infos.proposerTitre")) + '</h2><p>' + esc(t("infos.proposerTexte")) + '</p>' +
-      '<div class="infos-pastilles">' + pastille("infos.tVisite", "var(--type-visite)") + pastille("infos.tAtelier", "var(--type-atelier)") +
-        pastille("infos.tSoiree", "var(--type-soiree)") + pastille("infos.tEscape", "var(--type-escape)") + '</div>' +
-      '<button type="button" class="cta ocre" data-open="rejoindre">' + esc(t("infos.proposerBtn")) + '</button>' +
-      '<div class="infos-intervenant"><span>' + esc(t("infos.dejaIntervenant")) + '</span></div>' +
-      '<button type="button" class="cta ghost infos-espace-btn" data-open="espace">' + esc(t("espace.entree")) + '</button>' +
+      '<div class="infos-asso-menu"><span>' + esc(t("infos.assoMenu")) + '</span>' +
+        '<button type="button" class="infos-menu-btn" data-open="menu">' + esc(t("menu.titre")) + ' <span aria-hidden="true">☰</span></button></div>' +
     '</div>' +
     '<div class="infos-label">' + esc(t("infos.pratique")) + '</div>' +
     '<div class="infos-liste">' +
-      ligne(t("infos.langue"), LANG_META[getLang()].nom, ' class="infos-ligne lang-btn"').replace('class="infos-ligne" class="infos-ligne lang-btn"', 'class="infos-ligne lang-btn"') +
+      ligne(t("infos.langue"), LANG_META[getLang()].nom, ' data-open="langue"') +
       '<a class="infos-ligne" href="cgv.html" target="_blank" rel="noopener"><span><span class="infos-ligne-t">' + esc(t("infos.conditions")) + '</span><span class="infos-ligne-s">' +
         esc(t("infos.conditionsSous")) + '</span></span>' + fleche + '</a>' +
       '<a class="infos-ligne" href="mailto:' + esc(c.general) + '"><span><span class="infos-ligne-t">' + esc(t("infos.contactPresse")) + '</span><span class="infos-ligne-s">' +
@@ -2777,6 +2780,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setTimeout(() => splash.classList.add("done"), reduced ? 200 : 2000);
 
   applyBrand();
+  brancherLiensDon();
   renderAccueil();
   handleCheckoutReturn();
   // Lien partagé ouvert alors que l'app est déjà affichée (#visite=…, #espace=…).

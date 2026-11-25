@@ -137,12 +137,10 @@ const CONFIG = {
     kitPresse: "montmartrefestival.com/presse",
   },
 
-  /* ---- SPONSORS / PARTENAIRES (logo cliquable, affiché sur Accueil + Festival) ---- */
-  sponsors: [
-    { nom: "KUBO Arts Studio", logo: "icons/sponsor-kubo.jpg", lien: "https://www.kuboartstudios.com" },
-    { nom: "La Montmartroise", logo: "icons/sponsor-montmartroise.jpg", lien: "https://montmartroise.fr" },
-    { nom: "3615 Radio", logo: "icons/sponsor-3615radio.png", lien: "https://3615.world" },
-  ],
+  /* ---- PARTENAIRES (rangée de logos de l'accueil et du festival) ----
+     Liste vide = rangée masquée. Un partenaire : { nom: "…", logo: "icons/partenaire-….png", lien: "https://…" }.
+     Logos : fond transparent, recadrés serré, 400 px de large au moins ; affichés sans filtre. */
+  partenaires: [],
 };
 
 /* Cadre de la carte de la localité active (voir app.js : localiteCarte()). */

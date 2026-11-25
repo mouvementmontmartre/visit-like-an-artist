@@ -31,7 +31,7 @@ const CSV = "id,Nom,Type,Actif,Guide,Tarif direct\ncircuit,Circuit des Peintres,
   const attendre = (sel, txt) => pg.waitForFunction(([s, t]) => { const e = document.querySelector(s); return e && e.textContent.includes(t); }, [sel, txt], { timeout: 8000 }).then(() => true, () => false);
 
   await pg.goto("http://localhost:8773/"); await pg.waitForTimeout(2600);
-  v("accueil : encart « Une réservation privée ? »", await attendre(".prive-encart", "Une réservation privée"));
+  v("accueil : ligne compacte « Une réservation privée ? … Demander ›»", await attendre(".prive-ligne", "Une réservation privée") && await attendre(".prive-ligne", "Demander"));
   await pg.evaluate(() => openTarget("visite", "atelier-p"));
   await pg.click('#visite-body [data-open="demande"]');
   v("depuis la fiche d'un atelier : formulaire avec l'atelier choisi", await attendre("#demande-body", "Un atelier rien que") &&
@@ -50,9 +50,9 @@ const CSV = "id,Nom,Type,Actif,Guide,Tarif direct\ncircuit,Circuit des Peintres,
   v("contenu envoyé à la fonction", d.formulaire === "prive" && d.type === "visite" && d.personnes === "12" && d.occasion === "famille" && d.email === "camille@exemple.invalid" &&
     d.site_web === "" && d.duree_ms >= 3000, JSON.stringify(d));
 
-  await pg.evaluate(() => openTarget("infos"));
-  await pg.click('#infos-body [data-open="rejoindre"]');
-  v("Infos → Nous rejoindre", await attendre("#demande-body", "Vous animez quelque chose"));
+  await pg.evaluate(() => openTarget("menu"));
+  await pg.click('#menu-body [data-open="rejoindre"]');
+  v("menu ☰ → Proposer une expérience (Nous rejoindre)", await attendre("#demande-body", "Vous animez quelque chose"));
   await pg.click('#r-type [data-v="lieu"]'); await pg.fill("#r-nom", "Le cabaret"); await pg.fill("#r-email", "lieu@exemple.invalid");
   await pg.click("#r-envoyer");
   v("message obligatoire", await attendre("#r-note", "Décrivez"));

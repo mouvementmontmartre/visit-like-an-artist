@@ -76,11 +76,13 @@
         <div class="loading" data-i18n="loading.visites">Chargement des visites…</div>
       </div>
 
-      <div class="adm-encart prive-encart">
-        <div class="prive-titre" data-i18n="form.priveEncartTitre">Une réservation privée ?</div>
-        <p class="member-note" data-i18n="form.priveEncartTexte">Une visite ou un atelier rien que pour vous, à la date de votre choix.</p>
-        <button type="button" class="cta fee" data-open="demande" data-i18n="form.priveEncartBouton">Demander une visite ou un atelier privé</button>
-      </div>
+      <div id="accueil-adhesion"></div>
+
+      <button type="button" class="prive-ligne" data-open="demande">
+        <span class="prive-ligne-corps"><span class="prive-ligne-t" data-i18n="form.priveEncartTitre">Une réservation privée ?</span>
+        <span class="prive-ligne-s" data-i18n="accueil.priveTexte">Une visite ou un atelier rien que pour vous.</span></span>
+        <span class="prive-ligne-a" data-i18n="accueil.priveLien">Demander ›</span>
+      </button>
 
       <div class="mini-label" data-i18n="label.communaute">Communauté</div>
       <button class="bandeau bandeau-eco" data-open="carte-tab">
@@ -89,26 +91,16 @@
         <div class="content">
           <div>
             <div class="e-name" data-i18n="eco.title">Découvrir l'écosystème</div>
-            <div class="e-meta" data-i18n="eco.subtitle">Découvrez les lieux qui font vivre l'Art à Montmartre aujourd'hui</div>
+            <div class="e-meta" data-i18n="eco.subtitle">Les lieux qui font vivre l'art à Montmartre</div>
           </div>
           <span class="e-arrow" data-i18n="cta.voir">Voir →</span>
         </div>
       </button>
 
-      <div class="mini-label" style="color:var(--fee);" data-i18n="label.association">Association</div>
-      <button class="bandeau bandeau-member" data-open="membre">
-        <div class="content">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#D9B96A" stroke-width="2"><rect x="2.5" y="6" width="19" height="12" rx="1.5"/><circle cx="8" cy="12" r="2.2"/><path d="M13 10 H18 M13 14 H16"/></svg>
-          <div>
-            <div class="m-title" data-i18n="member.cardTitle">Ma carte de membre</div>
-            <div class="m-sub" data-i18n="member.cardSub">Mouvement Montmartre — adhésion</div>
-          </div>
-          <span class="m-arrow">→</span>
-        </div>
-      </button>
-
-      <div class="mini-label" style="color:var(--velin);" data-i18n="label.partenaires">Nos partenaires</div>
-      <div id="sponsors-list"></div>
+      <div class="partenaires-bloc" id="partenaires-accueil" hidden>
+        <div class="mini-label" data-i18n="label.partenaires">Nos partenaires</div>
+        <div class="partenaires-list"></div>
+      </div>
 
     </div>
   </section>
@@ -147,7 +139,7 @@
       <div class="map-wrap" id="eco-map"></div>
       <div class="map-legend" data-i18n="map.legendButte">Votre position est approximative : la précision du GPS varie dans les rues étroites de la Butte.</div>
       <button class="cta ghost" id="eco-geoloc" data-i18n="cta.showPosition">Afficher ma position</button>
-      <a class="cta ghost" style="text-decoration:none; margin-top:10px;" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener" data-i18n="cta.donate">Faire un don</a>
+      <a class="cta ghost" style="text-decoration:none; margin-top:10px;" href="#" data-don target="_blank" rel="noopener" data-i18n="cta.donate">Faire un don</a>
     </div>
   </section>
 
@@ -199,8 +191,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12 H21 M12 3 C14.5 6 14.5 18 12 21 C9.5 18 9.5 6 12 3 Z"/></svg>
         <span data-i18n="cta.seeWebsite">Voir le site web</span>
       </a>
-      <div class="mini-label" data-i18n="label.partenairesFestival">Partenaires du festival</div>
-      <div id="sponsors-festival"></div>
+      <div class="partenaires-bloc" id="partenaires-festival" hidden>
+        <div class="mini-label" data-i18n="label.partenairesFestival">Partenaires du festival</div>
+        <div class="partenaires-list"></div>
+      </div>
     </div>
   </section>
 
@@ -412,7 +406,7 @@
           <div id="adh-e15-case"></div>
           <button type="button" class="cta ocre" id="membre-adherer" data-i18n="member.adherer5">Devenir membre · 5 € par an</button>
           <div class="resa-erreur" id="adh-e15-note" role="alert"></div>
-          <a class="lien-bouton mb-don" href="https://donate.stripe.com/eVadTj2nd5IP8ZWeVi" target="_blank" rel="noopener" data-i18n="cta.donate">Faire un don</a>
+          <a class="lien-bouton mb-don" href="#" data-don target="_blank" rel="noopener" data-i18n="cta.donate">Faire un don</a>
         </div>
       </div>
     </div>

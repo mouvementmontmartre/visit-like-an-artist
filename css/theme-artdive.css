@@ -137,7 +137,7 @@ a { color: var(--lien); }
 .act-card .type-badge { position: absolute; top: 12px; inset-inline-end: 12px; margin: 0; z-index: 1; }
 .act-corps { position: relative; display: flex; flex-direction: column; padding: 14px 16px; }
 .act-name {
-  font-family: var(--display); font-weight: 600; font-size: 24px; line-height: 1.08; color: var(--c);
+  font-family: var(--display); font-weight: 600; font-size: 24px; line-height: 1.08; color: #E6C88A;
   min-height: 52px; padding-inline-end: 112px;
 }
 .act-desc {
@@ -311,8 +311,14 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .adm-invitation { border-top: 1px solid var(--line); padding-top: 6px; display: flex; flex-direction: column; gap: 8px; }
 
 /* ---------- Formulaires publics (canvas E7, E14) ---------- */
-.prive-encart { background: var(--panneau); border: 1px solid var(--bord); border-style: solid; margin: 4px 0 22px; }
-.prive-titre { font-family: var(--display); font-size: 24px; line-height: 1.15; }
+/* Accueil (E1.1) : ligne compacte « Une réservation privée ? » */
+.prive-ligne { display: flex; align-items: center; gap: 12px; inline-size: 100%; margin: 4px 0 22px; padding: 14px 16px; text-align: start;
+  background: var(--panneau); color: var(--velin); border: 1px solid var(--line); border-radius: 12px; font: inherit; cursor: pointer; }
+.prive-ligne-corps { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.prive-ligne-t { font-family: var(--display); font-size: 17px; line-height: 1.2; }
+.prive-ligne-s { font-size: 13px; color: #D8CEBC; }
+.prive-ligne-a { color: var(--lien); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.adh-panneau-accueil { margin-block: 6px 12px; }
 #screen-demande .adm-puces .chip { min-height: 44px; padding: 0 16px; font-size: 13px; }
 #screen-demande .espace-titre em { font-style: italic; }
 
@@ -432,11 +438,10 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 #eco-filters .chip { flex-shrink: 0; font-size: 11px; padding: 6px 10px; }
 .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.4); }
 .leaflet-container img.leaflet-tile { width: 256.5px !important; height: 256.5px !important; }
-#sponsors-list, #sponsors-festival { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-#sponsors-list .bandeau + .bandeau, #sponsors-festival .bandeau + .bandeau { margin-top: 0; }
-#sponsors-list .bandeau-sponsor, #sponsors-festival .bandeau-sponsor { height: 78px; border-radius: 12px; }
-#sponsors-list .bandeau-sponsor .content, #sponsors-festival .bandeau-sponsor .content { bottom: 6px; padding-inline: 6px; }
-#sponsors-list .bandeau-sponsor .e-name, #sponsors-festival .bandeau-sponsor .e-name { font-size: 10.5px; line-height: 1.15; }
+/* Partenaires : logos transparents, sans filtre */
+.partenaires-list { display: flex; flex-wrap: wrap; align-items: center; gap: 18px 24px; padding-block: 6px 18px; }
+.partenaire { display: block; }
+.partenaire img { display: block; block-size: 40px; inline-size: auto; max-inline-size: 140px; object-fit: contain; }
 .adm-accepter { margin-top: 8px; }
 
 /* ---------- Infos (E13) ---------- */
@@ -455,6 +460,8 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .infos-carte h2 { font-family: var(--display); font-weight: 400; font-size: 25px; line-height: 1.15; margin: 0; }
 .infos-carte p { font-size: 14px; line-height: 1.6; color: var(--muted); margin: 0; }
 .infos-asso p { color: #D9CFBF; }
+.infos-asso-menu { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; font-size: 14px; color: var(--velin); }
+.infos-menu-btn { flex-shrink: 0; min-height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--velin); background: transparent; color: var(--velin); font: inherit; font-weight: 600; cursor: pointer; }
 .cta.ocre { background: var(--ocre); color: var(--nuit); border: 0; }
 .infos-don, .mb-don { color: var(--fee); align-self: center; }
 .infos-pastilles { display: flex; flex-wrap: wrap; gap: 8px; }

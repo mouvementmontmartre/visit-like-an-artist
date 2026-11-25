@@ -152,8 +152,9 @@ const RESAS = [
   });
   v("pilules de filtres : une seule ligne partout (défilement horizontal si besoin)", lignes.n === 1 && lignes.regles.every((w) => w === "nowrap"), JSON.stringify(lignes));
   await pg.evaluate(() => openTarget("infos"));
-  const pastilles = await pg.evaluate(() => new Set([...document.querySelectorAll("#infos-body .infos-pastille")].map((c) => c.offsetTop)).size);
-  v("Infos : les pastilles de types sur une ligne", pastilles === 1, pastilles);
+  const infos = await pg.textContent("#infos-body");
+  v("Infos allégée (E13) : Mouvement Montmartre renvoie au menu, plus de « Deux façons de s'engager »",
+    infos.includes("Mouvement Montmartre") && await pg.isVisible('#infos-body [data-open="menu"]') && !infos.includes("Deux façons") && !infos.includes("Devenir membre"), infos.slice(0, 200));
   await ctx.close();
 
   // 6. Ordinateur : Mon compte et l'espace s'élargissent.
