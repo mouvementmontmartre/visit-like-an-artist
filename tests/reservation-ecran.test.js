@@ -123,8 +123,9 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
     seance: SEANCES["11111111-1111-1111-1111-111111111111"][0], champs: { nom: "Camille Durand", email: "camille@exemple.invalid", tel: "0612345678" } });
   await pg.goto("http://localhost:8767/?adhesion=cs_test_adh&resa=cccccccc-0000-0000-0000-000000000001");
   v("retour d'adhésion : la réservation reprend, créneau retenu", await attendre(pg, "#screen-reserver .back-sub", "retenu") && await attendre(pg, "#reserver-body", "Adhérent reconnu"));
-  v("E8.1 : carte n°, tarif adhérent 2 × 45 € = 90 €, pré-réservation offerte, 0 € maintenant", await attendre(pg, "#reserver-body", "MM-0042") && await attendre(pg, "#reserver-body", "90") &&
-    await attendre(pg, "#reserver-body", "Pré-réservation offerte") && await attendre(pg, "#reserver-body", "À payer maintenant") && await attendre(pg, "#resa-payer", "Réserver gratuitement"));
+  v("E8.1 : carte n°, prix de la visite 2 × 45 € = 90 €, 0 € maintenant, plus de tarif adhérent ni de pré-réservation", await attendre(pg, "#reserver-body", "MM-0042") && await attendre(pg, "#reserver-body", "90") &&
+    await attendre(pg, "#reserver-body", "Prix de la visite") && await attendre(pg, "#reserver-body", "À payer maintenant") && await attendre(pg, "#resa-payer", "Réserver gratuitement") &&
+    !/Tarif adhérent|Pré-réservation|offert/i.test(await pg.textContent("#reserver-body")));
   v("E8.1 : une seule case : conditions de réservation (10 € par personne, moins de 24 h)", (await pg.$$eval("#resa-form input[type=checkbox]", (l) => l.length)) === 1 &&
     await attendre(pg, "#resa-form", "10 € par personne seront prélevés en cas d'absence ou d'annulation à moins de 24 h"));
   v("E8.1 : rétractation, âge et photos en texte près du bouton (sans case)", await attendre(pg, "#resa-form", "pas de droit de rétractation") && await attendre(pg, "#resa-form", "Photos facultatives"));
@@ -172,7 +173,7 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   ({ pg, ctx, st } = await page({ fonctions: (f, c) => f === "reserver" && c.action === "adherent" ? [200, { adherent: true, carte: true }] : f === "reserver" ? reponse : [404, {}] }));
   await pg.addInitScript(() => localStorage.setItem("carteMembre", JSON.stringify({ jeton: "L".repeat(43), email: "lou@exemple.invalid", carte: { nom: "Lou", valide_jusqua: "2027-01-01T00:00:00Z", valide: true } })));
   await ouvrir(pg, "circuit-test"); await attendre(pg, "#visite-seances", "Choisissez");
-  v("carte sur le téléphone : « Réserver · 0 € maintenant »", await attendre(pg, "#btn-reserver", "Réserver · 0"));
+  v("carte sur le téléphone : « Réserver gratuitement » (E2, selon le statut)", await attendre(pg, "#btn-reserver", "Réserver gratuitement"));
   await pg.click("#btn-reserver");
   v("carte sur le téléphone : formulaire adhérent, email prérempli", await attendre(pg, "#reserver-body", "Adhérent reconnu") && (await pg.$eval("#resa-email", (i) => i.value)) === "lou@exemple.invalid");
   await pg.click("#screen-reserver [data-back]");

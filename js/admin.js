@@ -457,8 +457,10 @@ function peindreListeIntervenants(corps) {
 
 function peindreFormFiche(corps, e) {
   const n = !e;
-  e = e || { type: "visite_guidee", titre: {}, accroche: {}, description: {}, langues: ["fr"], point_rdv: {}, participants_min: 1,
-    prereservation_centimes: 500, frais_annulation_tardive_centimes: 1000, actif: true, publie: false };
+  e = e || { type: "visite_guidee", titre: {}, accroche: {}, description: {}, langues: ["fr"], point_rdv: {}, participants_min: 4,
+    prereservation_centimes: 0, frais_annulation_tardive_centimes: 1000, actif: true, publie: false };
+  // Prix affiché = prix net réglé sur place ; une ancienne fiche garde sa part de l'ancienne pré-réservation en base.
+  const partAncienne = (e.type === "soiree" ? 0 : (e.prereservation_centimes || 0));
   const zone = $("#adm-zone");
   window.scrollTo(0, 0);
   zone.innerHTML =
@@ -480,8 +482,7 @@ function peindreFormFiche(corps, e) {
         '<small class="member-note" id="f-carte-note">' + esc(e.point_rdv_lat != null ? t("adm.rdvPlace") : t("adm.rdvAide")) + '</small></div>' +
       '<h3 class="adm-sous-titre">' + esc(t("adm.prixEtPlaces")) + '</h3>' +
       '<div class="adm-grille">' +
-        admNombre("f-prix", t("adm.prix"), admEuros(e.prix_centimes)) +
-        admNombre("f-preresa", t("adm.prereservation"), admEuros(e.prereservation_centimes)) +
+        admNombre("f-prix", t("adm.prix"), admEuros(e.prix_centimes == null ? null : e.prix_centimes - partAncienne)) +
         admNombre("f-libre", t("adm.prixLibreMin"), admEuros(e.prix_libre_min_centimes)) +
         admNombre("f-audio", t("adm.optionAudio"), admEuros(e.option_audioguide_centimes)) +
         admNombre("f-frais", t("adm.fraisTardifs"), admEuros(e.frais_annulation_tardive_centimes)) +
@@ -545,7 +546,8 @@ function peindreFormFiche(corps, e) {
       langues: admLanguesChoisies("f-langues").length ? admLanguesChoisies("f-langues") : ["fr"],
       photo_url: $("#f-photo").dataset.url || null, point_rdv: admTraduit("f-rdv"),
       point_rdv_lat: pos.lat == null ? null : pos.lat, point_rdv_lng: pos.lng == null ? null : pos.lng,
-      prix_centimes: admCentimes(admVal("f-prix")), prereservation_centimes: admCentimes(admVal("f-preresa")),
+      prix_centimes: admCentimes(admVal("f-prix")) == null ? null : admCentimes(admVal("f-prix")) + partAncienne,
+      prereservation_centimes: e.prereservation_centimes == null ? 0 : e.prereservation_centimes,
       prix_libre_min_centimes: admCentimes(admVal("f-libre")), option_audioguide_centimes: admCentimes(admVal("f-audio")),
       frais_annulation_tardive_centimes: admCentimes(admVal("f-frais")) == null ? 1000 : admCentimes(admVal("f-frais")),
       capacite_max: admEntier(admVal("f-max")), participants_min: admEntier(admVal("f-min")) || 1,
@@ -895,7 +897,7 @@ async function peindreFormSeance(corps, x, modele) {
       '<div class="adm-champ"><span>' + esc(t("adm.langueVisite")) + '</span>' +
         admChoixHtml("s-langue", ADM_LANGUES.map((l) => [l, LANG_META[l].nom]), base.langue || "fr") + '</div>' +
       admStepperHtml("s-max", t("adm.placesNombre"), base.capacite_max || (exp && exp.capacite_max) || 8, "", " ") +
-      admStepperHtml("s-min", t("adm.minimumPartir"), base.participants_min || (exp && exp.participants_min) || 1, t("adm.minimumAide")) +
+      admStepperHtml("s-min", t("adm.minimumPartir"), base.participants_min || 4, t("adm.minimumAide")) +
       admStepperHtml("s-duree", t("adm.dureeCourt"), dureeBase, "", t("adm.pas15")) +
       admPrixHtml("s-prix", t(exp && exp.type === "soiree" ? "adm.prixSoireeSeance" : "adm.prixPersonne"),
         base.prix_centimes != null ? base.prix_centimes : netExp(exp), exp && exp.type === "soiree" ? "" : t("adm.prixPersonneAide")) +
@@ -952,7 +954,6 @@ async function peindreFormSeance(corps, x, modele) {
     const e = expDe(admVal("s-exp"));
     if (!e) return;
     if (e.capacite_max) places.fixer(e.capacite_max);
-    minimum.fixer(e.participants_min || 1);
     if (e.duree_minutes) duree.fixer(e.duree_minutes);
     if (netExp(e) != null) $("#s-prix").value = admEuros(netExp(e));
     if (e.point_rdv && e.point_rdv.fr) $("#s-rdv").value = e.point_rdv.fr;
@@ -1238,8 +1239,8 @@ function peindrePropositions(corps, zone) {
   const nomInt = (id) => (ADM.ints.find((i) => i.id === id) || {}).nom || "";
   const CHAMPS = { nom: "adm.nom", role: "adm.metier", bio: "adm.bio", photo_url: "adm.photo", instagram: "adm.instagram", langues: "adm.langues",
     debut: "adm.jour", fin: "adm.duree", langue: "adm.langue", capacite_max: "adm.placesMax", participants_min: "adm.participantsMin",
-    point_rdv: "adm.rdv", point_rdv_precis: "adm.rdvPrecis", message_inscrits: "adm.message", prix_adherent_centimes: "adm.tarifAdh" };
-  const valeur = (k, v) => v == null || v === "" ? "–" : k === "prix_adherent_centimes" ? euros(v) : k === "debut" || k === "fin" ? admDate(v, { weekday: "short", day: "numeric", month: "short" }) + " " + admHeure(v)
+    point_rdv: "adm.rdv", point_rdv_precis: "adm.rdvPrecis", message_inscrits: "adm.message" };
+  const valeur = (k, v) => v == null || v === "" ? "–" : k === "debut" || k === "fin" ? admDate(v, { weekday: "short", day: "numeric", month: "short" }) + " " + admHeure(v)
     : Array.isArray(v) ? v.join(", ") : typeof v === "object" ? (v.fr || "") : String(v);
   zone.innerHTML = '<div class="adm-liste">' + (ADM.props || []).map((p) =>
     '<div class="adm-ligne adm-demande"><span class="adm-ligne-corps">' +
@@ -1525,7 +1526,7 @@ async function peindreTableauIntervenant(corps) {
 
 function peindreFormExperience(corps, e) {
   const n = !e;
-  e = e || { type: "visite_guidee", titre: {}, description: {}, langues: ["fr"], point_rdv: {}, duree_minutes: 120, capacite_max: 8, participants_min: 1 };
+  e = e || { type: "visite_guidee", titre: {}, description: {}, langues: ["fr"], point_rdv: {}, duree_minutes: 120, capacite_max: 8, participants_min: 4 };
   const enLigne = !!e.publie, refusee = !!e.refusee_le && !e.a_valider && !e.publie;
   const zone = admZone();
   window.scrollTo(0, 0);
@@ -1590,11 +1591,11 @@ function peindreFormExperience(corps, e) {
     b.disabled = true; note.textContent = t("adm.traductionEnCours");
     await admTraduireChamps(["x-titre", "x-description", "x-rdv"], false).catch(() => false);
     const d = { description: admTraduit("x-description"), duree_minutes: duree.valeur(), capacite_max: places.valeur(),
-      participants_min: Math.min(e.participants_min || 1, places.valeur()),
+      participants_min: Math.min(e.participants_min || 4, places.valeur()),
       langues: admLanguesChoisies("x-langues").length ? admLanguesChoisies("x-langues") : ["fr"],
       photo_url: $("#x-photo").dataset.url || null, point_rdv: admTraduit("x-rdv"),
       point_rdv_lat: pos.lat == null ? null : pos.lat, point_rdv_lng: pos.lng == null ? null : pos.lng,
-      prix_centimes: prix + (e.prereservation_centimes || 0) };   // prix affiché = net ; une ancienne fiche garde sa pré-réservation
+      prix_centimes: prix + (e.prereservation_centimes || 0) };   // prix affiché = net (une ancienne fiche garde sa part en base)
     if (!enLigne) { d.type = admChoix("x-type"); d.titre = admTraduit("x-titre"); }
     if (refusee) Object.assign(d, { a_valider: true, refusee_le: null, motif_refus: null });   // renvoyée pour validation
     note.textContent = t("member.loading");

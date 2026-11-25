@@ -624,6 +624,17 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .cpt-gerer, .cpt-deco { display: block; margin: 18px auto 0; text-align: center; }
 .cpt-deco { color: var(--muted); }
 #screen-compte .infos-label { margin-block: 22px 8px; }
+/* Mon compte : pastilles de statut Adhérent / Intervenant (E15.2 à E15.4) */
+.cpt-statuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-block: 12px 4px; }
+.cpt-statut { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); color: var(--muted); }
+.cpt-statut b { font-size: 14px; color: var(--velin); }
+.cpt-statut span { font-family: var(--mono); font-size: 11px; }
+.cpt-statut.actif { border-color: var(--ocre); }
+.cpt-statut.actif b::before { content: ""; display: inline-block; inline-size: 7px; block-size: 7px; border-radius: 50%; background: var(--ocre); margin-inline-end: 6px; vertical-align: middle; }
+.cpt-sous-titre { font-family: var(--display); font-weight: 400; font-size: 24px; line-height: 1.15; margin: 0 0 6px; }
+#cpt-nouvelle-seance { margin-block: 4px 12px; }
+/* Confirmation : « Cette expérience vous a plu ? Soutenir l'association » */
+.resa-don { text-align: center; font-size: 14px; color: var(--muted); margin-block: 18px 8px; }
 
 /* Espace intervenants : tableau de bord (E11.1) */
 .adm-bandeau { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin: 12px 0 0; border-radius: 10px;

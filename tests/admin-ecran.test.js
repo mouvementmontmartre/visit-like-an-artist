@@ -119,7 +119,7 @@ const uid = () => "xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx".replace(/x/g, () => "01
 
   // 2. Compléter et publier une fiche, avec photo
   await pg.click('[data-adm-fiche="' + circuit.id + '"]');
-  v("formulaire de la fiche ouvert, champs remplis", await attendre(pg, "#adm-form", "Circuit des Peintres") && (await pg.inputValue("#f-prix")) === "50" && (await pg.inputValue("#f-titre-fr")) === "Circuit des Peintres");
+  v("formulaire de la fiche ouvert, champs remplis (prix net : 50 € moins l'ancienne pré-réservation de 5 €)", await attendre(pg, "#adm-form", "Circuit des Peintres") && (await pg.inputValue("#f-prix")) === "45" && (await pg.$("#f-preresa")) === null && (await pg.inputValue("#f-titre-fr")) === "Circuit des Peintres");
   // Photo carrée pour un format 4:3 : la fenêtre de recadrage s'ouvre (annuler n'envoie rien).
   await pg.setInputFiles("#f-photo-fichier", { name: "photo.png", mimeType: "image/png", buffer: PNG });
   await pg.waitForSelector(".adm-recadrage canvas");

@@ -1591,17 +1591,16 @@ function seanceHtml(s, choisie) {
     '<span class="seance-etat">' + esc(etat) + '</span>' + barre + '</span></button>';
 }
 
-/* Prix (décision du 21/11) : visites et ateliers sont réservés aux adhérents. Le prix
-   affiché est le prix net réglé sur place (prix de la fiche moins les 5 € de l'adhésion,
-   ou le tarif de la séance s'il est plus bas). En ligne : 0 € pour un adhérent, sinon
-   l'adhésion (5 € par an, quel que soit le nombre de personnes). */
+/* Prix (modèle 5 €, v2) : visites et ateliers sont réservés aux adhérents. Le prix
+   affiché est le prix net réglé sur place à l'intervenant (prix de la séance, sinon celui
+   de l'expérience). En ligne : 0 € pour un adhérent, sinon l'adhésion (5 € par an,
+   une seule fois, quel que soit le nombre de personnes). */
 const ADHESION_CENTIMES = 500;
 function unitaireResa() {
   const e = RESA.exp, s = RESA.seance;
   if (s && s.prix_centimes != null) return s.prix_centimes;   // prix net de la séance (vue seances_publiques, 22/11)
   if (!estVisiteResa(e.type)) return e.prix_centimes;
-  const net = e.prix_centimes - (e.prereservation_centimes || 0);
-  return s && s.prix_adherent_centimes != null ? Math.min(s.prix_adherent_centimes, net) : net;
+  return e.prix_centimes - (e.prereservation_centimes || 0);   // anciennes fiches : prix net
 }
 const estAdherentResa = () => !!(RESA && RESA.adherent);
 const pourAdherentsResa = () => estVisiteResa(RESA.exp.type) || !!(RESA.seance && RESA.seance.reservee_adherents);
@@ -1798,7 +1797,6 @@ function ouvrirReservation(mode) {
     } else sous("resa.sub");
     const n = RESA.personnes, u = unitaireResa(), total = u * n;
     const adh = RESA.adherent;
-    const remise = visite && u < e.prix_centimes;
     const carteInfo = adh && adh.carte
       ? '<div class="resa-carte-adh"><b>' + esc(t("resa.carteAdhesion")) + '</b><span>' + esc(t("resa.aucunDebit")) + '</span></div>'
       : '<div class="resa-carte-adh"><b>' + esc(t("resa.carteAEnregistrer")) + '</b><span>' + esc(t("resa.aucunDebit")) + '</span></div>';
@@ -1814,9 +1812,8 @@ function ouvrirReservation(mode) {
         (visite && !adh ? '<p class="member-note resa-indice">' + esc(t("resa.adhHint1")) + ' <b>' + esc(t("resa.adhHintB")) + '</b>' + esc(t("resa.adhHintC")) + '</p>' : '') +
         (visite
           ? '<div class="resa-prix resa-prix-form">' +
-              '<div class="resa-ligne"><span>' + esc(t("resa.tarifAdh")) + '<br><span class="resa-mono">' + esc(n + " × ") +
-                (remise ? '<s>' + esc(euros(e.prix_centimes)) + '</s> ' : '') + esc(euros(u)) + '</span></span><b class="resa-gros">' + esc(euros(total)) + '</b></div>' +
-              '<div class="resa-filet"><div class="resa-accent">' + esc(t("resa.offerte")) + '</div><div class="member-note">' + esc(t("resa.offerteTexte")) + '</div></div>' +
+              '<div class="resa-ligne"><span>' + esc(t(e.type === "atelier" ? "resa.prixAtelier" : "resa.fullPrice")) + '<br><span class="resa-mono">' + esc(n + " × " + euros(u)) +
+                '</span></span><b class="resa-gros">' + esc(euros(total)) + '</b></div>' +
               '<p class="resa-reste"><b>' + esc(tx("resa.resteAdh", { m: euros(total), g: guideResa() })) + '</b> ' + esc(t("resa.cash")) + '</p>' +
               (e.frais_annulation_tardive_centimes > 0 ? carteInfo : '') +
               '<div class="resa-ligne resa-total"><span>' + esc(t("resa.total")) + '</span><b>' + esc(euros(0)) + '</b></div></div>'
@@ -1926,7 +1923,7 @@ function peindreReservation(r, jeton, intro) {
   const lignes = [
     [t("resa.date"), r.debut ? dateLongueResa(r.debut) : ""], [t("resa.people"), String(r.personnes)],
     [t("resa.host"), r.intervenant], [t("resa.meet"), r.point_rdv_precis || r.point_rdv],
-    [t("resa.paid"), r.adherent && !r.paye_en_ligne_centimes ? t("resa.offerteLigne") : euros(r.paye_en_ligne_centimes)], [t("resa.ref"), r.reference],
+    [t("resa.paid"), euros(r.paye_en_ligne_centimes || 0)], [t("resa.ref"), r.reference],
   ].filter((l) => l[1]);
   let etat = "";
   if (r.statut === "annulee" || r.statut === "remboursee") {
@@ -1940,13 +1937,16 @@ function peindreReservation(r, jeton, intro) {
       lignes.map((l) => '<div class="info-row"><span class="k">' + esc(l[0]) + '</span><span class="v">' + esc(l[1]) + '</span></div>').join("") +
       (estVisiteResa(r.type) && r.reste_sur_place_centimes > 0 && r.statut === "confirmee"
         ? '<p class="resa-reste"><b>' + esc(tx("resa.restOnSite", { m: euros(r.reste_sur_place_centimes), g: r.intervenant ? tx("resa.to", { g: r.intervenant }) : "" })) + '</b> ' + esc(t("resa.cash")) + '</p>' : '') +
+      (estVisiteResa(r.type) && r.statut === "confirmee" ? '<p class="member-note">' + esc(t("resa.annulationRegle")) + '</p>' : '') +
       (r.message_inscrits && r.statut === "confirmee" ? '<p class="member-note">« ' + esc(r.message_inscrits) + ' »</p>' : '') +
     '</div>' +
     (r.absent ? '<div class="resa-etat">' + esc(r.absence_contestee ? t("resa.absenceContestee")
       : r.absence_contestable ? tx("resa.absenceSignalee", { m: euros(r.frais_centimes || 0) }) : t("resa.absenceNotee")) + '</div>' : '') +
     (r.absence_contestable ? '<button type="button" class="cta fee" id="resa-present">' + esc(t("resa.present")) + '</button><div class="resa-erreur" id="resa-present-note" role="alert"></div>' : '') +
     (r.peut_annuler ? '<button type="button" class="cta ghost" id="resa-annuler">' + esc(t("resa.cancelBtn")) + '</button><div id="resa-annuler-zone"></div>' : '') +
-    boutonAccueilResa();
+    boutonAccueilResa() +
+    (r.statut === "confirmee" ? '<p class="resa-don">' + esc(t("resa.donQuestion")) + ' <a href="' + esc(CONFIG.liens.don) + '" target="_blank" rel="noopener">' +
+      esc(t("compte.soutenir")) + '</a></p>' : '');
   const pr = $("#resa-present");
   if (pr) pr.addEventListener("click", async () => {
     pr.disabled = true;
@@ -2280,11 +2280,52 @@ function compteResaHtml(r) {
   '</div>';
 }
 
-function compteHtml(c, resas, note) {
+/** Prochaines séances de l'intervenant connecté (Mon compte, E15.4), avec le nombre d'inscrits.
+    null : pas d'intervenant (pas de session, ou compte d'administration sans fiche). */
+async function chargerSeancesCompte() {
+  const s = sessionLue();
+  if (!s) return null;
+  const user = (await authAppel("/auth/v1/user", { headers: { Authorization: "Bearer " + (await sessionValide()).access_token } })).data || {};
+  const profil = (await supaConnecte("profils?select=role,intervenant_id&user_id=eq." + encodeURIComponent(user.id || "")))[0];
+  if (!profil || !profil.intervenant_id) return null;
+  const exps = await supaConnecte("experiences?select=id,titre,type&intervenant_id=eq." + encodeURIComponent(profil.intervenant_id));
+  if (!exps.length) return { seances: [] };
+  const ids = exps.map((e) => e.id).join(",");
+  const seances = await supaConnecte("seances?select=id,experience_id,debut,point_rdv,capacite_max,participants_min,statut&supprimee_le=is.null&statut=eq.publiee" +
+    "&experience_id=in.(" + ids + ")&debut=gt." + encodeURIComponent(new Date().toISOString()) + "&order=debut.asc&limit=6");
+  const inscrits = seances.length ? await supaConnecte("mes_inscrits?select=seance_id,personnes&seance_id=in.(" + seances.map((x) => x.id).join(",") + ")") : [];
+  return { seances: seances.map((x) => {
+    const e = exps.find((k) => k.id === x.experience_id) || {};
+    return Object.assign({}, x, { titre: e.titre, type: e.type,
+      inscrits: inscrits.filter((r) => r.seance_id === x.id).reduce((k, r) => k + (r.personnes || 0), 0) });
+  }) };
+}
+
+function compteSeanceHtml(x) {
+  const jour = (o) => new Date(x.debut).toLocaleDateString(localeResa(), Object.assign({ timeZone: "Europe/Paris" }, o));
+  const titreS = (x.titre && (x.titre[getLang()] || x.titre.fr)) || "";
+  const manque = Math.max(0, x.participants_min - x.inscrits);
+  return '<div class="cpt-resa" style="--p:var(--type-' + (TYPE_COULEUR[x.type] || "visite") + ')">' +
+    '<div class="cpt-resa-haut">' +
+      '<span class="adm-jour"><span>' + esc(jour({ weekday: "short" })) + '</span><b>' + esc(jour({ day: "numeric" })) + '</b><span>' + esc(jour({ month: "short" })) + '</span></span>' +
+      '<span class="cpt-resa-corps"><span class="cpt-badge">' + esc(t(TYPE_LIBELLE[x.type] || "infos.tVisite")) + '</span>' +
+        '<span class="cpt-resa-titre">' + esc(titreS) + '</span>' +
+        '<span class="cpt-resa-meta">' + esc([heureLisible(x.debut), x.point_rdv].filter(Boolean).join(" · ")) + '</span></span>' +
+    '</div>' +
+    '<div class="cpt-resa-bas"><span>' + esc(manque
+      ? tx("compte.inscritsManque", { n: x.inscrits, max: x.capacite_max, min: x.participants_min, k: manque })
+      : tx("compte.inscritsAtteint", { n: x.inscrits, max: x.capacite_max, min: x.participants_min })) + '</span></div>' +
+  '</div>';
+}
+
+function compteHtml(c, resas, note, inter) {
   const valide = new Date(c.valide_jusqua) > new Date();
   const prenom = String(c.nom || "").trim().split(/\s+/)[0] || "";
   const fin = new Date(c.valide_jusqua).toLocaleDateString(localeResa(), { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric" });
   const session = sessionLue();
+  const fleche = '<span class="infos-fleche" aria-hidden="true">›</span>';
+  const ligne = (attrs, titre, sous) => '<button type="button" class="infos-ligne"' + attrs + '><span><span class="infos-ligne-t">' + titre + '</span>' +
+    (sous ? '<span class="infos-ligne-s">' + esc(sous) + '</span>' : '') + '</span>' + fleche + '</button>';
   const pastille = (k, couleur) => '<span class="infos-pastille" style="--p:' + couleur + '">' + esc(t(k)) + '</span>';
   const liste = resas === null ? '<div class="loading">' + esc(t("member.loading")) + '</div>'
     : resas.length
@@ -2295,22 +2336,50 @@ function compteHtml(c, resas, note) {
           '<div class="infos-pastilles">' + pastille("infos.tVisite", "var(--type-visite)") + pastille("infos.tAtelier", "var(--type-atelier)") +
             pastille("infos.tSoiree", "var(--type-soiree)") + '</div>' +
           '<button type="button" class="cta ocre" data-cpt-accueil>' + esc(t("compte.voirDates")) + '</button></div>';
+  // Statut (E15.2 à E15.4) : Adhérent et Intervenant, les deux possibles.
+  const interSous = !session ? t("compte.nonActive")
+    : inter && inter.seances ? tx("compte.seancesAVenir", { n: inter.seances.length }) : t("compte.actif");
+  const statuts = '<div class="cpt-statuts">' +
+    '<span class="cpt-statut' + (valide ? ' actif' : '') + '"><b>' + esc(t("compte.statutAdherent")) + '</b><span>' + esc(valide ? tx("compte.jusquau", { date: fin }) : t("compte.adhExpiree")) + '</span></span>' +
+    '<span class="cpt-statut' + (session ? ' actif' : '') + '"><b>' + esc(t("compte.statutIntervenant")) + '</b><span>' + esc(interSous) + '</span></span>' +
+  '</div>';
+  const sectionInter = session
+    ? '<div class="infos-label">' + esc(t("compte.statutIntervenant")) + '</div>' +
+      (inter && inter.seances ? '<div class="cpt-titre-liste"><h2>' + esc(t("compte.seances1")) + ' <i>' + esc(t("compte.seances2")) + '</i></h2>' +
+          '<span class="cpt-mono">' + esc(tx("compte.aVenir", { n: inter.seances.length })) + '</span></div>' +
+        (inter.seances.length ? '<div class="cpt-liste">' + inter.seances.map(compteSeanceHtml).join("") + '</div>'
+          : '<div class="member-note">' + esc(t("adm.aucuneSeance")) + '</div>') : '') +
+      '<button type="button" class="cta ocre" id="cpt-nouvelle-seance">+ ' + esc(t("adm.nouvelleSeance")) + '</button>' +
+      '<div class="infos-liste">' +
+        ligne(' data-open="espace"', '<b>' + esc(t("espace.entree")) + '</b>') +
+        ligne(' id="cpt-proposer"', esc(t("menu.proposerNouvelle"))) +
+      '</div>'
+    : '<div class="infos-label">' + esc(t("compte.statutIntervenant")) + '</div>' +
+      '<h2 class="cpt-sous-titre">' + esc(t("compte.animer")) + '</h2>' +
+      '<p class="espace-texte">' + esc(t("compte.animerTexte")) + '</p>' +
+      '<div class="infos-liste">' +
+        ligne(' id="cpt-proposer"', esc(t("infos.proposerBtn"))) +
+        ligne(' data-open="espace"', esc(t("compte.dejaIntervenant")) + ' <b>' + esc(t("espace.entree")) + '</b>', t("compte.espaceSous")) +
+      '</div>';
   return '<div class="cpt-eyebrow">' + esc(t("compte.eyebrow")) + '</div>' +
     '<h1 class="espace-titre">' + esc(t("compte.bonjour")) + (prenom ? ' <i>' + esc(prenom) + '</i>' : '') + '</h1>' +
+    statuts +
     (note ? '<div class="resa-etat">' + esc(note) + '</div>' : '') +
+    '<div class="infos-label">' + esc(t("compte.statutAdherent")) + '</div>' +
     '<button type="button" class="cpt-adh' + (valide ? '' : ' expiree') + '" data-open="membre">' +
       '<span class="cpt-adh-icone" aria-hidden="true">' + (valide ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' : '!') + '</span>' +
       '<span class="cpt-adh-corps"><b>' + esc(valide ? t("compte.adhActive") : t("compte.adhExpiree")) + '</b>' +
-        '<span class="cpt-mono">' + esc(tx("compte.jusquau", { date: fin }) + (c.numero ? " · " + c.numero : "")) + '</span></span>' +
+        '<span class="cpt-mono">' + esc(tx("compte.jusquau", { date: fin }) + (c.numero ? " · " + c.numero : "")) + '</span>' +
+        (valide && c.renouvelable ? '<span class="cpt-mono">' + esc(t("compte.renouvAuto")) + '</span>' : '') + '</span>' +
       '<span class="cpt-adh-carte">' + esc(valide ? t("compte.maCarte") : t("compte.renouveler")) + ' ›</span></button>' +
     '<div class="cpt-titre-liste"><h2>' + esc(t("compte.prochaines1")) + ' <i>' + esc(t("compte.prochaines2")) + '</i></h2>' +
       (resas && resas.length ? '<span class="cpt-mono">' + esc(tx("compte.aVenir", { n: resas.length })) + '</span>' : '') + '</div>' +
     liste +
-    '<div class="infos-label">' + esc(t("compte.animer")) + '</div>' +
+    sectionInter +
+    '<div class="infos-label">' + esc(t("compte.soutenir")) + '</div>' +
     '<div class="infos-liste">' +
-      '<button type="button" class="cta ghost infos-espace-btn" data-open="espace">' + esc(t("espace.entree")) + '</button>' +
-      (session ? '' : '<div class="member-note cpt-espace-note">' + esc(t("compte.espaceSous")) + '</div>') +
-      '<button type="button" class="infos-ligne" id="cpt-proposer"><span><span class="infos-ligne-t">' + esc(t("infos.proposerBtn")) + '</span></span><span class="infos-fleche" aria-hidden="true">›</span></button>' +
+      '<a class="infos-ligne" href="' + esc(CONFIG.liens.don) + '" target="_blank" rel="noopener"><span><span class="infos-ligne-t">' + esc(t("cta.donate")) + '</span>' +
+        '<span class="infos-ligne-s">' + esc(t("compte.donSous")) + '</span></span>' + fleche + '</a>' +
     '</div>' +
     (c.renouvelable ? '<button type="button" class="lien-bouton cpt-gerer" id="cpt-portail">' + esc(t("member.gerer")) + '</button><div class="resa-erreur" id="cpt-portail-note" role="alert"></div>' : '') +
     '<button type="button" class="lien-bouton cpt-deco" id="cpt-deconnexion">' + esc(t("compte.deconnexion")) + '</button>';
@@ -2337,12 +2406,17 @@ async function renderCompte(note) {
     brancherConnexion("cpt", () => routerApresConnexion());
     return;
   }
-  let resas = null;
+  let resas = null, inter = null;
   const peindre = () => {
     const s = carteLue();
     if (!s || !s.carte) { corps.innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>'; return; }
-    corps.innerHTML = compteHtml(s.carte, resas, note);
+    corps.innerHTML = compteHtml(s.carte, resas, note, inter);
     $$("[data-cpt-accueil]").forEach((b) => b.addEventListener("click", () => showScreen("accueil")));
+    const nouvelle = $("#cpt-nouvelle-seance");
+    if (nouvelle) nouvelle.addEventListener("click", () => {
+      if (typeof ADM !== "undefined") { ADM.ongletVoulu = "seances"; ADM.nouvelleSeance = true; }
+      openTarget("espace");
+    });
     $("#cpt-proposer").addEventListener("click", () => {
       if (sessionLue() && typeof ADM !== "undefined") { ADM.ongletVoulu = "fiches"; ADM.nouvelleExperience = true; openTarget("espace"); }
       else openTarget("rejoindre");
@@ -2368,6 +2442,8 @@ async function renderCompte(note) {
     }));
   };
   peindre();
+  // Séances de l'intervenant (s'il est connecté à son espace sur ce téléphone), sans bloquer le reste.
+  if (sessionLue()) chargerSeancesCompte().then((x) => { inter = x; peindre(); }).catch(() => { /* la section garde ses liens */ });
   // Carte à jour (validité, renouvellement) et réservations à venir.
   try {
     const [v, r] = await Promise.all([appelCarte({ action: "voir", jeton: st.jeton }), appelCarte({ action: "reservations", jeton: st.jeton })]);
