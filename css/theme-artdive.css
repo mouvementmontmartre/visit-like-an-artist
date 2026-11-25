@@ -61,10 +61,11 @@ a { color: var(--lien); }
   font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--fee); line-height: 1.3;
 }
-.header-lang-btn, .header-info-btn {
-  width: 44px; height: 44px; border-radius: 50%;
-  background: transparent; border: 1px solid var(--bord); color: var(--velin);
-}
+/* En-tête v2 (E1.1) : « Mon compte » rond crème, menu ☰ en contour. */
+.header-compte, .header-menu { width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; cursor: pointer; }
+.header-compte { background: var(--velin); color: var(--nuit); border: 0; }
+.header-menu { background: transparent; border: 1px solid var(--bord); color: var(--velin); }
+.header-compte svg, .header-menu svg { width: 20px; height: 20px; }
 
 /* ---------- Titres ---------- */
 .bandeau-hero-tourisme .title,
@@ -693,3 +694,26 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .partage-btn svg { inline-size: 16px; block-size: 16px; }
 .partage-note { display: block; margin-block-start: 6px; }
 .adm-partage-lien { font-family: var(--mono); font-size: 13px; }
+
+/* ---------- Menu (E1.3, E1.4, E1.5) et Langue (E1.2) ---------- */
+#screen-menu { background: var(--nuit); }
+.menu-tete { display: flex; align-items: center; justify-content: space-between; padding-block: 20px 14px; }
+.menu-titre { font-family: var(--display); font-weight: 400; font-size: 32px; margin: 0; }
+.menu-fermer { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--velin); color: var(--nuit); font-size: 18px; cursor: pointer; }
+.menu-bloc { background: var(--panneau); border: 1px solid var(--line); border-radius: 14px; padding-inline: 16px; margin-block: 12px; }
+.menu-bloc .menu-ligne:last-child { border-bottom: 0; }
+.menu-ligne { inline-size: 100%; text-decoration: none; color: var(--velin); }
+.menu-pied { margin-block: 24px 32px; }
+.adh-panneau { margin-block: 12px; padding: 18px 16px; border-radius: 14px; background: #2B2016; border: 1px solid #4A3A24; display: flex; flex-direction: column; gap: 10px; }
+.adh-panneau p { margin: 0; color: var(--velin); font-size: 14px; line-height: 1.5; }
+.adh-eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--fee); }
+.adh-titre { font-family: var(--display); font-weight: 400; font-size: 26px; line-height: 1.15; margin: 0; }
+.adh-titre i { font-style: italic; }
+.adh-deja { text-align: center; font-size: 13px; color: var(--muted) !important; }
+.adh-deja .lien-bouton { color: var(--fee); font-weight: 600; }
+.langue-liste { margin-block-start: 8px; }
+.langue-ligne { inline-size: 100%; }
+.langue-ligne.active .infos-ligne-t { color: var(--fee); }
+.langue-coche { inline-size: 24px; block-size: 24px; border-radius: 50%; border: 1px solid var(--bord); display: grid; place-items: center; }
+.langue-ligne.active .langue-coche { background: var(--ocre); border-color: var(--ocre); color: var(--nuit); }
+.langue-coche svg { inline-size: 14px; block-size: 14px; }

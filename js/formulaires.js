@@ -97,7 +97,7 @@ async function renderDemande(arg) {
 }
 
 /** « Nous rejoindre » : guides, artistes et lieux. */
-function renderRejoindre() {
+function renderRejoindre(typeVoulu) {
   FORM.ouvert = Date.now();
   $("#demande-titre").textContent = t("form.rejoindreTitreEcran");
   $("#demande-sous").textContent = t("espace.sous");
@@ -106,7 +106,7 @@ function renderRejoindre() {
     '<p class="espace-texte">' + esc(t("form.rejoindreTexte")) + '</p>' +
     '<form id="form-rejoindre" class="adm-form" novalidate>' + formPiege +
       '<div class="adm-champ"><span>' + esc(t("form.vousEtes")) + '</span>' +
-        formChips("r-type", ["guide", "artiste", "lieu", "autre"].map((k) => [k, t("adm.typeInt." + k)]), "guide") + '</div>' +
+        formChips("r-type", ["guide", "artiste", "lieu", "autre"].map((k) => [k, t("adm.typeInt." + k)]), ["guide", "artiste", "lieu", "autre"].includes(typeVoulu) ? typeVoulu : "guide") + '</div>' +
       formChamp("r-nom", t("form.nomOuLieu"), 'autocomplete="name" maxlength="120"') +
       formChamp("r-email", t("form.email"), 'type="email" inputmode="email" autocomplete="email"') +
       formChamp("r-tel", t("form.telephone"), 'type="tel" inputmode="tel" autocomplete="tel" maxlength="30"') +

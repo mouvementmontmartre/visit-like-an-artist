@@ -109,11 +109,13 @@ function openTarget(target, arg) {
     case "espace":          showScreen("espace"); renderEspace(); break;
     case "compte":          showScreen("compte"); renderCompte(); break;
     case "infos":           renderInfos(); showScreen("infos"); break;
+    case "menu":            renderMenu(); showScreen("menu"); break;
+    case "langue":          renderLangue(); showScreen("langue"); break;
     case "infos-festival":  renderInfosFestival(); showScreen("infos-festival"); break;
     case "visite":          renderVisite(arg); showScreen("visite"); break;
     case "carte-visite":    renderCarteVisite(arg); showScreen("carte-visite"); break;
     case "demande":         showScreen("demande"); renderDemande(arg); break;         // js/formulaires.js
-    case "rejoindre":       showScreen("demande"); renderRejoindre(); break;
+    case "rejoindre":       showScreen("demande"); renderRejoindre(arg); break;
     case "hote":            showScreen("hote"); renderHote(arg); break;               // js/formulaires.js
     case "parcours":        showScreen("parcours"); renderParcours(arg); break;       // js/parcours.js
   }
@@ -129,6 +131,7 @@ document.addEventListener("click", (e) => {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
+  if (e.target.closest("[data-compte]")) { ouvrirMonCompte(); return; }
   const opener = e.target.closest("[data-open]");
   if (opener) { openTarget(opener.dataset.open, opener.dataset.arg); return; }
   const back = e.target.closest("[data-back]");
@@ -2358,6 +2361,86 @@ async function renderCompte(note) {
     resas = r.status === 200 ? (r.data.reservations || []) : [];
   } catch (e) { resas = []; note = note || t("member.offline"); }
   peindre();
+}
+
+
+/* ============================================================
+   MENU (v2 : E1.3 visiteur, E1.4 adhérent, E1.5 intervenant) ET LANGUE (E1.2)
+   Ouvert par le bouton ☰ de l'en-tête. Le contenu suit le statut de la
+   personne sur cet appareil : carte de membre valable (adhérent), session de
+   l'espace (intervenant ou association), les deux, ou rien (visiteur).
+   ============================================================ */
+
+function statutAppareil() {
+  const c = carteLue(), s = sessionLue();
+  const carte = c && c.carte;
+  return { adherent: !!(carte && new Date(carte.valide_jusqua) > new Date()), carte, intervenant: !!s };
+}
+
+const ligneMenu = (attrs, titre, sous) => '<button type="button" class="infos-ligne menu-ligne"' + attrs + '><span><span class="infos-ligne-t">' + esc(titre) + '</span>' +
+  (sous ? '<span class="infos-ligne-s">' + esc(sous) + '</span>' : '') + '</span><span class="infos-fleche" aria-hidden="true">›</span></button>';
+
+/** Carte « Adhésion · 5 € par an » (menu, accueil) ou ligne de statut d'un adhérent. */
+function adhesionMenuHtml(st, contexte) {
+  if (st.adherent) {
+    const fin = new Date(st.carte.valide_jusqua).toLocaleDateString(localeResa(), { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric" });
+    return '<button type="button" class="cpt-adh" data-open="membre">' +
+      '<span class="cpt-adh-icone" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>' +
+      '<span class="cpt-adh-corps"><b>' + esc(t("compte.adhActive")) + '</b><span class="cpt-mono">' + esc(tx("compte.jusquau", { date: fin }) + (st.carte.numero ? " · " + st.carte.numero : "")) + '</span></span>' +
+      '<span class="cpt-adh-carte">' + esc(t("compte.maCarte")) + ' ›</span></button>';
+  }
+  return '<div class="adh-panneau' + (contexte === "accueil" ? " adh-panneau-accueil" : "") + '">' +
+    '<div class="adh-eyebrow">' + esc(t("menu.adhEyebrow")) + '</div>' +
+    (contexte === "accueil" ? '<h2 class="adh-titre">' + esc(t("accueil.adhTitre1")) + ' <i>' + esc(t("accueil.adhTitre2")) + '</i></h2>' : '') +
+    '<p>' + esc(t(contexte === "accueil" ? "accueil.adhTexte" : "menu.adhTexte")) + '</p>' +
+    '<button type="button" class="cta ocre" data-open="membre" data-membre-adherer>' + esc(t("member.adherer5")) + '</button>' +
+    '<p class="adh-deja">' + esc(t("adh.deja")) + ' <button type="button" class="lien-bouton" data-open="membre">' + esc(t("compte.maCarte")) + ' ›</button></p>' +
+  '</div>';
+}
+
+function renderMenu() {
+  const corps = $("#menu-body");
+  if (!corps) return;
+  const st = statutAppareil();
+  corps.innerHTML =
+    '<div class="menu-tete"><h1 class="menu-titre" id="menu-titre">' + esc(t("menu.titre")) + '</h1>' +
+      '<button type="button" class="menu-fermer" data-back aria-label="' + esc(t("menu.fermer")) + '">✕</button></div>' +
+    '<div class="infos-liste menu-bloc">' +
+      ligneMenu(' data-compte', t("menu.compte"), t(st.intervenant ? "menu.compteSousInter" : st.adherent ? "menu.compteSousAdh" : "menu.compteSous")) +
+      (st.intervenant
+        ? ligneMenu(' data-open="espace"', t("espace.entree"), t("menu.espaceSous")) +
+          ligneMenu(' data-menu-proposer', t("menu.proposerNouvelle"), t("menu.proposerSous"))
+        : ligneMenu(' data-open="rejoindre"', t("menu.proposer"), t("menu.proposerSous")) +
+          ligneMenu(' data-open="rejoindre" data-arg="lieu"', t("menu.lieu"), t("menu.lieuSous"))) +
+    '</div>' +
+    adhesionMenuHtml(st, "menu") +
+    '<div class="infos-liste menu-bloc">' +
+      '<a class="infos-ligne menu-ligne" href="' + esc(CONFIG.liens.don) + '" target="_blank" rel="noopener"><span><span class="infos-ligne-t">' + esc(t("cta.donate")) + '</span>' +
+        '<span class="infos-ligne-s">' + esc(t("menu.donSous")) + '</span></span><span class="infos-fleche" aria-hidden="true">›</span></a>' +
+      ligneMenu(' data-open="langue"', t("infos.langue"), LANG_META[getLang()].nom) +
+      ligneMenu(' data-open="infos"', t("menu.infos"), "") +
+    '</div>' +
+    '<div class="infos-pied menu-pied">' + esc(t("infos.pied")) + '<br>' + esc(t("infos.beta")) + '</div>';
+  const proposer = corps.querySelector("[data-menu-proposer]");
+  if (proposer) proposer.addEventListener("click", () => {
+    if (typeof ADM !== "undefined") { ADM.ongletVoulu = "fiches"; ADM.nouvelleExperience = true; }
+    openTarget("espace");
+  });
+}
+
+function renderLangue() {
+  const corps = $("#langue-body");
+  if (!corps) return;
+  const coche = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  corps.innerHTML = '<div class="infos-liste langue-liste" role="radiogroup">' + languesAffichees().map((l) =>
+    '<button type="button" class="infos-ligne langue-ligne' + (l === getLang() ? ' active' : '') + '" role="radio" aria-checked="' + (l === getLang()) + '" data-langue="' + l + '">' +
+      '<span class="infos-ligne-t" lang="' + l + '">' + esc(LANG_META[l].nom) + '</span><span class="langue-coche" aria-hidden="true">' + (l === getLang() ? coche : '') + '</span></button>').join("") + '</div>' +
+    '<p class="member-note">' + esc(t("langue.note")) + '</p>';
+  corps.querySelectorAll("[data-langue]").forEach((b) => b.addEventListener("click", () => {
+    if (b.dataset.langue === getLang()) { openTarget("menu"); return; }
+    setLang(b.dataset.langue);
+    location.reload();
+  }));
 }
 
 /* ============================================================

@@ -122,6 +122,8 @@ const CONFIG = {
     statuts: "",
     reglement: "",
     confidentialite: "",
+    // Lien unique « Faire un don » (menu, Mon compte, carte de membre, confirmations).
+    don: "https://donate.stripe.com/eVadTj2nd5IP8ZWeVi",
     siteWeb: "https://montmartrefestival.com",                // site du festival
     siteAssociation: "https://www.mouvementmontmartre.org",   // site de l'association
     instagram: "https://www.instagram.com/mouvement.montmartre/",
