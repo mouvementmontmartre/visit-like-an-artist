@@ -135,9 +135,90 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   await pg.check("#resa-c-conditions");
   await pg.click("#resa-payer");
   v("E8.1 : réservation confirmée tout de suite (carte de l'adhésion)", await attendre(pg, "#reservation-body", "Votre place est réservée."));
+  v("E9.1b : nouvel adhérent, « Vous êtes maintenant adhérent », 90 € réglés à Sylvain sur place", await attendre(pg, ".resa-ok", "Vous êtes maintenant adhérent.") && /Les 90\s€ de la visite se règlent directement à Sylvain Lesecq/.test(await pg.textContent(".resa-ok")));
+  v("E9.1b : « Payé aujourd'hui 5 € », « Adhésion, une seule fois »", await attendre(pg, ".resa-carte", "Adhésion, une seule fois") && /5\s?€/.test(await pg.textContent(".resa-carte")));
+  v("E9.1b : bloc « Adhésion active », fin de l'abonnement (20 novembre 2027), facture Stripe, code, « Voir ma carte »",
+    await attendre(pg, "#resa-adh-nouvelle", "Vous êtes adhérent") && await attendre(pg, "#resa-adh-nouvelle", "20 novembre 2027") &&
+    await attendre(pg, "#resa-adh-nouvelle", "facture de 5 €") && await attendre(pg, "#resa-adh-nouvelle", "code à 6 chiffres") && (await pg.$('#resa-adh-nouvelle [data-open="membre"]')) !== null);
+  v("E9.1b : ni bannière « Devenir membre » ni adhésion à 5 € à payer", !/Devenir membre|Payer 5/.test(await pg.textContent("#reservation-body")));
+  if (OUT) await pg.screenshot({ path: OUT + "/resa-nouvel-adherent-visite.png", fullPage: true });
   const fin = st.appels.find((a) => a.f === "reserver" && a.corps.action === "finaliser");
   v("E8.1 : la place retenue est terminée avec la carte (jeton) et la case", fin && fin.corps.reservation_id === "cccccccc-0000-0000-0000-000000000001" && fin.corps.jeton === "J".repeat(43) && fin.corps.consentements.conditions === true, JSON.stringify(fin));
   v("E8.1 : aucune erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
+  await ctx.close();
+
+  // 2 quater. Nouvel adhérent, atelier (E9.2b) ; puis cas limites : activation en retard, paiement abandonné, séance complète.
+  const CTX_ATELIER = { reservation_id: "cccccccc-0000-0000-0000-000000000002", bloque_jusqua: futur(0.2), personnes: 2, guide: "Mayamore", slug: "circuit-test",
+    exp: { id: "33333333-3333-3333-3333-333333333333", type: "atelier", titre: { fr: "Peindre sur la Butte" }, prix_centimes: 4000, prereservation_centimes: 0, frais_annulation_tardive_centimes: 1000, telephone_obligatoire: true },
+    seance: Object.assign({}, SEANCES["11111111-1111-1111-1111-111111111111"][0], { participants_min: 4 }), champs: { nom: "Camille Durand", email: "camille@exemple.invalid", tel: "0612345678" } };
+  const CARTE_OK = { nom: "Camille Durand", valide_jusqua: "2027-11-25T00:00:00Z", valide: true, numero: "MM-0043", renouvelable: true };
+  let essaisSession = 0;
+  ({ pg, ctx, st } = await page({ fonctions: (f, c) => {
+    if (f === "carte" && c.action === "session") { essaisSession++; return essaisSession < 3 ? [400, { error: "Session expirée" }] : [200, { jeton: "J".repeat(43), carte: CARTE_OK, email: "camille@exemple.invalid" }]; }
+    if (f === "reserver" && c.action === "finaliser") return [200, { confirmee: true, jeton: JETON, reservation: RESA({ type: "atelier", titre: { fr: "Peindre sur la Butte" }, intervenant: "Mayamore", reste_sur_place_centimes: 8000, paye_en_ligne_centimes: 0, adherent: true }) }];
+    if (f === "reserver" && c.action === "adherent") return [200, { adherent: true, carte: true, numero: "MM-0043" }];
+    return [404, {}];
+  } }));
+  await pg.addInitScript((ctxResa) => { if (!sessionStorage.getItem("i")) { sessionStorage.setItem("i", "1"); localStorage.setItem("resaEnCours", JSON.stringify(ctxResa)); } }, CTX_ATELIER);
+  await pg.goto("http://localhost:8767/?adhesion=cs_test_adh2&resa=cccccccc-0000-0000-0000-000000000002");
+  v("activation en retard : « Adhésion en cours d'activation », la place reste retenue", await attendre(pg, "#reservation-body", "Adhésion en cours d'activation") && await attendre(pg, "#reservation-body", "place reste retenue"));
+  v("activation en retard : l'état est relu, puis la réservation reprend (E8.1)", await pg.waitForFunction(() => { const e = document.querySelector("#reserver-body"); return e && e.textContent.includes("Adhérent reconnu"); }, null, { timeout: 20000 }).then(() => true, () => false) && essaisSession === 3, essaisSession);
+  await pg.check("#resa-c-conditions"); await pg.click("#resa-payer");
+  v("E9.2b : atelier, « Les 80 € de l'atelier se règlent directement à Mayamore », minimum de 4", await attendre(pg, ".resa-ok", "de l'atelier se règlent directement à Mayamore") && await attendre(pg, ".resa-ok", "dès 4 inscrits"));
+  v("E9.2b : bloc « Adhésion active » sur fond vert, jusqu'au 25 novembre 2027", await attendre(pg, "#resa-adh-nouvelle", "25 novembre 2027") &&
+    (await pg.$eval("#resa-adh-nouvelle", (e) => getComputedStyle(e).backgroundColor)) === "rgb(23, 52, 42)");
+  if (OUT) await pg.screenshot({ path: OUT + "/resa-nouvel-adherent-atelier.png", fullPage: true });
+  // Activation pas encore visible au moment de la confirmation : bloc « en cours », puis mis à jour tout seul.
+  await pg.evaluate(() => { localStorage.setItem("nouvelAdherent", JSON.stringify({ valide_jusqua: null, participants_min: 4, le: Date.now() })); });
+  st.carteVoir = 0;
+  await pg.evaluate(() => suiteResa({ jeton: "ab".repeat(32), reservation: { reference: "AD-1", personnes: 1, type: "visite_guidee", titre: { fr: "Circuit" }, statut: "confirmee", reste_sur_place_centimes: 4500, intervenant: "Sylvain" } }));
+  v("activation en retard sur la confirmation : « Adhésion en cours d'activation » à la place du bloc", await attendre(pg, "#resa-adh-nouvelle", "en cours d'activation"));
+  await ctx.close();
+  ({ pg, ctx, st } = await page({ fonctions: (f, c) => f === "carte" && c.action === "voir" ? [200, { carte: CARTE_OK, email: "camille@exemple.invalid" }] : [404, {}] }));
+  await pg.addInitScript(() => { localStorage.setItem("carteMembre", JSON.stringify({ jeton: "J".repeat(43), carte: { nom: "Camille", valide_jusqua: "2027-11-25T00:00:00Z" }, email: "camille@exemple.invalid" })); });
+  await pg.goto("http://localhost:8767/"); await pg.waitForTimeout(2600);
+  await pg.evaluate(() => { localStorage.setItem("nouvelAdherent", JSON.stringify({ valide_jusqua: null, le: Date.now() })); suiteResa({ jeton: "ab".repeat(32), reservation: { reference: "AD-1", personnes: 1, type: "visite_guidee", titre: { fr: "Circuit" }, statut: "confirmee", reste_sur_place_centimes: 4500, intervenant: "Sylvain" } }); });
+  v("activation en retard : le bloc se met à jour tout seul (« Vous êtes adhérent »)", await pg.waitForFunction(() => { const e = document.querySelector("#resa-adh-nouvelle"); return e && e.textContent.includes("Vous êtes adhérent"); }, null, { timeout: 12000 }).then(() => true, () => false));
+  // Un adhérent qui réserve de nouveau : confirmation habituelle, sans bloc.
+  await pg.evaluate(() => suiteResa({ jeton: "ab".repeat(32), reservation: { reference: "AD-2", personnes: 1, type: "visite_guidee", titre: { fr: "Circuit" }, statut: "confirmee", reste_sur_place_centimes: 4500, intervenant: "Sylvain", paye_en_ligne_centimes: 0 } }));
+  v("adhérent qui réserve de nouveau : écran E9.1 habituel (0 €, sans bloc d'adhésion)", (await pg.$("#resa-adh-nouvelle")) === null && !(await pg.textContent(".resa-ok")).includes("maintenant adhérent"));
+  v("cas limites : aucune erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
+  await ctx.close();
+  // Paiement de l'adhésion abandonné : place libérée, retour à l'étape de l'adhésion avec un message.
+  ({ pg, ctx, st } = await page({ fonctions: (f, c) => f === "reserver" && c.action === "abandonner" ? [200, { ok: true }] : [404, {}] }));
+  await pg.addInitScript((ctxResa) => { if (!sessionStorage.getItem("i")) { sessionStorage.setItem("i", "1"); localStorage.setItem("resaEnCours", JSON.stringify(ctxResa)); } }, Object.assign({}, CTX_ATELIER, { exp: Object.assign({}, CTX_ATELIER.exp, { type: "visite_guidee" }) }));
+  await pg.goto("http://localhost:8767/?reservation_abandonnee=1&resa=cccccccc-0000-0000-0000-000000000002");
+  v("paiement abandonné : retour à l'adhésion (E8.0) avec un message clair", await attendre(pg, "#resa-note", "rien n'a été débité") && (await pg.$("#adh-payer")) !== null);
+  v("paiement abandonné : la place retenue est libérée tout de suite", st.appels.some((a) => a.f === "reserver" && a.corps.action === "abandonner" && a.corps.reservation_id === "cccccccc-0000-0000-0000-000000000002"));
+  await ctx.close();
+  // Séance complète entre-temps : l'adhésion reste, retour à la fiche avec un message.
+  ({ pg, ctx, st } = await page({ fonctions: (f, c) => {
+    if (f === "carte" && c.action === "session") return [200, { jeton: "J".repeat(43), carte: CARTE_OK, email: "camille@exemple.invalid" }];
+    if (f === "reserver" && c.action === "finaliser") return [409, { code: "COMPLET" }];
+    if (f === "reserver" && c.action === "adherent") return [200, { adherent: true, carte: true }];
+    return [404, {}];
+  } }));
+  await pg.addInitScript((ctxResa) => { if (!sessionStorage.getItem("i")) { sessionStorage.setItem("i", "1"); localStorage.setItem("resaEnCours", JSON.stringify(ctxResa)); } }, Object.assign({}, CTX_ATELIER, { exp: Object.assign({}, CTX_ATELIER.exp, { type: "visite_guidee" }) }));
+  await pg.goto("http://localhost:8767/?adhesion=cs_test_adh3&resa=cccccccc-0000-0000-0000-000000000002");
+  await attendre(pg, "#reserver-body", "Adhérent reconnu");
+  await pg.check("#resa-c-conditions"); await pg.click("#resa-payer");
+  v("séance complète après l'adhésion : retour à la fiche, « adhésion bien active », pas de remboursement automatique", await attendre(pg, "#visite-seances", "Votre adhésion est bien active") &&
+    !st.appels.some((a) => /rembours/.test(JSON.stringify(a.corps))));
+  await ctx.close();
+  // Anglais : confirmation d'un nouvel adhérent.
+  ({ pg, ctx, st } = await page({ lang: "en", fonctions: (f, c) => {
+    if (f === "carte" && c.action === "session") return [200, { jeton: "J".repeat(43), carte: CARTE_OK, email: "camille@exemple.invalid" }];
+    if (f === "reserver" && c.action === "finaliser") return [200, { confirmee: true, jeton: JETON, reservation: RESA({ paye_en_ligne_centimes: 0, adherent: true }) }];
+    if (f === "reserver" && c.action === "adherent") return [200, { adherent: true, carte: true }];
+    return [404, {}];
+  } }));
+  await pg.addInitScript((ctxResa) => { if (!sessionStorage.getItem("i")) { sessionStorage.setItem("i", "1"); localStorage.setItem("resaEnCours", JSON.stringify(ctxResa)); } }, Object.assign({}, CTX_ATELIER, { exp: Object.assign({}, CTX_ATELIER.exp, { type: "visite_guidee" }) }));
+  await pg.goto("http://localhost:8767/?adhesion=cs_test_adh4&resa=cccccccc-0000-0000-0000-000000000002");
+  await attendre(pg, "#reserver-body", "Member recognised") || await pg.waitForSelector("#resa-c-conditions", { timeout: 8000 }).catch(() => {});
+  await pg.check("#resa-c-conditions"); await pg.click("#resa-payer");
+  v("anglais : « You are now a member », « Membership, one time only », « Active membership »", await attendre(pg, ".resa-ok", "You are now a member") &&
+    await attendre(pg, ".resa-carte", "Membership, one time only") && await attendre(pg, "#resa-adh-nouvelle", "You are a member") && /25 November 2027|November 25, 2027/.test(await pg.textContent("#resa-adh-nouvelle")), await pg.textContent("#reservation-body"));
+  v("anglais : aucune erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
   await ctx.close();
 
   // 2 ter. « Déjà adhérent ? Me connecter » : code reçu par email, personne ne réserve au nom d'un adhérent

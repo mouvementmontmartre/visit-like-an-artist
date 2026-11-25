@@ -13,6 +13,9 @@
        langue, accord_adhesion: true } (E8.0) : retient la place 15 min
        et ouvre le paiement de l'adhésion (abonnement 5 €/an) ; au retour,
        l'app termine la réservation (« finaliser »).
+   - { action: "abandonner", reservation_id } : paiement de l'adhésion abandonné,
+       la place retenue est libérée tout de suite (seulement une place encore
+       en attente et sans paiement ; sinon rien ne change).
    - { action: "finaliser", reservation_id, email, consentements: { conditions } }
        : la place retenue devient une réservation (adhésion vérifiée).
    - { seance_id, personnes, nom, email, telephone, langue,
@@ -120,6 +123,12 @@ exports.handler = async (event) => {
         return json(502, { error: "Paiement indisponible pour le moment", code: "STRIPE" });
       }
       return json(200, { url: s.data.url, reservation_id: h.reservation_id, bloque_jusqua: h.bloque_jusqua });
+    }
+
+    if (p.action === "abandonner") {
+      if (!uuidValide(p.reservation_id)) return json(400, { code: "PARAMETRES" });
+      await rpc("liberer_reservation", { p_stripe_session_id: null, p_reservation_id: p.reservation_id }).catch(() => {});
+      return json(200, { ok: true });
     }
 
     if (p.action === "finaliser") {

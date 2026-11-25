@@ -166,6 +166,14 @@ exports.handler = async (event) => {
       const etat = await rpc("carte_creer_lien", { p_email: r.email, p_jeton_hash: sha256hex(jeton), p_origine: "paiement" });
       if (etat !== "cree") return json(400, { error: "Carte indisponible" });
       const carte = await rpc("carte_par_jeton", { p_jeton_hash: sha256hex(jeton) });
+      // Adhésion payée dans l'app : un code de connexion part aussi par email (3 par heure au plus, comme « email »).
+      if ((session.metadata || {}).type === "adhesion" && process.env.BREVO_API_KEY) {
+        try {
+          const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+          const etatCode = await rpc("carte_code_creer", { p_email: r.email, p_code_hash: sha256hex(r.email + ":" + code) });
+          if (etatCode === "cree") await envoyerCode(r.email, code, (session.metadata || {}).langue);
+        } catch (e) { console.error("code après adhésion non envoyé", e && e.message); }
+      }
       return json(200, { jeton, carte, email: r.email });
     }
 

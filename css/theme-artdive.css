@@ -634,6 +634,19 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .cpt-sous-titre { font-family: var(--display); font-weight: 400; font-size: 24px; line-height: 1.15; margin: 0 0 6px; }
 #cpt-nouvelle-seance { margin-block: 4px 12px; }
 /* Confirmation : « Cette expérience vous a plu ? Soutenir l'association » */
+/* Confirmation d'un nouvel adhérent (E9.1b, E9.2b) : bloc « Adhésion active » */
+.resa-adh-nouvelle { display: flex; flex-direction: column; gap: 6px; margin-block: 16px; padding: 16px; border-radius: 12px;
+  border: 1px solid #C08A2E; background: #2B2115; }
+[data-offre="atelier"] .resa-adh-nouvelle { background: #17342A; }
+.resa-adh-nouvelle h2 { font-family: var(--display); font-weight: 600; font-size: 22px; margin: 0; }
+.resa-adh-nouvelle p { margin: 0; font-size: 14px; line-height: 1.45; }
+.resa-adh-nouvelle p.member-note { font-size: 13px; }
+.resa-adh-eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #E6C88A; }
+.resa-adh-carte { align-self: flex-start; color: #FF6A4D; font-weight: 600; padding: 0; }
+.resa-k-sous { display: block; font-size: 12px; color: var(--muted-dark); }
+/* Infos : « Rejoindre le réseau » et « Faire un don » */
+.infos-asso-liens { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 4px; }
+.infos-asso-lien { color: var(--fee); font-weight: 600; text-decoration: none; }
 .resa-don { text-align: center; font-size: 14px; color: var(--muted); margin-block: 18px 8px; }
 
 /* Espace intervenants : tableau de bord (E11.1) */

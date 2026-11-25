@@ -302,7 +302,7 @@ async function sessionAdhesion({ email, nom, telephone, langue, reservationId, s
     "line_items[0][price]": PRIX_ADHESION, "line_items[0][quantity]": "1",
     expires_at: String(Math.floor(Date.now() / 1000) + 30 * 60),
     success_url: SITE_URL + "/?adhesion={CHECKOUT_SESSION_ID}" + (reservationId ? "&resa=" + reservationId : ""),
-    cancel_url: SITE_URL + (reservationId ? "/?reservation_abandonnee=1" : "/#membre"),
+    cancel_url: SITE_URL + (reservationId ? "/?reservation_abandonnee=1&resa=" + reservationId : "/#membre"),
   };
   for (const [k, v] of Object.entries(meta)) {
     params["metadata[" + k + "]"] = v;
