@@ -1766,7 +1766,7 @@ function ouvrirReservation(mode) {
       '<div class="adh-prix"><b>' + esc(euros(ADHESION_CENTIMES)) + '</b><span>' + esc(t("adh.parAn")) + '</span></div>' +
       '<p class="adh-phrase">' + esc(t("adh.phrase")) + '</p>' +
       '<p class="member-note">' + esc(t("adh.deja")) + ' <button type="button" class="lien-bouton" id="adh-connecter">' + esc(t("adh.meConnecter")) + '</button></p>' +
-      '<form id="adh-form" novalidate>' + champsHtml() + caseAdhesionHtml("adh-c-statuts") +
+      '<form id="adh-form" novalidate>' + champsHtml() + caseAdhesionHtml("adh-c-statuts") + caseConditionsHtml() + infosLegalesResa() +
         '<button type="submit" class="cta fee" id="adh-payer">' + esc(tx("adh.payer", { m: euros(ADHESION_CENTIMES) })) + '</button>' +
         '<div id="resa-note" class="resa-erreur" role="alert"></div>' +
         '<div class="member-note resa-centre">' + esc(t("adh.renouvelee")) + '<br>' + esc(t("adh.securise")) + '</div>' +
@@ -1776,15 +1776,17 @@ function ouvrirReservation(mode) {
       ev.preventDefault(); garder();
       const note = $("#resa-note"), btn = $("#adh-payer");
       if (!champsValides()) { note.textContent = t("resa.err.form"); return; }
-      if (!$("#adh-c-statuts").checked) { note.textContent = t("resa.err.cgv"); return; }
+      if (!$("#adh-c-statuts").checked || !$("#resa-c-conditions").checked) { note.textContent = t("resa.err.cgv"); return; }
       btn.disabled = true; note.textContent = "";
       try {
         const { ok, d } = await appelReserver({ action: "adhesion", seance_id: s.id, personnes: RESA.personnes, nom: champs.nom.trim(),
-          email: champs.email.trim().toLowerCase(), telephone: champs.tel.trim(), langue: getLang(), accord_adhesion: true });
+          email: champs.email.trim().toLowerCase(), telephone: champs.tel.trim(), langue: getLang(), accord_adhesion: true,
+          consentements: { conditions: true } });
         if (ok && d.url) {
           try {
             localStorage.setItem("resaEnCours", JSON.stringify({ reservation_id: d.reservation_id, exp: e, seance: s, personnes: RESA.personnes,
-              guide: RESA.guide, slug: RESA.slug || "", champs: { nom: champs.nom, email: champs.email, tel: champs.tel }, bloque_jusqua: d.bloque_jusqua }));
+              guide: RESA.guide, slug: RESA.slug || "", champs: { nom: champs.nom, email: champs.email, tel: champs.tel }, bloque_jusqua: d.bloque_jusqua,
+              conditions: true }));
           } catch (err) { /* sans stockage : l'adhésion est faite, la réservation sera à refaire */ }
           window.location.href = d.url; return;
         }
@@ -1923,8 +1925,31 @@ async function reprendreReservationApresAdhesion(reservationId, carte) {
       participants_min: (ctx.seance && ctx.seance.participants_min) || null, le: Date.now() }));
   } catch (e) { /* sans stockage : confirmation habituelle */ }
   window.__resaChamps = Object.assign({ nom: "", email: "", tel: "" }, ctx.champs || {});
-  ouvrirReservation("finaliser");
+  if (ctx.conditions && await finaliserApresAdhesion()) return true;
+  ouvrirReservation("finaliser");   // repli : la case est demandée ici (ancien parcours, ou erreur passagère)
   return true;
+}
+
+/** La place retenue devient une réservation dès le retour du paiement de l'adhésion, sans autre étape.
+    true : c'est réglé (confirmation, ou retour à la fiche si la séance n'est plus disponible). */
+async function finaliserApresAdhesion() {
+  const champs = window.__resaChamps || {};
+  showScreen("reservation");
+  if ($("#screen-reservation")) $("#screen-reservation").dataset.offre = offreDeResa(RESA.exp.type);
+  $("#reservation-body").innerHTML = '<div class="loading">' + esc(t("member.loading")) + '</div>';
+  try {
+    const { ok, d } = await appelReserver({ action: "finaliser", reservation_id: RESA.reservationId, nom: String(champs.nom || "").trim(),
+      email: String(champs.email || "").trim().toLowerCase(), telephone: String(champs.tel || "").trim(), langue: getLang(),
+      consentements: { conditions: true }, jeton: (carteLue() || {}).jeton });
+    RESA.mode = "finaliser";
+    if (ok && suiteResa(d, null)) return true;
+    if (["COMPLET", "SEANCE_INDISPONIBLE", "RESERVATION_INTROUVABLE"].includes(d.code)) {
+      try { localStorage.removeItem("resaEnCours"); localStorage.removeItem("nouvelAdherent"); } catch (x) { /* rien */ }
+      noteFiche = t("resa.apresAdhesionIndispo");
+      if (RESA.slug) { openTarget("visite", RESA.slug); return true; }
+    }
+  } catch (e) { /* repli sur le formulaire */ }
+  return false;
 }
 
 /** Adhésion payée dans ce parcours de réservation (moins d'une heure) : lue une seule fois. */

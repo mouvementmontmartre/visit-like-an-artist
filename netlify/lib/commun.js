@@ -296,7 +296,10 @@ async function sessionAdhesion({ email, nom, telephone, langue, reservationId, s
   const l = ["fr", "en", "es"].includes(langue) ? langue : "fr";
   const meta = { type: "adhesion", nom: String(nom || "").slice(0, 120), telephone: String(telephone || "").slice(0, 30),
     langue: l, consentement_le: new Date().toISOString(), consentement_version: ADHESION_VERSION };
-  if (reservationId) Object.assign(meta, { reservation_retenue: reservationId, seance_id: seanceId || "" });
+  // Réservation (E8.0) : la case « conditions de réservation » est cochée avant de payer ; sa date et la
+  // version des CGV restent dans le paiement Stripe (la réservation la note aussi en se terminant).
+  if (reservationId) Object.assign(meta, { reservation_retenue: reservationId, seance_id: seanceId || "",
+    conditions_le: new Date().toISOString(), cgv_version: CGV_VERSION });
   const params = {
     mode: "subscription", locale: l, customer_email: email,
     "line_items[0][price]": PRIX_ADHESION, "line_items[0][quantity]": "1",

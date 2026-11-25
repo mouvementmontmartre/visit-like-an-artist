@@ -327,12 +327,15 @@ function verifier(nom, cond, detail) {
   r = await post(reserver, { action: "adhesion", seance_id: sLoin, personnes: 1, nom: "Nina", email: "Nina@Exemple.invalid", telephone: "0600000000", langue: "fr" });
   verifier("adhésion : sans la case statuts, refus", r.statusCode === 400 && lire(r).code === "ACCORD_ADHESION");
   r = await post(reserver, { action: "adhesion", seance_id: sLoin, personnes: 1, nom: "Nina", email: "Nina@Exemple.invalid", telephone: "0600000000", langue: "fr", accord_adhesion: true });
+  verifier("adhésion : sans la case conditions de réservation (avant de payer), refus", r.statusCode === 400 && lire(r).code === "CONDITIONS_NON_ACCEPTEES");
+  r = await post(reserver, { action: "adhesion", seance_id: sLoin, personnes: 1, nom: "Nina", email: "Nina@Exemple.invalid", telephone: "0600000000", langue: "fr", accord_adhesion: true, consentements: { conditions: true } });
   const sessN = Object.values(ST.sessions).pop();
   verifier("adhésion : place retenue 15 min et paiement de l'abonnement (5 €/an)", r.statusCode === 200 && /^[0-9a-f-]{36}$/.test(lire(r).reservation_id) &&
     sessN.params.mode === "subscription" && sessN.params["line_items[0][price]"] === require(path.join(DEPOT, "netlify/lib/commun.js")).PRIX_ADHESION &&
     sessN.params["metadata[type]"] === "adhesion" && sessN.params["metadata[reservation_retenue]"] === lire(r).reservation_id &&
     sessN.params["metadata[consentement_version]"] && sessN.params["metadata[telephone]"] === "0600000000" &&
-    sessN.params.success_url.includes("&resa=" + lire(r).reservation_id) && !("metadata[reservation_id]" in sessN.params), sessN.params);
+    sessN.params.success_url.includes("&resa=" + lire(r).reservation_id) && !("metadata[reservation_id]" in sessN.params) &&
+    sessN.params["metadata[conditions_le]"] && sessN.params["metadata[cgv_version]"] && sessN.params.cancel_url.includes("reservation_abandonnee=1&resa=" + lire(r).reservation_id), sessN.params);
   const resaN = lire(r).reservation_id;
   verifier("adhésion : la place compte dans la jauge pendant le paiement", (await ligne("select statut, attente_adhesion from public.reservations where id = $1", [resaN])).attente_adhesion === true);
   r = await post(reserver, { action: "finaliser", reservation_id: resaN, email: "nina@exemple.invalid", consentements: { conditions: true } });
@@ -343,7 +346,7 @@ function verifier(nom, cond, detail) {
   verifier("finaliser sans la case conditions : refusé", r.statusCode === 400 && lire(r).code === "CONDITIONS_NON_ACCEPTEES");
   r = await post(reserver, { action: "finaliser", reservation_id: resaN, email: "nina@exemple.invalid", jeton: jetons["nina@exemple.invalid"], consentements: { conditions: true } });
   verifier("finaliser : réservation confirmée avec la carte de l'adhésion", r.statusCode === 200 && lire(r).reservation.statut === "confirmee", lire(r));
-  r = await post(reserver, { action: "adhesion", seance_id: sLoin, personnes: 1, nom: "Nina", email: "nina@exemple.invalid", accord_adhesion: true });
+  r = await post(reserver, { action: "adhesion", seance_id: sLoin, personnes: 1, nom: "Nina", email: "nina@exemple.invalid", accord_adhesion: true, consentements: { conditions: true } });
   verifier("adhésion : déjà adhérent → code à demander (pas de deuxième adhésion)", r.statusCode === 409 && lire(r).code === "DEJA_ADHERENT");
 
   // ---- « Je me suis présenté(e) » ----

@@ -94,18 +94,21 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   await pg.click("#btn-reserver");
   v("E8.0 : 5 € par an, la phrase de l'adhésion, « Déjà adhérent ? Me connecter »", await attendre(pg, "#reserver-body", "par an") &&
     await attendre(pg, "#reserver-body", "Ces 5 € sont votre adhésion à l'association Mouvement Montmartre, valable 12 mois.") && (await pg.$("#adh-connecter")) !== null);
-  v("E8.0 : une seule case (statuts, règlement, confidentialité), non cochée", (await pg.$$eval("#reserver-body input[type=checkbox]", (l) => l.length + ":" + l.filter((c) => c.checked).length)) === "1:0" &&
-    await attendre(pg, "#reserver-body", "statuts") && await attendre(pg, "#reserver-body", "politique de confidentialité"));
+  v("E8.0 : deux cases avant de payer (statuts… ; conditions de réservation, 10 € par personne), non cochées", (await pg.$$eval("#reserver-body input[type=checkbox]", (l) => l.length + ":" + l.filter((c) => c.checked).length)) === "2:0" &&
+    await attendre(pg, "#reserver-body", "statuts") && await attendre(pg, "#reserver-body", "politique de confidentialité") && await attendre(pg, "#reserver-body", "10 € par personne"));
   v("E8.0 : « Payer 5 € maintenant », renouvelée chaque année, résiliable", await attendre(pg, "#adh-payer", "Payer 5") && await attendre(pg, "#reserver-body", "résiliable à tout moment"));
   await pg.fill("#resa-nom", "Camille Durand"); await pg.fill("#resa-email", "Camille@Exemple.invalid"); await pg.fill("#resa-tel", "0612345678");
   await pg.click("#adh-payer");
   v("E8.0 : sans la case, refus", await attendre(pg, "#resa-note", "Cochez les conditions"));
   await pg.check("#adh-c-statuts");
+  await pg.click("#adh-payer");
+  v("E8.0 : sans la case conditions de réservation, refus", await attendre(pg, "#resa-note", "Cochez les conditions") && !st.appels.some((a) => a.corps.action === "adhesion"));
+  await pg.check("#resa-c-conditions");
   await pg.screenshot({ path: OUT + "/resa-adhesion.png", fullPage: true });
   await pg.click("#adh-payer");
   await pg.waitForURL("https://checkout.stripe.test/**", { timeout: 8000 }).catch(() => {});
   const envoiAdh = st.appels.find((a) => a.f === "reserver" && a.corps.action === "adhesion");
-  v("E8.0 : place retenue et paiement de l'adhésion", pg.url().startsWith("https://checkout.stripe.test/") && envoiAdh && envoiAdh.corps.accord_adhesion === true &&
+  v("E8.0 : place retenue et paiement de l'adhésion, conditions acceptées avant", pg.url().startsWith("https://checkout.stripe.test/") && envoiAdh && envoiAdh.corps.accord_adhesion === true && envoiAdh.corps.consentements.conditions === true &&
     envoiAdh.corps.email === "camille@exemple.invalid" && envoiAdh.corps.personnes === 2, JSON.stringify(envoiAdh));
   v("E8.0 : aucune erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
   await ctx.close();
@@ -145,6 +148,23 @@ const v = (n, c, d) => { if (c) { ok++; console.log("OK     " + n); } else { ko+
   const fin = st.appels.find((a) => a.f === "reserver" && a.corps.action === "finaliser");
   v("E8.1 : la place retenue est terminée avec la carte (jeton) et la case", fin && fin.corps.reservation_id === "cccccccc-0000-0000-0000-000000000001" && fin.corps.jeton === "J".repeat(43) && fin.corps.consentements.conditions === true, JSON.stringify(fin));
   v("E8.1 : aucune erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
+  await ctx.close();
+
+  // 2 bis bis. Retour du paiement, conditions déjà acceptées : confirmation directe, sans autre étape.
+  ({ pg, ctx, st } = await page({ fonctions: (f, c) => {
+    if (f === "carte" && c.action === "session") return [200, { jeton: "J".repeat(43), carte: { nom: "Camille Durand", valide_jusqua: "2027-11-26T00:00:00Z", valide: true, numero: "MM-0044", renouvelable: true }, email: "camille@exemple.invalid" }];
+    if (f === "reserver" && c.action === "finaliser") return [200, { confirmee: true, jeton: JETON, reservation: RESA({ paye_en_ligne_centimes: 0, adherent: true }) }];
+    return [404, {}];
+  } }));
+  await pg.addInitScript((ctxResa) => { if (!sessionStorage.getItem("i")) { sessionStorage.setItem("i", "1"); localStorage.setItem("resaEnCours", JSON.stringify(ctxResa)); } }, {
+    reservation_id: "cccccccc-0000-0000-0000-000000000005", bloque_jusqua: futur(0.2), personnes: 2, guide: "Sylvain Lesecq", slug: "circuit-test", conditions: true,
+    exp: { id: "11111111-1111-1111-1111-111111111111", type: "visite_guidee", titre: { fr: "Circuit des Peintres" }, prix_centimes: 5000, prereservation_centimes: 500, frais_annulation_tardive_centimes: 1000, telephone_obligatoire: true },
+    seance: SEANCES["11111111-1111-1111-1111-111111111111"][0], champs: { nom: "Camille Durand", email: "camille@exemple.invalid", tel: "0612345678" } });
+  await pg.goto("http://localhost:8767/?adhesion=cs_test_adh5&resa=cccccccc-0000-0000-0000-000000000005");
+  v("retour du paiement : confirmation directe (E9.1b), sans repasser par une case", await attendre(pg, ".resa-ok", "Vous êtes maintenant adhérent") && await attendre(pg, "#resa-adh-nouvelle", "26 novembre 2027"));
+  const finD = st.appels.find((a) => a.f === "reserver" && a.corps.action === "finaliser");
+  v("retour du paiement : réservation terminée avec la carte (jeton) et l'accord donné avant de payer", finD && finD.corps.jeton === "J".repeat(43) && finD.corps.consentements.conditions === true && finD.corps.reservation_id === "cccccccc-0000-0000-0000-000000000005", JSON.stringify(finD));
+  v("retour du paiement : aucune erreur JavaScript", st.erreurs.length === 0, st.erreurs.join(" | "));
   await ctx.close();
 
   // 2 quater. Nouvel adhérent, atelier (E9.2b) ; puis cas limites : activation en retard, paiement abandonné, séance complète.

@@ -10,7 +10,8 @@
    d'adhérent est refusée (VERIFICATION_REQUISE) : personne ne peut
    réserver au nom d'un adhérent ni faire prélever sa carte.
    - { action: "adhesion", seance_id, personnes, nom, email, telephone,
-       langue, accord_adhesion: true } (E8.0) : retient la place 15 min
+       langue, accord_adhesion: true, consentements: { conditions: true } }
+       (E8.0, les deux cases avant de payer) : retient la place 15 min
        et ouvre le paiement de l'adhésion (abonnement 5 €/an) ; au retour,
        l'app termine la réservation (« finaliser »).
    - { action: "abandonner", reservation_id } : paiement de l'adhésion abandonné,
@@ -111,6 +112,7 @@ exports.handler = async (event) => {
       const personnes = Number.parseInt(p.personnes, 10);
       if (!uuidValide(p.seance_id) || !nom || !emailValide(email) || !Number.isInteger(personnes)) return json(400, { code: "PARAMETRES" });
       if (p.accord_adhesion !== true) return json(400, { code: "ACCORD_ADHESION" });
+      if (!conditions) return json(400, { code: "CONDITIONS_NON_ACCEPTEES" });
       let h;
       try {
         h = await rpc("retenir_pour_adhesion", { p_seance_id: p.seance_id, p_personnes: personnes, p_nom: nom,
