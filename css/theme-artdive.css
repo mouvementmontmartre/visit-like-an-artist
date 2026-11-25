@@ -29,7 +29,6 @@
   --gaz: #C08A2E;            /* ocre : bouton principal */
   --ocre: #C08A2E;
   --lien: #FF6A4D;           /* liens « Voir », « Tout voir » */
-  --vermillon: #D9391F;      /* pastilles, barre de progression */
   --succes: #27733A;         /* date confirmée, bouton « Réserver » d'une visite */
   --terracotta: #C42E18;
 
@@ -39,11 +38,12 @@
   --type-escape: #B171E9;
   --type-soiree: #E8466D;
 
-  /* Fond de page, panneaux et barre du bas de chaque type (canvas E2 à E5) */
-  --fond-visite: #10241C;   --panneau-visite: #17342A;   --filet-visite: #254134;   --barre-visite: #0B1A14;
-  --fond-atelier: #1D150A;  --panneau-atelier: #2A1F10;  --filet-atelier: #3A2C17;  --barre-atelier: #120C05;
-  --fond-soiree: #1E1013;   --panneau-soiree: #2B161B;   --filet-soiree: #5A2A38;   --barre-soiree: #140A0D;
-  --fond-escape: #1B1420;   --panneau-escape: #261C2E;   --filet-escape: #3A2C44;   --barre-escape: #130D17;
+  /* Teintes de page par type (canvas v2, 24/11) : fond, barre, panneaux et champs, filets,
+     fond secondaire, contours des contrôles. Visite = chocolat, atelier = vert. */
+  --fond-visite: #140E09;   --barre-visite: #0D0906;   --panneau-visite: #1F1610;   --filet-visite: #3D2D1E;   --second-visite: #2B2016;   --controle-visite: #8F8576;
+  --fond-atelier: #10241C;  --barre-atelier: #0B1A14;  --panneau-atelier: #17342A;  --filet-atelier: #254134;  --second-atelier: #1D4034;  --controle-atelier: #667A6F;
+  --fond-soiree: #1E1013;   --barre-soiree: #140A0D;   --panneau-soiree: #2B161B;   --filet-soiree: #5A2A38;   --second-soiree: #3A1D24;   --controle-soiree: #8F8576;
+  --fond-escape: #1B1420;   --barre-escape: #130D17;   --panneau-escape: #261C2E;   --filet-escape: #3A2C44;   --second-escape: #33263D;   --controle-escape: #8F8576;
 
   --display: "Fraunces", "Iowan Old Style", Georgia, serif;
   --body: "DM Sans", "Helvetica Neue", Arial, sans-serif;
@@ -92,11 +92,11 @@ a { color: var(--lien); }
 .chip { border-radius: 999px; border: 1px solid var(--bord); color: var(--velin); background: transparent; }
 .chip.active { background: var(--velin); color: var(--nuit); border-color: var(--velin); font-weight: 600; }
 
-/* ---------- Barre de navigation : point vermillon sous l'onglet actif ---------- */
+/* ---------- Barre de navigation : onglet actif en or ---------- */
 .bottom-nav, nav.bottom-nav { background: var(--nuit-2); border-top: 1px solid var(--line); }
 .nav-item { color: var(--muted); }
 .nav-item.active { color: var(--velin); font-weight: 600; }
-.nav-item.active svg { color: var(--vermillon); }
+.nav-item.active svg { color: var(--ocre); }
 
 /* ---------- Encarts ---------- */
 .cartouche { border-radius: 10px; }
@@ -181,29 +181,38 @@ a { color: var(--lien); }
 .type-badge.t-diner   { --c: var(--type-soiree); }
 .type-badge.t-escape  { --c: var(--type-escape); }
 
-/* ---------- Fiche, réservation et confirmation : fond, panneaux et bouton selon le type ---------- */
-#screen-visite, #screen-reserver, #screen-reservation {
-  /* 22/11 : fond marron pour les visites, vert pour les ateliers (inversés à la demande de la propriétaire) */
-  --fond: var(--fond-atelier); --pan: var(--panneau-atelier); --filet: var(--filet-atelier); --barre: var(--barre-atelier);
-  --cta-type: var(--succes); --cta-texte: var(--velin);     /* visite : « Réserver » en vert (canvas E2.2) */
-  --cta-payer: var(--type-visite);
-  background: var(--fond);
+/* ---------- Pages d'une expérience : teinte de page et couleur du type ----------
+   Fiche, réservation, confirmation, parcours autoguidé et ses étapes. Par défaut visite (chocolat) ;
+   data-offre="atelier" (vert), "diner" (soirée), "escape". Boutons principaux et date choisie :
+   couleur du type, texte nuit. */
+#screen-visite, #screen-reserver, #screen-reservation, #screen-parcours {
+  --page-bg: var(--fond-visite); --page-bar: var(--barre-visite); --page-panel: var(--panneau-visite);
+  --page-border: var(--filet-visite); --page-second: var(--second-visite); --page-control: var(--controle-visite);
+  --type-color: var(--type-visite);
 }
-[data-offre="atelier"]#screen-visite, [data-offre="atelier"]#screen-reserver, [data-offre="atelier"]#screen-reservation {
-  --fond: var(--fond-visite); --pan: var(--panneau-visite); --filet: var(--filet-visite); --barre: var(--barre-visite);
-  --cta-type: var(--type-visite); --cta-texte: var(--nuit); --cta-payer: var(--type-visite);
+[data-offre="atelier"]:is(#screen-visite, #screen-reserver, #screen-reservation) {
+  --page-bg: var(--fond-atelier); --page-bar: var(--barre-atelier); --page-panel: var(--panneau-atelier);
+  --page-border: var(--filet-atelier); --page-second: var(--second-atelier); --page-control: var(--controle-atelier);
+  --type-color: var(--type-atelier);
 }
-[data-offre="diner"]#screen-visite, [data-offre="diner"]#screen-reserver, [data-offre="diner"]#screen-reservation {
-  --fond: var(--fond-soiree); --pan: var(--panneau-soiree); --filet: var(--filet-soiree); --barre: var(--barre-soiree);
-  --cta-type: var(--type-soiree); --cta-texte: var(--nuit); --cta-payer: var(--type-soiree);
+[data-offre="diner"]:is(#screen-visite, #screen-reserver, #screen-reservation) {
+  --page-bg: var(--fond-soiree); --page-bar: var(--barre-soiree); --page-panel: var(--panneau-soiree);
+  --page-border: var(--filet-soiree); --page-second: var(--second-soiree); --page-control: var(--controle-soiree);
+  --type-color: var(--type-soiree);
 }
-[data-offre="escape"]#screen-visite, [data-offre="escape"]#screen-reserver, [data-offre="escape"]#screen-reservation {
-  --fond: var(--fond-escape); --pan: var(--panneau-escape); --filet: var(--filet-escape); --barre: var(--barre-escape);
-  --cta-type: var(--type-escape); --cta-texte: var(--nuit); --cta-payer: var(--type-escape);
+[data-offre="escape"]:is(#screen-visite, #screen-reserver, #screen-reservation) {
+  --page-bg: var(--fond-escape); --page-bar: var(--barre-escape); --page-panel: var(--panneau-escape);
+  --page-border: var(--filet-escape); --page-second: var(--second-escape); --page-control: var(--controle-escape);
+  --type-color: var(--type-escape);
 }
-#btn-reserver { background: var(--cta-type); color: var(--cta-texte); }
-#resa-payer { background: var(--cta-payer); color: var(--nuit); }
-#screen-reservation .cta.fee { background: var(--ocre); color: var(--nuit); }
+#screen-visite, #screen-reserver, #screen-reservation, #screen-parcours {
+  --panneau: var(--page-panel); --line: var(--page-border); --bord: var(--page-control);
+  --fond: var(--page-bg); --pan: var(--page-panel); --filet: var(--page-border); --barre: var(--page-bar);
+  background: var(--page-bg);
+}
+:is(#screen-visite, #screen-reserver, #screen-reservation, #screen-parcours) .back-header { background: var(--page-bg); }
+#btn-reserver, #resa-payer { background: var(--type-color); color: var(--nuit); }
+#screen-reservation .cta.fee { background: var(--type-color); color: var(--nuit); }
 
 #screen-visite .back-header > div:not(.back-btn) { display: none; } /* le titre est dans la fiche */
 .fiche-hero { position: relative; height: 220px; margin-top: 4px; border-radius: 10px; overflow: hidden; background: var(--pan, var(--panneau)); }
@@ -231,16 +240,16 @@ a { color: var(--lien); }
 .fiche-host-name { font-family: var(--display); font-size: 20px; font-weight: 600; margin-top: 3px; }
 #screen-visite .info-row, #screen-reserver .info-row, #screen-reservation .info-row { border-bottom-color: var(--filet); }
 
-/* Dates : jour en capitales mono, date confirmée en vert, barre du minimum vermillon */
-.seance { border-color: #667A6F; }
+/* Dates : jour en capitales mono ; date choisie dans la couleur du type (texte nuit) ; barre du minimum en or */
+.seance { border-color: var(--page-control, #667A6F); }
 .seance-jour { font-family: var(--mono); font-size: 10.5px; }
 .seance-jour b { font-family: var(--display); font-weight: 600; font-size: 30px; }
-.seance.choisie { background: var(--succes); color: var(--velin); border-color: var(--succes); }
+.seance.choisie { background: var(--type-color, var(--type-visite)); color: var(--nuit); border-color: var(--type-color, var(--type-visite)); }
 .seance-barre { background: var(--filet, var(--line)); }
-.seance-barre span { background: var(--vermillon); }
-.seance.choisie .seance-barre { background: rgba(239,231,217,.25); }
-.seance.choisie .seance-barre span { background: var(--velin); }
-.resa-stepper { border-color: #667A6F; }
+.seance-barre span { background: var(--ocre); }
+.seance.choisie .seance-barre { background: rgba(20,16,13,.2); }
+.seance.choisie .seance-barre span { background: var(--nuit); }
+.resa-stepper { border-color: var(--page-control, #667A6F); }
 .resa-stepper-btns button:last-child { background: var(--velin); color: var(--nuit); }
 .resa-gros { font-family: var(--display); font-weight: 600; }
 .resa-accent { color: var(--fee); }
@@ -248,7 +257,7 @@ a { color: var(--lien); }
 .resa-carte { background: var(--velin); color: var(--nuit); border-radius: 10px; }
 .resa-carte .info-row { border-bottom-color: #C9BFA8 !important; }
 .resa-carte .info-row .k, .resa-carte .member-note { color: var(--muted-dark); }
-.resa-ok span { background: var(--succes); color: var(--velin); }
+.resa-ok span { background: var(--type-color, var(--ocre)); color: var(--nuit); }
 .resa-ok h1, .resa-titre { font-family: var(--display); font-weight: 400; }
 .resa-case input { accent-color: var(--fee); }
 
@@ -319,6 +328,9 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .prive-ligne-s { font-size: 13px; color: #D8CEBC; }
 .prive-ligne-a { color: var(--lien); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .adh-panneau-accueil { margin-block: 6px 12px; }
+/* Page d'un intervenant : encadré « Une visite / un atelier rien que pour vous » */
+.prive-encart { background: var(--panneau); border: 1px solid var(--bord); border-style: solid; margin: 4px 0 22px; }
+.prive-titre { font-family: var(--display); font-size: 24px; line-height: 1.15; }
 #screen-demande .adm-puces .chip { min-height: 44px; padding: 0 16px; font-size: 13px; }
 #screen-demande .espace-titre em { font-style: italic; }
 
@@ -346,14 +358,13 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .adm-video { width: 100%; max-height: 360px; border-radius: 10px; background: #000; }
 
 /* ---------- Parcours autoguidés (canvas E2.1, E2.1.2, E2.1.3, E8.5, E9.5) ---------- */
-#screen-parcours { background: var(--fond-visite); }
 .parc-prix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0 8px; }
-.parc-chip { min-height: 48px; border-radius: 10px; border: 1px solid #667A6F; background: transparent; color: var(--velin);
+.parc-chip { min-height: 48px; border-radius: 10px; border: 1px solid var(--page-control, #667A6F); background: transparent; color: var(--velin);
   font-family: var(--mono); font-size: 16px; }
 .parc-chip:last-child { font-family: var(--body); font-size: 14px; color: var(--muted); }
 .parc-chip.active { background: var(--velin); color: var(--nuit); border-color: var(--velin); font-weight: 500; }
 .parc-option { display: flex; align-items: center; gap: 14px; padding: 16px; margin: 12px 0; border-radius: 10px;
-  border: 1px solid var(--fee); background: var(--panneau-visite); cursor: pointer; }
+  border: 1px solid var(--fee); background: var(--page-panel, var(--panneau-visite)); cursor: pointer; }
 .parc-option input { width: 22px; height: 22px; accent-color: var(--fee); flex-shrink: 0; }
 .parc-option-corps { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
 .parc-option-corps b { font-family: var(--display); font-size: 19px; font-weight: 600; color: var(--velin); }
@@ -376,8 +387,8 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .parc-code .input-field { flex: 1; text-transform: uppercase; }
 .parc-code .cta { width: auto; padding: 0 18px; margin: 0; }
 .parc-nav { display: flex; gap: 10px; margin-top: 16px; }
-/* Lignes d'étapes sur fond de visite : vert « succès » du design system, texte crème (contraste suffisant) */
-#screen-visite .adm-ligne, #screen-parcours .adm-ligne { background: var(--succes); border-color: var(--succes); }
+/* Lignes d'étapes sur une page d'expérience : fond secondaire de la page, texte crème */
+#screen-visite .adm-ligne, #screen-parcours .adm-ligne { background: var(--page-second); border-color: var(--page-border); }
 #screen-visite .adm-ligne .adm-ligne-meta, #screen-parcours .adm-ligne .adm-ligne-meta { color: var(--velin); }
 #screen-visite .parc-num, #screen-parcours .parc-num { border-color: var(--velin); color: var(--velin); }
 .parc-nav .cta { flex: 1; }
@@ -626,7 +637,7 @@ details.adm-encart[open] { display: flex; flex-direction: column; gap: 10px; }
 .adm-etat-attente { border-color: var(--bord); color: var(--velin); align-self: flex-start; }
 .adm-seance .adm-etat-brouillon { align-self: flex-start; }
 .adm-jauge { display: block; block-size: 3px; border-radius: 2px; background: var(--line); margin-block-start: 6px; overflow: hidden; }
-.adm-jauge span { display: block; block-size: 100%; background: var(--vermillon); }
+.adm-jauge span { display: block; block-size: 100%; background: var(--ocre); }
 .adm-jauge.ok span { background: #6DBE74; }
 .adm-chiffres { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 20px; }
 .adm-chiffres div { padding: 14px; border-radius: 12px; background: var(--panneau); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
